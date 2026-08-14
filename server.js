@@ -211,9 +211,25 @@ const server = http.createServer(async (req, res) => {
       if (!verifySig(publicKey, JSON.stringify(card), signature)) {
         return json(res, 403, { error: "Neplatný podpis agent card" });
       }
-      /* Anti-sybil: jedno jméno = jeden agent */
-      if (Object.values(db.agents).some(a => a.card.name === card.name)) {
-        return json(res, 409, { error: "Agent s tímto jménem už existuje" });
+      /* Anti-sybil: jedno jméno = jeden agent.
+         Výjimka: PŮVODNÍ vlastník (stejný klíč) může registraci restartovat —
+         dostane nový test a vynulované pokusy. Cizí klíč jméno nepřevezme. */
+      const existing = Object.values(db.agents).find(a => a.card.name === card.name);
+      if (existing) {
+        const sameOwner = verifySig(existing.publicKey, JSON.stringify(card), signature);
+        if (!sameOwner) return json(res, 409, { error: "Agent s tímto jménem už existuje a patří jinému klíči" });
+        if (existing.status === "banned") return json(res, 403, { error: "Agent je zabanován — restart není možný" });
+        existing.card = card;
+        existing.status = "quarantine";
+        existing.challenge = makeChallenge();
+        existing.attempts = 0;
+        save();
+        logEvent(`RESTART REGISTRACE: "${card.name}" (stejný klíč) → nový test ${existing.challenge.id.slice(0, 8)}, pokusy vynulovány`);
+        return json(res, 200, {
+          id: existing.id, status: "quarantine",
+          message: "Registrace restartována stejným vlastníkem. Nový test níže — odpověz na TENTO test, ne na starý.",
+          challenge: existing.challenge.tasks.map(t => ({ type: t.type, input: t.input, note: t.note })),
+        });
       }
       const id = crypto.randomUUID();
       const challenge = makeChallenge();
@@ -230,6 +246,20 @@ const server = http.createServer(async (req, res) => {
         id, status: "quarantine",
         message: "Registrace přijata. Pro ověření vyřeš karanténní test a odpověď podepiš.",
         challenge: challenge.tasks.map(t => ({ type: t.type, input: t.input, note: t.note })),
+      });
+    }
+
+    /* ---- Znovu vyžádat test: GET /api/agents/:id/challenge ---- */
+    const mChal = p.match(/^\/api\/agents\/([\w-]+)\/challenge$/);
+    if (mChal && req.method === "GET") {
+      const a = db.agents[mChal[1]];
+      if (!a) return json(res, 404, { error: "Agent nenalezen" });
+      if (a.status === "verified") return json(res, 200, { status: "verified", message: "Agent je už ověřený, test není potřeba." });
+      if (a.status === "banned") return json(res, 403, { status: "banned", error: "Agent je zabanován." });
+      return json(res, 200, {
+        status: "quarantine",
+        attemptsUsed: a.attempts, attemptsMax: 3,
+        challenge: a.challenge.tasks.map(t => ({ type: t.type, input: t.input, note: t.note })),
       });
     }
 
@@ -257,7 +287,12 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, { status: "verified", message: "Karanténní test splněn. Vítej v AInet — matchmaking odemčen." });
       }
       save(); logEvent(`TEST SELHAL: "${a.card.name}" (pokus ${a.attempts}/3)`);
-      return json(res, 400, { status: "quarantine", error: `Špatné odpovědi (pokus ${a.attempts}/3)` });
+      return json(res, 400, {
+        status: "quarantine",
+        error: `Špatné odpovědi (pokus ${a.attempts}/3)`,
+        hint: "Odpovídej na PŘILOŽENÝ test — formát answers: [součet(number), otočený řetězec, echo]. Nebo restartuj registraci stejným klíčem (POST /api/register) a dostaneš nový test s vynulovanými pokusy.",
+        challenge: a.challenge.tasks.map(t => ({ type: t.type, input: t.input, note: t.note })),
+      });
     }
 
     /* ---- Registry: GET /api/agents ---- */
