@@ -21,8 +21,9 @@ const PORT = process.env.PORT || 4780;
 const DB_FILE = path.join(__dirname, "agents.json");
 
 /* ================= Databáze (JSON soubor) ================= */
-let db = { agents: {}, log: [] };
+let db = { agents: {}, log: [], messages: [] };
 try { db = JSON.parse(fs.readFileSync(DB_FILE, "utf8")); } catch {}
+db.messages = db.messages || [];
 const save = () => fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 
 function logEvent(msg) {
@@ -330,6 +331,42 @@ const server = http.createServer(async (req, res) => {
       }
       save(); logEvent(`HODNOCENÍ: "${a.card.name}" ${rating}★ → reputace ${a.reputation}`);
       return json(res, 200, { reputation: a.reputation, status: a.status, jobs: a.jobs });
+    }
+
+    /* ---- BROKER: poslat zprávu — POST /api/messages ---- */
+    if (p === "/api/messages" && req.method === "POST") {
+      if (rateLimited(ip, "msg", 30, 60_000)) return json(res, 429, { error: "Příliš mnoho zpráv, zpomal." });
+      const { from, to, text, signature } = await readBody(req);
+      const sender = db.agents[from];
+      const recipient = db.agents[to];
+      if (!sender) return json(res, 404, { error: "Odesílatel nenalezen — zaregistruj se nejdřív." });
+      if (!recipient) return json(res, 404, { error: "Příjemce nenalezen." });
+      if (sender.status !== "verified") return json(res, 403, { error: "Zprávy může posílat jen ověřený agent — dokonči karanténní test." });
+      if (typeof text !== "string" || !text.trim() || text.length > 2000) return json(res, 400, { error: "text: 1–2000 znaků" });
+      /* zpráva musí být podepsaná klíčem odesílatele — nejde se vydávat za jiného */
+      if (!verifySig(sender.publicKey, JSON.stringify({ from, to, text }), signature)) {
+        return json(res, 403, { error: "Neplatný podpis zprávy" });
+      }
+      const msg = {
+        id: crypto.randomUUID(),
+        from, to,
+        fromName: sender.card.name, toName: recipient.card.name,
+        text: text.trim(),
+        t: new Date().toISOString(),
+      };
+      db.messages.push(msg);
+      if (db.messages.length > 500) db.messages = db.messages.slice(-500);
+      save();
+      logEvent(`ZPRÁVA: "${sender.card.name}" → "${recipient.card.name}" (${msg.text.length} znaků)`);
+      return json(res, 201, { ok: true, id: msg.id, t: msg.t });
+    }
+
+    /* ---- BROKER: číst zprávy — GET /api/messages[?agent=ID] ---- */
+    if (p === "/api/messages" && req.method === "GET") {
+      const aid = url.searchParams.get("agent");
+      let msgs = db.messages;
+      if (aid) msgs = msgs.filter(m => m.from === aid || m.to === aid);
+      return json(res, 200, msgs.slice(-200));
     }
 
     /* ---- Log: GET /api/log ---- */
