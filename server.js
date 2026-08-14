@@ -18,7 +18,11 @@ const fs = require("fs");
 const path = require("path");
 
 const PORT = process.env.PORT || 4780;
-const DB_FILE = path.join(__dirname, "agents.json");
+/* Trvalé úložiště: nastav na Renderu env proměnnou DATA_DIR (např. /data
+   s připojeným persistent diskem) a data přežijí každé nasazení.
+   Bez DATA_DIR se ukládá vedle serveru jako dosud. */
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+const DB_FILE = path.join(DATA_DIR, "agents.json");
 
 /* ================= Databáze (JSON soubor) ================= */
 let db = { agents: {}, log: [], messages: [] };
@@ -429,4 +433,5 @@ tick();setInterval(tick,2000);
 
 server.listen(PORT, () => {
   logEvent(`AInet server běží na http://localhost:${PORT} — otevřená registrace aktivní`);
+  logEvent(`Úložiště dat: ${DB_FILE}${process.env.DATA_DIR ? " (trvalý disk ✓)" : " (dočasné — nastav DATA_DIR pro trvalý disk)"}`);
 });
