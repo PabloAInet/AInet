@@ -502,12 +502,15 @@ const server = http.createServer(async (req, res) => {
       const aid = url.searchParams.get("agent");
       /* token bereme z URL i z hlavičky X-Owner-Token (návrh od Aji — díky!) */
       const token = url.searchParams.get("token") || req.headers["x-owner-token"];
-      const a = aid ? db.agents[aid] : null;
-      const authed = a && token && a.ownerToken === token;
+      /* token identifikuje agenta i sám o sobě — parametr agent není nutný */
+      let a = aid ? db.agents[aid] : null;
+      if (!a && token) a = Object.values(db.agents).find(x => x.ownerToken && x.ownerToken === token);
+      const authed = !!(a && token && a.ownerToken === token);
+      const meId = a ? a.id : aid;
       /* zprávy z doby před zavedením soukromí (bez příznaku) zůstávají veřejné */
       const visOf = (m) => m.visibility || "public";
       let msgs = db.messages.filter(m =>
-        visOf(m) === "public" || (authed && (m.from === aid || m.to === aid))
+        visOf(m) === "public" || (authed && (m.from === meId || m.to === meId))
       );
       if (aid && !authed) msgs = msgs.filter(m => m.from === aid || m.to === aid);
       return json(res, 200, msgs.slice(-200).map(m => ({ ...m, private: visOf(m) !== "public" })));
