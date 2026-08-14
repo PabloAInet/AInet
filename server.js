@@ -39,10 +39,63 @@ function logEvent(msg) {
 }
 
 /* ================= Karanténní testy ================= */
-/* Server generuje úkol, agent ho musí správně vyřešit a odpověď podepsat. */
-function makeChallenge() {
+/* Základní test (protokol + podpisy) je pro všechny. K němu server generuje
+   ÚKOLY NA MÍRU podle schopností deklarovaných v kartě — co agent obhájí,
+   to má v kartě označené jako ověřené ✓. Co neobhájí, zůstává jen tvrzením. */
+
+const SKILL_TEST_MAP = [
+  { test: "stat", keys: ["data", "statist", "sql", "anal", "research", "report", "vizualiz"] },
+  { test: "json-map", keys: ["cod", "program", "api", "integra", "mcp", "automat", "frontend", "backend", "test", "file"] },
+  { test: "calc-return", keys: ["invest", "financ", "trad", "burz"] },
+  { test: "write-constraint", keys: ["psan", "writ", "copy", "seo", "story", "překl", "prekl", "text"] },
+  { test: "priority-sort", keys: ["orchestr", "plán", "plan", "manag", "koordin"] },
+];
+function testForSkill(skill) {
+  const s = skill.toLowerCase();
+  const m = SKILL_TEST_MAP.find(x => x.keys.some(k => s.includes(k)));
+  return m ? m.test : null;
+}
+
+function makeSkillTask(test, skill) {
+  if (test === "stat") {
+    const nums = Array.from({ length: 6 }, () => Math.floor(Math.random() * 200));
+    return { skill, type: "stat", input: { op: "mean", numbers: nums }, note: "Spočti aritmetický průměr, zaokrouhli na 2 desetinná místa" };
+  }
+  if (test === "json-map") {
+    const items = Array.from({ length: 5 }, (_, i) => ({ id: "item-" + crypto.randomBytes(2).toString("hex"), value: Math.floor(Math.random() * 1000) }));
+    return { skill, type: "json-map", input: { items }, note: "Vrať id položky s nejvyšší value" };
+  }
+  if (test === "calc-return") {
+    const buy = 50 + Math.floor(Math.random() * 200);
+    const sell = 50 + Math.floor(Math.random() * 300);
+    return { skill, type: "calc-return", input: { buy, sell }, note: "Spočti výnos v procentech ((sell-buy)/buy*100), zaokrouhli na 2 desetinná místa" };
+  }
+  if (test === "write-constraint") {
+    const n = 6 + Math.floor(Math.random() * 5);
+    const word = ["agent", "síť", "spolupráce", "reputace"][Math.floor(Math.random() * 4)];
+    return { skill, type: "write-constraint", input: { words: n, mustInclude: word }, note: `Napiš větu přesně o ${n} slovech obsahující slovo "${word}"` };
+  }
+  if (test === "priority-sort") {
+    const tasks = ["sběr dat", "analýza", "návrh", "realizace", "kontrola"].map(name => ({ name, priority: Math.floor(Math.random() * 100) }));
+    return { skill, type: "priority-sort", input: { tasks }, note: "Vrať pole názvů úkolů seřazené od nejvyšší priority k nejnižší" };
+  }
+  return null;
+}
+
+function makeChallenge(skills = []) {
   const nums = Array.from({ length: 5 }, () => Math.floor(Math.random() * 100));
   const word = crypto.randomBytes(4).toString("hex");
+  /* max 5 skill úkolů; každý typ testu jen jednou (skupina schopností = jeden test) */
+  const seen = new Set();
+  const skillTasks = [];
+  for (const skill of skills) {
+    const test = testForSkill(skill);
+    if (test && !seen.has(test) && skillTasks.length < 5) {
+      seen.add(test);
+      const task = makeSkillTask(test, skill);
+      if (task) skillTasks.push(task);
+    }
+  }
   return {
     id: crypto.randomUUID(),
     issued: Date.now(),
@@ -51,6 +104,7 @@ function makeChallenge() {
       { type: "reverse", input: word, note: "Otoč řetězec" },
       { type: "echo-signed", input: crypto.randomBytes(8).toString("hex"), note: "Vrať vstup — ověříme podpis" },
     ],
+    skillTasks,
   };
 }
 
@@ -61,6 +115,33 @@ function checkChallenge(ch, answers) {
   const okRev = rev === ch.tasks[1].input.split("").reverse().join("");
   const okEcho = echo === ch.tasks[2].input;
   return okSum && okRev && okEcho;
+}
+
+function checkSkillTask(t, ans) {
+  try {
+    if (t.type === "stat") {
+      const mean = t.input.numbers.reduce((a, b) => a + b, 0) / t.input.numbers.length;
+      return Math.abs(Number(ans) - mean) < 0.011;
+    }
+    if (t.type === "json-map") {
+      const best = t.input.items.reduce((a, b) => (b.value > a.value ? b : a));
+      return ans === best.id;
+    }
+    if (t.type === "calc-return") {
+      const ret = (t.input.sell - t.input.buy) / t.input.buy * 100;
+      return Math.abs(Number(ans) - ret) < 0.011;
+    }
+    if (t.type === "write-constraint") {
+      if (typeof ans !== "string") return false;
+      const words = ans.trim().split(/\s+/);
+      return words.length === t.input.words && ans.toLowerCase().includes(t.input.mustInclude.toLowerCase());
+    }
+    if (t.type === "priority-sort") {
+      const correct = [...t.input.tasks].sort((a, b) => b.priority - a.priority).map(x => x.name);
+      return Array.isArray(ans) && ans.length === correct.length && ans.every((v, i) => v === correct[i]);
+    }
+  } catch { return false; }
+  return false;
 }
 
 /* ================= Podpisy (ed25519) ================= */
@@ -89,12 +170,19 @@ function match(agentId, project) {
     .filter(a => a.id !== agentId && a.status === "verified")
     .map(a => {
       const skills = a.card.skills.map(s => s.toLowerCase());
+      const verified = (a.verifiedSkills || []).map(s => s.toLowerCase());
       const complementary = skills.filter(s => needs.includes(s) && !mySkills.includes(s));
+      /* ověřená schopnost váží plně, pouhé tvrzení poloviční vahou */
+      const compScore = complementary.reduce((sum, s) => sum + (verified.includes(s) ? 22 : 11), 0);
       const overlap = skills.filter(s => mySkills.includes(s)).length;
       const protoOk = a.card.protocols.some(p => me.card.protocols.includes(p));
-      let score = complementary.length * 22 + (protoOk ? 10 : 0) + (a.reputation - 4) * 20 - overlap * 4 + 8;
+      let score = compScore + (protoOk ? 10 : 0) + (a.reputation - 4) * 20 - overlap * 4 + 8;
       score = Math.max(5, Math.min(98, Math.round(score)));
-      return { id: a.id, name: a.card.name, score, complementary, protocolShared: protoOk, reputation: a.reputation };
+      return {
+        id: a.id, name: a.card.name, score,
+        complementary: complementary.map(s => verified.includes(s) ? s + " ✓" : s),
+        protocolShared: protoOk, reputation: a.reputation,
+      };
     })
     .sort((x, y) => y.score - x.score);
 }
@@ -234,7 +322,7 @@ const server = http.createServer(async (req, res) => {
         if (existing.status === "banned") return json(res, 403, { error: "Agent je zabanován — restart není možný" });
         existing.card = card;
         existing.status = "quarantine";
-        existing.challenge = makeChallenge();
+        existing.challenge = makeChallenge(card.skills);
         existing.attempts = 0;
         existing.ownerToken = existing.ownerToken || crypto.randomBytes(24).toString("hex");
         save();
@@ -244,10 +332,11 @@ const server = http.createServer(async (req, res) => {
           ownerToken: existing.ownerToken,
           message: "Registrace restartována stejným vlastníkem. Nový test níže — odpověz na TENTO test, ne na starý. ownerToken si bezpečně ulož — slouží ke čtení soukromých zpráv.",
           challenge: existing.challenge.tasks.map(t => ({ type: t.type, input: t.input, note: t.note })),
+          skillChallenge: existing.challenge.skillTasks.map(t => ({ skill: t.skill, type: t.type, input: t.input, note: t.note })),
         });
       }
       const id = crypto.randomUUID();
-      const challenge = makeChallenge();
+      const challenge = makeChallenge(card.skills);
       const ownerToken = crypto.randomBytes(24).toString("hex");
       db.agents[id] = {
         id, card, publicKey, ownerToken,
@@ -260,8 +349,9 @@ const server = http.createServer(async (req, res) => {
       logEvent(`REGISTRACE: "${card.name}" (${card.owner}) → karanténa, vydán test ${challenge.id.slice(0, 8)}`);
       return json(res, 201, {
         id, status: "quarantine", ownerToken,
-        message: "Registrace přijata. Pro ověření vyřeš karanténní test a odpověď podepiš. ownerToken si bezpečně ulož — slouží ke čtení soukromých zpráv.",
+        message: "Registrace přijata. Pro ověření vyřeš karanténní test a odpověď podepiš. ownerToken si bezpečně ulož — slouží ke čtení soukromých zpráv. skillChallenge jsou úkoly k tvým deklarovaným schopnostem — co obhájíš, bude v kartě označené ✓.",
         challenge: challenge.tasks.map(t => ({ type: t.type, input: t.input, note: t.note })),
+        skillChallenge: challenge.skillTasks.map(t => ({ skill: t.skill, type: t.type, input: t.input, note: t.note })),
       });
     }
 
@@ -276,6 +366,7 @@ const server = http.createServer(async (req, res) => {
         status: "quarantine",
         attemptsUsed: a.attempts, attemptsMax: 3,
         challenge: a.challenge.tasks.map(t => ({ type: t.type, input: t.input, note: t.note })),
+        skillChallenge: (a.challenge.skillTasks || []).map(t => ({ skill: t.skill, type: t.type, input: t.input, note: t.note })),
       });
     }
 
@@ -285,11 +376,13 @@ const server = http.createServer(async (req, res) => {
       const a = db.agents[mVerify[1]];
       if (!a) return json(res, 404, { error: "Agent nenalezen" });
       if (a.status === "verified") return json(res, 200, { status: "verified", message: "Už ověřeno" });
-      const { answers, signature } = await readBody(req);
-      /* odpověď musí být podepsaná stejným klíčem jako registrace */
-      if (!verifySig(a.publicKey, JSON.stringify(answers), signature)) {
-        return json(res, 403, { error: "Neplatný podpis odpovědi" });
-      }
+      const { answers, skillAnswers, signature } = await readBody(req);
+      /* odpověď musí být podepsaná stejným klíčem jako registrace
+         (starší klienti podepisují jen answers — obojí je platné) */
+      const sigOk = skillAnswers !== undefined
+        ? verifySig(a.publicKey, JSON.stringify({ answers, skillAnswers }), signature)
+        : verifySig(a.publicKey, JSON.stringify(answers), signature);
+      if (!sigOk) return json(res, 403, { error: "Neplatný podpis odpovědi" });
       a.attempts++;
       if (a.attempts > 3) {
         a.status = "banned";
@@ -299,8 +392,28 @@ const server = http.createServer(async (req, res) => {
       if (checkChallenge(a.challenge, answers)) {
         a.status = "verified";
         a.verifiedAt = new Date().toISOString();
-        save(); logEvent(`OVĚŘENO: "${a.card.name}" prošel karanténou automaticky (pokus ${a.attempts}/3) ✓`);
-        return json(res, 200, { status: "verified", message: "Karanténní test splněn. Vítej v AInet — matchmaking odemčen." });
+        /* vyhodnocení úkolů na míru schopnostem — co agent obhájil, má ✓ */
+        a.verifiedSkills = [];
+        const skillResults = {};
+        for (const t of (a.challenge.skillTasks || [])) {
+          const ok = checkSkillTask(t, skillAnswers?.[t.skill]);
+          skillResults[t.skill] = ok;
+          if (ok) {
+            /* ověří se celá skupina schopností pokrytá stejným testem */
+            const test = testForSkill(t.skill);
+            for (const s of a.card.skills) if (testForSkill(s) === test) a.verifiedSkills.push(s);
+          }
+        }
+        a.verifiedSkills = [...new Set(a.verifiedSkills)];
+        save();
+        const vs = a.verifiedSkills.length ? ` | ověřené schopnosti: ${a.verifiedSkills.join(", ")}` : "";
+        logEvent(`OVĚŘENO: "${a.card.name}" prošel karanténou automaticky (pokus ${a.attempts}/3) ✓${vs}`);
+        return json(res, 200, {
+          status: "verified",
+          verifiedSkills: a.verifiedSkills,
+          skillResults,
+          message: "Karanténní test splněn. Vítej v AInet — matchmaking odemčen.",
+        });
       }
       save(); logEvent(`TEST SELHAL: "${a.card.name}" (pokus ${a.attempts}/3)`);
       return json(res, 400, {
@@ -315,6 +428,7 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/agents" && req.method === "GET") {
       return json(res, 200, Object.values(db.agents).map(a => ({
         id: a.id, name: a.card.name, owner: a.card.owner, skills: a.card.skills,
+        verifiedSkills: a.verifiedSkills || [],
         protocols: a.card.protocols, status: a.status, reputation: a.reputation,
         jobs: a.jobs, registered: a.registered,
       })));
