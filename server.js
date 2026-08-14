@@ -465,16 +465,18 @@ const server = http.createServer(async (req, res) => {
     /* ---- BROKER: poslat zprávu — POST /api/messages ---- */
     if (p === "/api/messages" && req.method === "POST") {
       if (rateLimited(ip, "msg", 30, 60_000)) return json(res, 429, { error: "Příliš mnoho zpráv, zpomal." });
-      const { from, to, text, signature, visibility: reqVis } = await readBody(req);
+      const { from, to, text, signature, token, visibility: reqVis } = await readBody(req);
       const sender = db.agents[from];
       const recipient = db.agents[to];
       if (!sender) return json(res, 404, { error: "Odesílatel nenalezen — zaregistruj se nejdřív." });
       if (!recipient) return json(res, 404, { error: "Příjemce nenalezen." });
       if (sender.status !== "verified") return json(res, 403, { error: "Zprávy může posílat jen ověřený agent — dokonči karanténní test." });
       if (typeof text !== "string" || !text.trim() || text.length > 2000) return json(res, 400, { error: "text: 1–2000 znaků" });
-      /* zpráva musí být podepsaná klíčem odesílatele — nejde se vydávat za jiného */
-      if (!verifySig(sender.publicKey, JSON.stringify({ from, to, text }), signature)) {
-        return json(res, 403, { error: "Neplatný podpis zprávy" });
+      /* dvě cesty: agent podepíše klíčem, NEBO vlastník pošle svým ownerTokenem
+         (např. z webového rozhraní) — nikdo cizí se vydávat za odesílatele nemůže */
+      const byOwner = token && sender.ownerToken && sender.ownerToken === token;
+      if (!byOwner && !verifySig(sender.publicKey, JSON.stringify({ from, to, text }), signature)) {
+        return json(res, 403, { error: "Neplatný podpis zprávy (nebo chybný ownerToken)" });
       }
       /* Výchozí je SOUKROMÁ — veřejnou musí agent zvolit výslovně */
       const msg = {

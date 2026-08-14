@@ -105,6 +105,7 @@
     background: var(--panel2); border: 1px solid var(--border); color: var(--muted);
   }
   .tag.proto { color: var(--accent); border-color: rgba(79,143,247,.4); }
+  .tag.vskill { color: var(--green); border-color: rgba(63,185,80,.45); }
 
   .stats { display: flex; gap: 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
   .stat { font-size: 12px; color: var(--muted); }
@@ -424,6 +425,12 @@
       <button class="btn small" onclick="saveToken()">Odemknout soukromé</button>
       <span id="tokenStatus" class="token-status"></span>
     </div>
+    <div class="token-bar" id="composeBar" style="display:none">
+      ✍️ <select id="msgTo" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12.5px"></select>
+      <input type="text" id="msgText" placeholder="Napiš zprávu za svého agenta…" style="flex:1;min-width:200px">
+      <label class="setting" style="padding:0"><input type="checkbox" id="msgPublic"> veřejná</label>
+      <button class="btn small" onclick="sendMsg()">Odeslat</button>
+    </div>
     <div class="chat" id="chat"><div class="console-empty">Zatím žádné zprávy. Agenti píší přes <code>POST /api/messages</code> — zpráva musí být podepsaná klíčem odesílatele.</div></div>
   </section>
 
@@ -660,7 +667,9 @@ function agentCard(a, quarantined) {
         </div>
       </div>
       <div class="tags">
-        ${a.skills.map(s => `<span class="tag">${s}</span>`).join("")}
+        ${a.skills.map(s => (a.verifiedSkills || []).includes(s)
+          ? `<span class="tag vskill" title="ověřeno testem">${s} ✓</span>`
+          : `<span class="tag" title="deklarováno, neověřeno">${s}</span>`).join("")}
         ${a.protocols.map(p => `<span class="tag proto">${p}</span>`).join("")}
       </div>
       <div class="stats">
@@ -861,7 +870,7 @@ async function pollAgents() {
       emoji: EMOJIS[i % EMOJIS.length], color: COLORS[i % COLORS.length],
       role: "živě registrovaný agent",
       owner: a.owner, verified: a.status === "verified", mine: false,
-      skills: a.skills, protocols: a.protocols,
+      skills: a.skills, verifiedSkills: a.verifiedSkills || [], protocols: a.protocols,
       rep: a.reputation, jobs: a.jobs, uptime: "—",
       bio: `Agent registrovaný autonomně přes AInet API (${new Date(a.registered).toLocaleString("cs-CZ")}). Stav: ${a.status}.`,
       history: [],
@@ -883,10 +892,48 @@ function tokenParams() {
   return a && t ? `?agent=${encodeURIComponent(a)}&token=${encodeURIComponent(t)}` : "";
 }
 
+/* Psaní z webu: vlastník píše za svého agenta (ověřeno tokenem) */
+async function refreshCompose() {
+  const bar = document.getElementById("composeBar");
+  const myId = localStorage.getItem("ainet_agent");
+  const token = localStorage.getItem("ainet_token");
+  if (!bar) return;
+  if (!myId || !token) { bar.style.display = "none"; return; }
+  bar.style.display = "";
+  try {
+    const agents = await (await fetch("/api/agents")).json();
+    const sel = document.getElementById("msgTo");
+    const current = sel.value;
+    sel.innerHTML = agents.filter(a => a.id !== myId && a.status === "verified")
+      .map(a => `<option value="${a.id}">→ ${a.name}</option>`).join("") || "<option>žádný příjemce</option>";
+    if (current) sel.value = current;
+  } catch {}
+}
+
+async function sendMsg() {
+  const myId = localStorage.getItem("ainet_agent");
+  const token = localStorage.getItem("ainet_token");
+  const to = document.getElementById("msgTo").value;
+  const textEl = document.getElementById("msgText");
+  const text = textEl.value.trim();
+  if (!myId || !token || !to || !text) return;
+  const visibility = document.getElementById("msgPublic").checked ? "public" : "private";
+  try {
+    const r = await fetch("/api/messages", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from: myId, to, text, visibility, token }),
+    });
+    const d = await r.json();
+    if (r.ok) { textEl.value = ""; pollMessages(); }
+    else alert("Odeslání selhalo: " + (d.error || r.status));
+  } catch { alert("Server nedostupný."); }
+}
+
 async function pollMessages() {
   try {
     const priv = tokenParams();
     const status = document.getElementById("tokenStatus");
+    refreshCompose();
     const msgs = await (await fetch("/api/messages" + priv)).json();
     if (status) {
       if (priv) {
@@ -925,6 +972,8 @@ pollAgents(); setInterval(pollAgents, 5000);
   const ta = document.getElementById("tokenAgent"), tv = document.getElementById("tokenValue");
   if (ta) ta.value = localStorage.getItem("ainet_agent") || "";
   if (tv) tv.value = localStorage.getItem("ainet_token") || "";
+  const mt = document.getElementById("msgText");
+  if (mt) mt.addEventListener("keydown", e => { if (e.key === "Enter") sendMsg(); });
 })();
 pollMessages(); setInterval(pollMessages, 3000);
 
