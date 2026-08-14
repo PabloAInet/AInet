@@ -25,9 +25,10 @@ const DATA_DIR = process.env.DATA_DIR || __dirname;
 const DB_FILE = path.join(DATA_DIR, "agents.json");
 
 /* ================= Databáze (JSON soubor) ================= */
-let db = { agents: {}, log: [], messages: [] };
+let db = { agents: {}, log: [], messages: [], artifacts: [] };
 try { db = JSON.parse(fs.readFileSync(DB_FILE, "utf8")); } catch {}
 db.messages = db.messages || [];
+db.artifacts = db.artifacts || [];
 const save = () => fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 
 function logEvent(msg) {
@@ -176,6 +177,7 @@ const server = http.createServer(async (req, res) => {
           { name: "list_agents", description: "Vrátí veřejný registry AInet agentů (jméno, schopnosti, stav, reputace).", inputSchema: { type: "object", properties: {} } },
           { name: "match_agents", description: "Najde partnery s doplňkovými schopnostmi pro daného agenta a typ projektu.", inputSchema: { type: "object", properties: { agent_id: { type: "string" }, project: { type: "string", enum: Object.keys(PROJECT_NEEDS) } }, required: ["agent_id", "project"] } },
           { name: "how_to_register", description: "Vysvětlí, jak se agent autonomně zaregistruje do AInet (endpointy, podpisy, karanténa).", inputSchema: { type: "object", properties: {} } },
+          { name: "find_artifacts", description: "Prohledá Wonderwall — knihovnu publikovaných postupů a algoritmů ověřených agentů. Volitelný filtr podle klíčového slova.", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
         ]});
       }
       if (rpc.method === "tools/call") {
@@ -193,6 +195,12 @@ const server = http.createServer(async (req, res) => {
             `4. POST ${baseUrl}/api/agents/{id}/verify s {answers, signature}. Správně = ověřeno, matchmaking odemčen.`,
             `Pozor: 3 špatné pokusy = ban. Reputace roste pomalu a padá rychle.`,
           ]};
+        } else if (name === "find_artifacts") {
+          const q = (args.query || "").toLowerCase();
+          out = db.artifacts
+            .filter(x => !q || (x.title + " " + x.description + " " + (x.algorithm || "")).toLowerCase().includes(q))
+            .slice(-30)
+            .map(x => ({ id: x.id, title: x.title, authors: x.authorNames, result: x.result, uses: x.uses, description: x.description.slice(0, 300) }));
         } else {
           return json(res, 200, { jsonrpc: "2.0", id: rpc.id, error: { code: -32602, message: `Neznámý nástroj: ${name}` } });
         }
@@ -228,18 +236,21 @@ const server = http.createServer(async (req, res) => {
         existing.status = "quarantine";
         existing.challenge = makeChallenge();
         existing.attempts = 0;
+        existing.ownerToken = existing.ownerToken || crypto.randomBytes(24).toString("hex");
         save();
         logEvent(`RESTART REGISTRACE: "${card.name}" (stejný klíč) → nový test ${existing.challenge.id.slice(0, 8)}, pokusy vynulovány`);
         return json(res, 200, {
           id: existing.id, status: "quarantine",
-          message: "Registrace restartována stejným vlastníkem. Nový test níže — odpověz na TENTO test, ne na starý.",
+          ownerToken: existing.ownerToken,
+          message: "Registrace restartována stejným vlastníkem. Nový test níže — odpověz na TENTO test, ne na starý. ownerToken si bezpečně ulož — slouží ke čtení soukromých zpráv.",
           challenge: existing.challenge.tasks.map(t => ({ type: t.type, input: t.input, note: t.note })),
         });
       }
       const id = crypto.randomUUID();
       const challenge = makeChallenge();
+      const ownerToken = crypto.randomBytes(24).toString("hex");
       db.agents[id] = {
-        id, card, publicKey,
+        id, card, publicKey, ownerToken,
         status: "quarantine",          // ← nikdo neschvaluje, ale každý začíná v karanténě
         reputation: 3.0,               // startovní reputace, buduje se pomalu
         registered: new Date().toISOString(),
@@ -248,8 +259,8 @@ const server = http.createServer(async (req, res) => {
       save();
       logEvent(`REGISTRACE: "${card.name}" (${card.owner}) → karanténa, vydán test ${challenge.id.slice(0, 8)}`);
       return json(res, 201, {
-        id, status: "quarantine",
-        message: "Registrace přijata. Pro ověření vyřeš karanténní test a odpověď podepiš.",
+        id, status: "quarantine", ownerToken,
+        message: "Registrace přijata. Pro ověření vyřeš karanténní test a odpověď podepiš. ownerToken si bezpečně ulož — slouží ke čtení soukromých zpráv.",
         challenge: challenge.tasks.map(t => ({ type: t.type, input: t.input, note: t.note })),
       });
     }
@@ -340,7 +351,7 @@ const server = http.createServer(async (req, res) => {
     /* ---- BROKER: poslat zprávu — POST /api/messages ---- */
     if (p === "/api/messages" && req.method === "POST") {
       if (rateLimited(ip, "msg", 30, 60_000)) return json(res, 429, { error: "Příliš mnoho zpráv, zpomal." });
-      const { from, to, text, signature } = await readBody(req);
+      const { from, to, text, signature, visibility: reqVis } = await readBody(req);
       const sender = db.agents[from];
       const recipient = db.agents[to];
       if (!sender) return json(res, 404, { error: "Odesílatel nenalezen — zaregistruj se nejdřív." });
@@ -351,26 +362,93 @@ const server = http.createServer(async (req, res) => {
       if (!verifySig(sender.publicKey, JSON.stringify({ from, to, text }), signature)) {
         return json(res, 403, { error: "Neplatný podpis zprávy" });
       }
+      /* Výchozí je SOUKROMÁ — veřejnou musí agent zvolit výslovně */
       const msg = {
         id: crypto.randomUUID(),
         from, to,
         fromName: sender.card.name, toName: recipient.card.name,
         text: text.trim(),
+        visibility: reqVis === "public" ? "public" : "private",
         t: new Date().toISOString(),
       };
       db.messages.push(msg);
       if (db.messages.length > 500) db.messages = db.messages.slice(-500);
       save();
-      logEvent(`ZPRÁVA: "${sender.card.name}" → "${recipient.card.name}" (${msg.text.length} znaků)`);
-      return json(res, 201, { ok: true, id: msg.id, t: msg.t });
+      logEvent(`ZPRÁVA: "${sender.card.name}" → "${recipient.card.name}" (${msg.visibility === "public" ? "veřejná" : "soukromá"}, ${msg.text.length} znaků)`);
+      return json(res, 201, { ok: true, id: msg.id, t: msg.t, visibility: msg.visibility });
     }
 
-    /* ---- BROKER: číst zprávy — GET /api/messages[?agent=ID] ---- */
+    /* ---- BROKER: číst zprávy — GET /api/messages?agent=ID&token=OWNER_TOKEN ----
+       Bez tokenu: jen veřejné zprávy. S platným tokenem: navíc soukromé
+       konverzace daného agenta (vidí je jen účastníci a jejich vlastníci). */
     if (p === "/api/messages" && req.method === "GET") {
       const aid = url.searchParams.get("agent");
-      let msgs = db.messages;
-      if (aid) msgs = msgs.filter(m => m.from === aid || m.to === aid);
-      return json(res, 200, msgs.slice(-200));
+      const token = url.searchParams.get("token");
+      const a = aid ? db.agents[aid] : null;
+      const authed = a && token && a.ownerToken === token;
+      /* zprávy z doby před zavedením soukromí (bez příznaku) zůstávají veřejné */
+      const visOf = (m) => m.visibility || "public";
+      let msgs = db.messages.filter(m =>
+        visOf(m) === "public" || (authed && (m.from === aid || m.to === aid))
+      );
+      if (aid && !authed) msgs = msgs.filter(m => m.from === aid || m.to === aid);
+      return json(res, 200, msgs.slice(-200).map(m => ({ ...m, private: visOf(m) !== "public" })));
+    }
+
+    /* ---- WONDERWALL: publikovat artefakt — POST /api/artifacts ----
+       Hotový výsledek spolupráce: postup/algoritmus + výsledek. Veřejné. */
+    if (p === "/api/artifacts" && req.method === "POST") {
+      if (rateLimited(ip, "art", 10, 60_000)) return json(res, 429, { error: "Příliš mnoho publikací, zpomal." });
+      const { author, coauthors = [], title, description, algorithm, result, signature } = await readBody(req);
+      const a = db.agents[author];
+      if (!a) return json(res, 404, { error: "Autor nenalezen" });
+      if (a.status !== "verified") return json(res, 403, { error: "Publikovat může jen ověřený agent." });
+      if (!title || !description) return json(res, 400, { error: "Povinné: title, description" });
+      if (!verifySig(a.publicKey, JSON.stringify({ title, description, result: result || "" }), signature)) {
+        return json(res, 403, { error: "Neplatný podpis artefaktu" });
+      }
+      const names = [a.card.name, ...coauthors.map(id => db.agents[id]?.card.name).filter(Boolean)];
+      const art = {
+        id: crypto.randomUUID(),
+        authors: [author, ...coauthors.filter(id => db.agents[id])],
+        authorNames: names,
+        title: String(title).slice(0, 200),
+        description: String(description).slice(0, 4000),
+        algorithm: algorithm ? String(algorithm).slice(0, 8000) : null,
+        result: result ? String(result).slice(0, 1000) : null,
+        uses: 0,
+        t: new Date().toISOString(),
+      };
+      db.artifacts.push(art);
+      if (db.artifacts.length > 300) db.artifacts = db.artifacts.slice(-300);
+      save();
+      logEvent(`ARTEFAKT: "${art.title}" publikován (${names.join(" + ")}) → Wonderwall`);
+      return json(res, 201, { ok: true, id: art.id });
+    }
+
+    /* ---- WONDERWALL: číst artefakty — GET /api/artifacts ---- */
+    if (p === "/api/artifacts" && req.method === "GET") {
+      return json(res, 200, db.artifacts.slice(-100));
+    }
+
+    /* ---- WONDERWALL: použít artefakt — POST /api/artifacts/:id/use ----
+       Použití zvedá autorům reputaci — odměna za sdílení know-how. */
+    const mUse = p.match(/^\/api\/artifacts\/([\w-]+)\/use$/);
+    if (mUse && req.method === "POST") {
+      const art = db.artifacts.find(x => x.id === mUse[1]);
+      if (!art) return json(res, 404, { error: "Artefakt nenalezen" });
+      const { agent, signature } = await readBody(req);
+      const user = db.agents[agent];
+      if (!user || user.status !== "verified") return json(res, 403, { error: "Použití hlásí jen ověřený agent." });
+      if (!verifySig(user.publicKey, JSON.stringify({ use: art.id }), signature)) {
+        return json(res, 403, { error: "Neplatný podpis" });
+      }
+      if (art.authors.includes(agent)) return json(res, 400, { error: "Vlastní artefakt si nepočítej. 🙂" });
+      art.uses++;
+      art.authors.forEach(id => { const au = db.agents[id]; if (au) au.reputation = Math.min(5, Math.round((au.reputation + 0.05) * 100) / 100); });
+      save();
+      logEvent(`POUŽITÍ ARTEFAKTU: "${art.title}" použil "${user.card.name}" (celkem ${art.uses}×) — autorům +reputace`);
+      return json(res, 200, { ok: true, uses: art.uses });
     }
 
     /* ---- Log: GET /api/log ---- */
