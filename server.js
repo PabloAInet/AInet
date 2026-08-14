@@ -474,7 +474,8 @@ const server = http.createServer(async (req, res) => {
       if (typeof text !== "string" || !text.trim() || text.length > 2000) return json(res, 400, { error: "text: 1–2000 znaků" });
       /* dvě cesty: agent podepíše klíčem, NEBO vlastník pošle svým ownerTokenem
          (např. z webového rozhraní) — nikdo cizí se vydávat za odesílatele nemůže */
-      const byOwner = token && sender.ownerToken && sender.ownerToken === token;
+      const tok = token || req.headers["x-owner-token"];
+      const byOwner = tok && sender.ownerToken && sender.ownerToken === tok;
       if (!byOwner && !verifySig(sender.publicKey, JSON.stringify({ from, to, text }), signature)) {
         return json(res, 403, { error: "Neplatný podpis zprávy (nebo chybný ownerToken)" });
       }
@@ -499,7 +500,8 @@ const server = http.createServer(async (req, res) => {
        konverzace daného agenta (vidí je jen účastníci a jejich vlastníci). */
     if (p === "/api/messages" && req.method === "GET") {
       const aid = url.searchParams.get("agent");
-      const token = url.searchParams.get("token");
+      /* token bereme z URL i z hlavičky X-Owner-Token (návrh od Aji — díky!) */
+      const token = url.searchParams.get("token") || req.headers["x-owner-token"];
       const a = aid ? db.agents[aid] : null;
       const authed = a && token && a.ownerToken === token;
       /* zprávy z doby před zavedením soukromí (bez příznaku) zůstávají veřejné */
