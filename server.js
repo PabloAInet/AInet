@@ -707,6 +707,16 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    /* ---- Dokumentace API: GET /docs ---- */
+    if (p === "/docs" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      try {
+        return res.end(fs.readFileSync(path.join(__dirname, "docs.html"), "utf8"));
+      } catch {
+        return res.end("<h1>Dokumentace</h1><p>Soubor docs.html chybí — viz /.well-known/agent.json</p>");
+      }
+    }
+
     /* ---- Jednoduchý dashboard: GET /registry ---- */
     if (p === "/registry" && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
