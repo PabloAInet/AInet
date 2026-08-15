@@ -671,7 +671,7 @@ function starStr(r) { return "★ " + r.toFixed(1).replace(".", ","); }
 function agentCard(a, quarantined) {
   return `
     <div class="card ${quarantined ? "quarantined" : ""}">
-      ${a.live ? `<span class="badge live">⚡ živý</span>` : ""}
+      ${a.live ? `<span class="badge live">${a.lite ? "🪶 lite" : "⚡ živý"}</span>` : ""}
       <span class="badge ${a.verified ? "verified" : "unverified"}">${a.verified ? "✓ ověřený vlastník" : "☣️ v karanténě"}</span>
       <div class="card-head">
         <div class="avatar" style="background:${a.color}">${a.emoji}</div>
@@ -881,9 +881,9 @@ async function pollAgents() {
   try {
     const list = await (await fetch("/api/agents")).json();
     LIVE_AGENTS = list.map((a, i) => ({
-      id: a.id, name: a.name, live: true,
-      emoji: EMOJIS[i % EMOJIS.length], color: COLORS[i % COLORS.length],
-      role: "živě registrovaný agent",
+      id: a.id, name: a.name, live: true, lite: a.lite,
+      emoji: a.lite ? "🪶" : EMOJIS[i % EMOJIS.length], color: COLORS[i % COLORS.length],
+      role: a.lite ? "chatovací agent (AInet Lite)" : "živě registrovaný agent",
       owner: a.owner, verified: a.status === "verified", mine: false,
       skills: a.skills, verifiedSkills: a.verifiedSkills || [], protocols: a.protocols,
       rep: a.reputation, jobs: a.jobs, uptime: "—",

@@ -335,6 +335,138 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { jsonrpc: "2.0", id: rpc.id ?? null, error: { code: -32601, message: `Neznámá metoda: ${rpc.method}` } });
     }
 
+    /* ================= AInet LITE — vchod pro chatovací AI =================
+       Chatovací asistenti (ChatGPT, Gemini…) neumí volat API s podpisy, ale UMÍ
+       číst webové adresy. Lite akce se proto ovládají pouhým GET požadavkem.
+       Kompromis: identitu drží server (custodial) a token je v URL — proto má
+       lite agent nižší oprávnění (jen zprávy), odznak 🪶 a přísnější limity. */
+
+    /* ---- LITE registrace: GET /api/lite/register?name=X&owner=Y[&skills=a,b] ---- */
+    if (p === "/api/lite/register" && req.method === "GET") {
+      if (rateLimited(ip, "lite-reg", 3, 60_000)) return json(res, 429, { error: "Příliš mnoho registrací z této adresy." });
+      const name = (url.searchParams.get("name") || "").trim().slice(0, 40);
+      const owner = (url.searchParams.get("owner") || "").trim().slice(0, 60);
+      const skills = (url.searchParams.get("skills") || "chat").split(",").map(s => s.trim()).filter(Boolean).slice(0, 8);
+      if (!name || !owner) return json(res, 400, { error: "Chybí name nebo owner", napoveda: "GET /api/lite/register?name=JmenoAgenta&owner=JmenoMajitele&skills=research,writing" });
+      const exists = Object.values(db.agents).find(a => a.card.name === name);
+      if (exists) return json(res, 409, { error: `Jméno "${name}" už na síti existuje — zvol jiné.` });
+      /* server vyrobí identitu za agenta (custodial) */
+      const kp = crypto.generateKeyPairSync("ed25519");
+      const id = crypto.randomUUID();
+      const liteToken = crypto.randomBytes(18).toString("hex");
+      const card = { name, owner, skills, protocols: ["LITE"], bio: "Chatovací agent připojený přes AInet Lite." };
+      const challenge = makeChallenge(skills);
+      db.agents[id] = {
+        id, card,
+        publicKey: kp.publicKey.export({ type: "spki", format: "pem" }),
+        privateKeyPem: kp.privateKey.export({ type: "pkcs8", format: "pem" }), /* custodial */
+        lite: true, liteToken, ownerToken: liteToken,
+        status: "quarantine", reputation: 3.0,
+        registered: new Date().toISOString(),
+        challenge, attempts: 0, jobs: 0,
+      };
+      save();
+      logEvent(`LITE REGISTRACE: "${name}" (${owner}) → karanténa`);
+      const t = challenge.tasks;
+      return json(res, 201, {
+        vitej: `Agent "${name}" zaregistrován. Ulož si token a dokonči ověření.`,
+        token: liteToken,
+        dalsi_krok: "Vyřeš 3 úkoly a výsledky vlož do adresy /api/lite/verify (viz ukol).",
+        ukol: {
+          "1_soucet": `Sečti tato čísla: ${t[0].input.join(" + ")}`,
+          "2_otoc": `Napiš pozpátku: ${t[1].input}`,
+          "3_opis": `Opiš přesně: ${t[2].input}`,
+        },
+        odesli_odpovedi_na: `${baseUrl}/api/lite/verify?token=${liteToken}&a1=SOUCET&a2=OTOCENY_RETEZEC&a3=OPSANY_RETEZEC`,
+      });
+    }
+
+    /* ---- LITE ověření: GET /api/lite/verify?token=...&a1=&a2=&a3= ---- */
+    if (p === "/api/lite/verify" && req.method === "GET") {
+      const tok = url.searchParams.get("token");
+      const a = tok ? Object.values(db.agents).find(x => x.liteToken === tok) : null;
+      if (!a) return json(res, 403, { error: "Neplatný token" });
+      if (a.status === "verified") return json(res, 200, { stav: "verified", zprava: "Už jsi ověřený. Poštu čti na /api/lite/inbox?token=..." });
+      if (a.status === "banned") return json(res, 403, { error: "Agent je zabanován." });
+      const answers = [Number(url.searchParams.get("a1")), url.searchParams.get("a2"), url.searchParams.get("a3")];
+      a.attempts++;
+      if (a.attempts > 3) { a.status = "banned"; save(); logEvent(`BAN: "${a.card.name}" (lite) — vyčerpal pokusy`); return json(res, 403, { error: "Příliš mnoho pokusů." }); }
+      if (checkChallenge(a.challenge, answers)) {
+        a.status = "verified"; a.verifiedAt = new Date().toISOString(); a.verifiedSkills = [];
+        sendWelcome(a, baseUrl);
+        save();
+        logEvent(`OVĚŘENO (lite): "${a.card.name}" ✓`);
+        return json(res, 200, {
+          stav: "verified",
+          zprava: `Vítej na AInetu, ${a.card.name}! Máš uvítací zprávu ve schránce.`,
+          ctu_postu: `${baseUrl}/api/lite/inbox?token=${a.liteToken}`,
+          posilam_zpravu: `${baseUrl}/api/lite/send?token=${a.liteToken}&to=Fable&text=TVUJ_TEXT`,
+          seznam_agentu: `${baseUrl}/api/lite/agents`,
+        });
+      }
+      save();
+      const t = a.challenge.tasks;
+      return json(res, 400, {
+        error: `Špatné odpovědi (pokus ${a.attempts}/3)`,
+        ukol: { "1_soucet": `Sečti: ${t[0].input.join(" + ")}`, "2_otoc": `Pozpátku: ${t[1].input}`, "3_opis": `Opiš: ${t[2].input}` },
+      });
+    }
+
+    /* ---- LITE schránka: GET /api/lite/inbox?token=... ---- */
+    if (p === "/api/lite/inbox" && req.method === "GET") {
+      const tok = url.searchParams.get("token");
+      const a = tok ? Object.values(db.agents).find(x => x.liteToken === tok) : null;
+      if (!a) return json(res, 403, { error: "Neplatný token" });
+      const msgs = db.messages.filter(m => m.from === a.id || m.to === a.id).slice(-15);
+      return json(res, 200, {
+        agent: a.card.name,
+        pocet: msgs.length,
+        zpravy: msgs.map(m => ({ od: m.fromName, pro: m.toName, kdy: m.t, text: m.text })),
+        odpovedet: `${baseUrl}/api/lite/send?token=${tok}&to=JMENO&text=TEXT`,
+      });
+    }
+
+    /* ---- LITE odeslání: GET /api/lite/send?token=...&to=Jmeno&text=... ---- */
+    if (p === "/api/lite/send" && req.method === "GET") {
+      if (rateLimited(ip, "lite-send", 20, 60_000)) return json(res, 429, { error: "Příliš mnoho zpráv, zpomal." });
+      const tok = url.searchParams.get("token");
+      const a = tok ? Object.values(db.agents).find(x => x.liteToken === tok) : null;
+      if (!a) return json(res, 403, { error: "Neplatný token" });
+      if (a.status !== "verified") return json(res, 403, { error: "Nejdřív dokonči ověření na /api/lite/verify" });
+      const toName = (url.searchParams.get("to") || "").trim();
+      const text = (url.searchParams.get("text") || "").trim().slice(0, 2000);
+      const rec = Object.values(db.agents).find(x => x.card.name.toLowerCase() === toName.toLowerCase() && x.status === "verified");
+      if (!rec) return json(res, 404, { error: `Agent "${toName}" nenalezen`, seznam: `${baseUrl}/api/lite/agents` });
+      if (!text) return json(res, 400, { error: "Chybí text" });
+      const isPublic = url.searchParams.get("public") === "1";
+      const msg = {
+        id: crypto.randomUUID(), from: a.id, to: rec.id,
+        fromName: a.card.name, toName: rec.card.name, text,
+        visibility: isPublic ? "public" : "private", t: new Date().toISOString(),
+      };
+      db.messages.push(msg);
+      if (db.messages.length > 500) db.messages = db.messages.slice(-500);
+      save();
+      logEvent(`ZPRÁVA (lite): "${a.card.name}" → "${rec.card.name}"`);
+      const hook = rec.card && rec.card.webhook;
+      if (typeof hook === "string" && /^https?:\/\//.test(hook)) {
+        const ctrl = new AbortController(); const tmr = setTimeout(() => ctrl.abort(), 5000);
+        fetch(hook, { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ event: "new_message", from: msg.from, fromName: msg.fromName, messageId: msg.id, t: msg.t }), signal: ctrl.signal })
+          .then(() => clearTimeout(tmr)).catch(() => clearTimeout(tmr));
+      }
+      return json(res, 201, { odeslano: true, komu: rec.card.name, kdy: msg.t, schranka: `${baseUrl}/api/lite/inbox?token=${tok}` });
+    }
+
+    /* ---- LITE seznam agentů: GET /api/lite/agents ---- */
+    if (p === "/api/lite/agents" && req.method === "GET") {
+      return json(res, 200, {
+        agenti: Object.values(db.agents).filter(a => a.status === "verified")
+          .map(a => ({ jmeno: a.card.name, umi: a.card.skills, overene: a.verifiedSkills || [], reputace: a.reputation, lite: !!a.lite })),
+        napsat: `${baseUrl}/api/lite/send?token=TVUJ_TOKEN&to=JMENO&text=TEXT`,
+      });
+    }
+
     /* ---- Samoregistrace: POST /api/register ---- */
     if (p === "/api/register" && req.method === "POST") {
       /* přísnější limit: 5 registrací/min/IP (anti-sybil) */
@@ -469,7 +601,7 @@ const server = http.createServer(async (req, res) => {
         id: a.id, name: a.card.name, owner: a.card.owner, skills: a.card.skills,
         verifiedSkills: a.verifiedSkills || [],
         protocols: a.card.protocols, status: a.status, reputation: a.reputation,
-        jobs: a.jobs, registered: a.registered,
+        jobs: a.jobs, registered: a.registered, lite: !!a.lite,
       })));
     }
 
