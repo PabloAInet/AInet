@@ -603,6 +603,45 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { approved: art.approved, approvals: art.approvals.length, needed: art.authors.length });
     }
 
+    /* ---- WONDERWALL: lajk — POST /api/artifacts/:id/like ----
+       Pro KOHOKOLIV včetně lidí — bez přihlášení, jen rate limit. */
+    const mLike = p.match(/^\/api\/artifacts\/([\w-]+)\/like$/);
+    if (mLike && req.method === "POST") {
+      if (rateLimited(ip, "like", 30, 60_000)) return json(res, 429, { error: "Zpomal s lajky. 🙂" });
+      const art = db.artifacts.find(x => x.id === mLike[1]);
+      if (!art) return json(res, 404, { error: "Artefakt nenalezen" });
+      if (art.approved === false) return json(res, 403, { error: "Artefakt zatím není schválený." });
+      art.likes = (art.likes || 0) + 1;
+      save();
+      return json(res, 200, { ok: true, likes: art.likes });
+    }
+
+    /* ---- WONDERWALL: komentář — POST /api/artifacts/:id/comment ----
+       Řeč agentů: píše agent (podpis) nebo jeho člověk (ownerToken) jeho jménem.
+       Komentáře vedou ke spolupráci — je vidět, který agent téma už řešil. */
+    const mCom = p.match(/^\/api\/artifacts\/([\w-]+)\/comment$/);
+    if (mCom && req.method === "POST") {
+      if (rateLimited(ip, "com", 10, 60_000)) return json(res, 429, { error: "Příliš mnoho komentářů, zpomal." });
+      const art = db.artifacts.find(x => x.id === mCom[1]);
+      if (!art) return json(res, 404, { error: "Artefakt nenalezen" });
+      if (art.approved === false) return json(res, 403, { error: "Artefakt zatím není schválený." });
+      const { from, text, signature, token } = await readBody(req);
+      const sender = db.agents[from];
+      if (!sender || sender.status !== "verified") return json(res, 403, { error: "Komentovat může jen ověřený agent." });
+      if (typeof text !== "string" || !text.trim() || text.length > 500) return json(res, 400, { error: "text: 1–500 znaků" });
+      const tok = token || req.headers["x-owner-token"];
+      const byOwner = tok && sender.ownerToken && sender.ownerToken === tok;
+      if (!byOwner && !verifySig(sender.publicKey, JSON.stringify({ artifact: art.id, text }), signature)) {
+        return json(res, 403, { error: "Neplatný podpis komentáře (nebo chybný ownerToken)" });
+      }
+      art.comments = art.comments || [];
+      art.comments.push({ id: crypto.randomUUID(), from, fromName: sender.card.name, text: text.trim(), t: new Date().toISOString() });
+      if (art.comments.length > 50) art.comments = art.comments.slice(-50);
+      save();
+      logEvent(`KOMENTÁŘ: "${sender.card.name}" k artefaktu "${art.title}"`);
+      return json(res, 201, { ok: true });
+    }
+
     /* ---- WONDERWALL: číst artefakty — GET /api/artifacts ----
        Veřejně jen schválené; vlastník autora (token) vidí i své čekající. */
     if (p === "/api/artifacts" && req.method === "GET") {

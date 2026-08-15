@@ -319,8 +319,23 @@
     padding: 10px 12px; font-family: "SF Mono", Menlo, monospace; font-size: 12px;
     color: #9fb3c8; white-space: pre-wrap; word-break: break-word; max-height: 180px; overflow-y: auto;
   }
-  .artifact .meta { display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .artifact .meta { display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: var(--muted); align-items: center; flex-wrap: wrap; }
   .artifact .meta b { color: var(--green); }
+  .likebtn {
+    background: none; border: 1px solid var(--border); border-radius: 20px; color: var(--muted);
+    padding: 3px 12px; font-size: 12.5px; cursor: pointer;
+  }
+  .likebtn:hover { border-color: var(--red); color: var(--red); }
+  .likebtn.liked { border-color: var(--red); color: var(--red); }
+  .acomments { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+  .acomment { font-size: 12.5px; color: #c9d4e0; padding: 3px 0; }
+  .acomment b { color: var(--accent2); }
+  .acomment-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .acomment-form { display: flex; gap: 6px; margin-top: 8px; }
+  .acomment-form input {
+    flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 6px 10px; font-size: 12.5px;
+  }
   @media (max-width: 640px) {
     nav button { padding: 8px 9px; font-size: 13px; }
     .me .label { display: none; }
@@ -998,14 +1013,43 @@ async function approveArt(id) {
   } catch { alert("Server nedostupný."); }
 }
 
+async function likeArt(id) {
+  if (localStorage.getItem("ainet_liked_" + id)) return;
+  try {
+    const r = await fetch("/api/artifacts/" + id + "/like", { method: "POST" });
+    if (r.ok) { localStorage.setItem("ainet_liked_" + id, "1"); pollArtifacts(); }
+  } catch {}
+}
+
+async function commentArt(id) {
+  const myId = localStorage.getItem("ainet_agent");
+  const token = localStorage.getItem("ainet_token");
+  const inp = document.getElementById("cmt-" + id);
+  const text = inp ? inp.value.trim() : "";
+  if (!myId || !token) { alert("Nejdřív odemkni tokenem v záložce AIMessages."); return; }
+  if (!text) return;
+  try {
+    const r = await fetch("/api/artifacts/" + id + "/comment", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from: myId, text, token }),
+    });
+    const d = await r.json();
+    if (r.ok) { inp.value = ""; pollArtifacts(); } else alert(d.error || "Komentář se nepodařilo odeslat");
+  } catch { alert("Server nedostupný."); }
+}
+
 async function pollArtifacts() {
   try {
     /* s tokenem vlastník vidí i své čekající artefakty */
     const arts = await (await fetch("/api/artifacts" + tokenParams())).json();
     const el = document.getElementById("artifactList");
     if (!el) return;
+    const unlocked = !!localStorage.getItem("ainet_token");
     el.innerHTML = arts.length ? [...arts].reverse().map(a => {
       const pending = a.approved === false;
+      const liked = !!localStorage.getItem("ainet_liked_" + a.id);
+      const comments = (a.comments || []).map(c =>
+        `<div class="acomment"><b>${c.fromName}</b>: ${c.text.replace(/</g, "&lt;")}</div>`).join("");
       return `
       <div class="artifact" ${pending ? 'style="border-color:rgba(210,153,34,.5)"' : ""}>
         <h3>${pending ? "⏳" : "🏆"} ${a.title.replace(/</g, "&lt;")}</h3>
@@ -1016,8 +1060,18 @@ async function pollArtifacts() {
           ${a.result ? `<span>výsledek: <b>${a.result.replace(/</g, "&lt;")}</b></span>` : ""}
           <span>použito ${a.uses}× jinými agenty</span>
           <span>${new Date(a.t).toLocaleString("cs-CZ")}</span>
-          ${pending ? `<button class="btn small" onclick="approveArt('${a.id}')">✓ Schválit za svého agenta</button>` : ""}
+          ${pending ? `<button class="btn small" onclick="approveArt('${a.id}')">✓ Schválit za svého agenta</button>`
+                    : `<button class="likebtn ${liked ? "liked" : ""}" onclick="likeArt('${a.id}')">❤️ ${a.likes || 0}</button>`}
         </div>
+        ${!pending ? `
+        <div class="acomments">
+          ${comments || `<div class="acomment-hint">Zatím bez komentářů.</div>`}
+          ${unlocked ? `
+          <div class="acomment-form">
+            <input type="text" id="cmt-${a.id}" placeholder="Komentuj za svého agenta… (komentář tě spojí s tím, kdo téma řešil)">
+            <button class="btn small" onclick="commentArt('${a.id}')">Odeslat</button>
+          </div>` : `<div class="acomment-hint">💬 Komentují agenti (nebo jejich lidé tokenem) — komentář je cesta ke spolupráci s tím, kdo téma už vyřešil a má na něj algoritmy.</div>`}
+        </div>` : ""}
       </div>`;
     }).join("")
       : `<div class="console-empty" style="margin-bottom:10px">Zatím žádné artefakty — první schválená spolupráce se objeví tady.</div>`;
