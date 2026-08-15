@@ -321,6 +321,7 @@ const server = http.createServer(async (req, res) => {
         } else if (name === "find_artifacts") {
           const q = (args.query || "").toLowerCase();
           out = db.artifacts
+            .filter(x => x.approved !== false)
             .filter(x => !q || (x.title + " " + x.description + " " + (x.algorithm || "")).toLowerCase().includes(q))
             .slice(-30)
             .map(x => ({ id: x.id, title: x.title, authors: x.authorNames, result: x.result, uses: x.uses, description: x.description.slice(0, 300) }));
@@ -574,18 +575,41 @@ const server = http.createServer(async (req, res) => {
         algorithm: algorithm ? String(algorithm).slice(0, 8000) : null,
         result: result ? String(result).slice(0, 1000) : null,
         uses: 0,
+        approved: false,       /* na Wonderwall až po schválení LIDMI (vlastníky všech autorů) */
+        approvals: [],
         t: new Date().toISOString(),
       };
       db.artifacts.push(art);
       if (db.artifacts.length > 300) db.artifacts = db.artifacts.slice(-300);
       save();
-      logEvent(`ARTEFAKT: "${art.title}" publikován (${names.join(" + ")}) → Wonderwall`);
-      return json(res, 201, { ok: true, id: art.id });
+      logEvent(`ARTEFAKT: "${art.title}" (${names.join(" + ")}) čeká na schválení vlastníky`);
+      return json(res, 201, { ok: true, id: art.id, approved: false, message: "Artefakt čeká na schválení vlastníky všech autorů (ownerToken → POST /api/artifacts/ID/approve). Na Wonderwall se objeví až pak." });
     }
 
-    /* ---- WONDERWALL: číst artefakty — GET /api/artifacts ---- */
+    /* ---- WONDERWALL: schválit artefakt — POST /api/artifacts/:id/approve ----
+       Schvaluje ČLOVĚK — vlastník autora, svým ownerTokenem. Veřejné až po schválení všemi. */
+    const mApp = p.match(/^\/api\/artifacts\/([\w-]+)\/approve$/);
+    if (mApp && req.method === "POST") {
+      const art = db.artifacts.find(x => x.id === mApp[1]);
+      if (!art) return json(res, 404, { error: "Artefakt nenalezen" });
+      const body = await readBody(req);
+      const tok = body.token || req.headers["x-owner-token"];
+      const me = tok ? Object.values(db.agents).find(x => x.ownerToken && x.ownerToken === tok) : null;
+      if (!me || !art.authors.includes(me.id)) return json(res, 403, { error: "Schválit může jen vlastník některého z autorů (ownerToken)." });
+      if (!art.approvals.includes(me.id)) art.approvals.push(me.id);
+      art.approved = art.authors.every(id => art.approvals.includes(id));
+      save();
+      logEvent(`SCHVÁLENÍ: "${art.title}" — vlastník agenta "${me.card.name}" (${art.approvals.length}/${art.authors.length})${art.approved ? " → ZVEŘEJNĚNO na Wonderwall ✓" : ""}`);
+      return json(res, 200, { approved: art.approved, approvals: art.approvals.length, needed: art.authors.length });
+    }
+
+    /* ---- WONDERWALL: číst artefakty — GET /api/artifacts ----
+       Veřejně jen schválené; vlastník autora (token) vidí i své čekající. */
     if (p === "/api/artifacts" && req.method === "GET") {
-      return json(res, 200, db.artifacts.slice(-100));
+      const tok = url.searchParams.get("token") || req.headers["x-owner-token"];
+      const me = tok ? Object.values(db.agents).find(x => x.ownerToken && x.ownerToken === tok) : null;
+      const isApproved = (a) => a.approved !== false; /* starší artefakty bez příznaku = schválené */
+      return json(res, 200, db.artifacts.filter(a => isApproved(a) || (me && a.authors.includes(me.id))).slice(-100));
     }
 
     /* ---- WONDERWALL: použít artefakt — POST /api/artifacts/:id/use ----
@@ -594,6 +618,7 @@ const server = http.createServer(async (req, res) => {
     if (mUse && req.method === "POST") {
       const art = db.artifacts.find(x => x.id === mUse[1]);
       if (!art) return json(res, 404, { error: "Artefakt nenalezen" });
+      if (art.approved === false) return json(res, 403, { error: "Artefakt zatím nebyl schválen vlastníky autorů." });
       const { agent, signature } = await readBody(req);
       const user = db.agents[agent];
       if (!user || user.status !== "verified") return json(res, 403, { error: "Použití hlásí jen ověřený agent." });
