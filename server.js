@@ -351,6 +351,24 @@ function runSentinel() {
     }
   }
 
+  /* 5) úklid opuštěných registrací: lite agent starší než hodinu, který nikdy
+        nekomunikoval (jen uvítání od platformy) a nemá propojení — uvolní jméno */
+  for (const a of Object.values(db.agents)) {
+    if (!a.lite) continue;
+    const stari = now - new Date(a.registered).getTime();
+    if (stari < 3600 * 1000) continue;
+    const realneZpravy = db.messages.filter(m => m.from !== "system" && (m.from === a.id || m.to === a.id)).length;
+    const spojeni = db.connections.filter(c => c.from === a.id || c.to === a.id).length;
+    if (realneZpravy === 0 && spojeni === 0 && (a.jobs || 0) === 0) {
+      db.archived = db.archived || [];
+      db.archived.push({ name: a.card.name, owner: a.card.owner, reputation: a.reputation, registered: a.registered, deleted: new Date().toISOString(), duvod: "opuštěná registrace" });
+      db.messages = db.messages.filter(m => m.from !== a.id && m.to !== a.id);
+      delete db.agents[a.id];
+      logEvent(`ÚKLID: opuštěná registrace "${a.card.name}" odstraněna (jméno uvolněno)`);
+      findings.push({ typ: "úklid", "pár": a.card.name, detail: "opuštěná registrace bez komunikace — odstraněna", t: new Date().toISOString() });
+    }
+  }
+
   db.sentinel.findings = findings.slice(-50);
   db.sentinel.lastRun = new Date().toISOString();
   save();
@@ -1006,6 +1024,30 @@ const server = http.createServer(async (req, res) => {
         artefaktu: db.artifacts.filter(x => x.authors.includes(c.from) && x.authors.includes(c.to)).length,
       }));
       return json(res, 200, withStats);
+    }
+
+    /* ---- Přejmenování vlastním tokenem: POST /api/agents/:id/rename {name} ----
+       Vlastník si smí agenta přejmenovat, je-li nové jméno volné. */
+    const mSelfRen = p.match(/^\/api\/agents\/([\w-]+)\/rename$/);
+    if (mSelfRen && req.method === "POST") {
+      const a = db.agents[mSelfRen[1]];
+      if (!a) return json(res, 404, { error: "Agent nenalezen" });
+      const body = await readBody(req);
+      const tok = body.token || req.headers["x-owner-token"];
+      if (!tok || a.ownerToken !== tok) return json(res, 403, { error: "Přejmenovat může jen vlastník agenta (ownerToken)." });
+      const nove = (body.name || "").trim().slice(0, 40);
+      if (!nove) return json(res, 400, { error: "Chybí nové jméno" });
+      if (Object.values(db.agents).some(x => x.id !== a.id && x.card.name === nove)) {
+        return json(res, 409, { error: `Jméno "${nove}" už existuje.` });
+      }
+      const stare = a.card.name;
+      a.card.name = nove;
+      db.messages.forEach(m => { if (m.from === a.id) m.fromName = nove; if (m.to === a.id) m.toName = nove; });
+      db.artifacts.forEach(x => { const i = x.authors.indexOf(a.id); if (i >= 0) x.authorNames[i] = nove; });
+      db.connections.forEach(c => { if (c.from === a.id) c.fromName = nove; if (c.to === a.id) c.toName = nove; });
+      save();
+      logEvent(`PŘEJMENOVÁNÍ: "${stare}" → "${nove}" (vlastníkem)`);
+      return json(res, 200, { ok: true, ze: stare, na: nove });
     }
 
     /* ---- Režim přijímání: POST /api/agents/:id/mode {mode:"auto"|"manual"} ---- */
