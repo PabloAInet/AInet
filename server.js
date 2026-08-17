@@ -681,7 +681,7 @@ const server = http.createServer(async (req, res) => {
       const t = challenge.tasks;
       return json(res, 201, {
         vitej: `Agent "${name}" zaregistrován. Ulož si token a dokonči ověření.`,
-        token: liteToken,
+        id, token: liteToken,
         dalsi_krok: "Vyřeš 3 úkoly a výsledky vlož do adresy /api/lite/verify (viz ukol).",
         ukol: {
           "1_soucet": `Sečti tato čísla: ${t[0].input.join(" + ")}`,
@@ -1216,6 +1216,67 @@ const server = http.createServer(async (req, res) => {
       save();
       logEvent(`POUŽITÍ ARTEFAKTU: "${art.title}" použil "${user.card.name}" (celkem ${art.uses}×) — autorům +reputace`);
       return json(res, 200, { ok: true, uses: art.uses });
+    }
+
+    /* ================= ADMIN MODERACE =================
+       Za tajným tokenem z proměnné prostředí ADMIN_TOKEN (nikdy v kódu).
+       Hlavička: X-Admin-Token. Bez nastavené proměnné je moderace vypnutá. */
+    const adminOk = () => {
+      const t = process.env.ADMIN_TOKEN;
+      return !!t && (req.headers["x-admin-token"] === t);
+    };
+
+    /* smazání agenta: DELETE /api/admin/agents/:id */
+    const mAdmDel = p.match(/^\/api\/admin\/agents\/([\w-]+)$/);
+    if (mAdmDel && req.method === "DELETE") {
+      if (!adminOk()) return json(res, 403, { error: "Moderace vyžaduje platný X-Admin-Token." });
+      const a = db.agents[mAdmDel[1]];
+      if (!a) return json(res, 404, { error: "Agent nenalezen" });
+      const jmeno = a.card.name;
+      /* archivace reputace (návrh od Aji) — historie se nemaže */
+      db.archived = db.archived || [];
+      db.archived.push({ name: jmeno, owner: a.card.owner, reputation: a.reputation, jobs: a.jobs, registered: a.registered, deleted: new Date().toISOString() });
+      delete db.agents[mAdmDel[1]];
+      save();
+      logEvent(`ADMIN: smazán agent "${jmeno}" (reputace archivována)`);
+      return json(res, 200, { ok: true, smazan: jmeno });
+    }
+
+    /* přejmenování agenta: POST /api/admin/agents/:id/rename {name} */
+    const mAdmRen = p.match(/^\/api\/admin\/agents\/([\w-]+)\/rename$/);
+    if (mAdmRen && req.method === "POST") {
+      if (!adminOk()) return json(res, 403, { error: "Moderace vyžaduje platný X-Admin-Token." });
+      const a = db.agents[mAdmRen[1]];
+      if (!a) return json(res, 404, { error: "Agent nenalezen" });
+      const { name } = await readBody(req);
+      const nove = (name || "").trim().slice(0, 40);
+      if (!nove) return json(res, 400, { error: "Chybí nové jméno" });
+      if (Object.values(db.agents).some(x => x.id !== a.id && x.card.name === nove)) {
+        return json(res, 409, { error: `Jméno "${nove}" už existuje.` });
+      }
+      const stare = a.card.name;
+      a.card.name = nove;
+      /* přepsat jména v historii zpráv, ať sedí zobrazení */
+      db.messages.forEach(m => { if (m.from === a.id) m.fromName = nove; if (m.to === a.id) m.toName = nove; });
+      db.artifacts.forEach(x => { const i = x.authors.indexOf(a.id); if (i >= 0) x.authorNames[i] = nove; });
+      db.connections.forEach(c => { if (c.from === a.id) c.fromName = nove; if (c.to === a.id) c.toName = nove; });
+      save();
+      logEvent(`ADMIN: agent "${stare}" přejmenován na "${nove}"`);
+      return json(res, 200, { ok: true, ze: stare, na: nove });
+    }
+
+    /* přehled pro moderaci: GET /api/admin/overview */
+    if (p === "/api/admin/overview" && req.method === "GET") {
+      if (!adminOk()) return json(res, 403, { error: "Moderace vyžaduje platný X-Admin-Token." });
+      return json(res, 200, {
+        agenti: Object.values(db.agents).map(a => ({
+          id: a.id, jmeno: a.card.name, vlastnik: a.card.owner, stav: a.status, lite: !!a.lite,
+          reputace: a.reputation, zprav: db.messages.filter(m => m.from === a.id || m.to === a.id).length,
+          registrovan: a.registered,
+        })),
+        archiv: db.archived || [],
+        zprav_celkem: db.messages.length, artefaktu: db.artifacts.length, propojeni: db.connections.length,
+      });
     }
 
     /* ---- CHECKPOINT VLASTNÍKA: POST /api/checkpoint ----
