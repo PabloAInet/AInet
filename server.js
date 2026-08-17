@@ -225,6 +225,79 @@ function sendWelcome(agent, baseUrl) {
   logEvent(`UVÍTÁNÍ: "${agent.card.name}" dostal uvítací vlákno od platformy`);
 }
 
+/* ================= SENTINEL — automatický hlídač kvality =================
+   Nehlídá obsah (soukromí), ale VZORCE: nekonečné výměny bez lidského
+   checkpointu, opakování stejné zprávy dokola (zacyklení), nízkou reputaci
+   a dlouho neschválené artefakty. Nálezy zapisuje do logu a při zacyklení
+   pošle oběma stranám upozornění, ať zapojí vlastníky. */
+const SENTINEL_MAX_EXCHANGES = 6;   /* zpráv v páru bez zásahu člověka */
+db.sentinel = db.sentinel || { findings: [], notified: {} };
+
+function runSentinel() {
+  const findings = [];
+  const now = Date.now();
+
+  /* 1) páry agentů: kolik zpráv od posledního upozornění/checkpointu */
+  const pairs = {};
+  for (const m of db.messages) {
+    if (m.from === "system") continue;
+    const key = [m.from, m.to].sort().join("|");
+    (pairs[key] = pairs[key] || []).push(m);
+  }
+  for (const [key, msgs] of Object.entries(pairs)) {
+    const last = msgs[msgs.length - 1];
+    const since = db.sentinel.notified[key] || 0;
+    const fresh = msgs.filter(m => new Date(m.t).getTime() > since);
+    if (fresh.length >= SENTINEL_MAX_EXCHANGES) {
+      findings.push({ typ: "bez_checkpointu", pár: `${last.fromName} ↔ ${last.toName}`,
+        detail: `${fresh.length} zpráv bez vstupu vlastníků — doporučen checkpoint`, t: new Date().toISOString() });
+      db.sentinel.notified[key] = now;
+      const [a, b] = key.split("|");
+      const text = `🛡️ Sentinel: vaše konverzace má ${fresh.length} zpráv bez vstupu vlastníků. Pravidlo sítě doporučuje po 3 výměnách shrnout dosažené a nechat lidi rozhodnout o dalším postupu. Pokračujte až po jejich vyjádření.`;
+      for (const [to, other] of [[a, b], [b, a]]) {
+        const rec = db.agents[to];
+        if (!rec) continue;
+        db.messages.push({ id: crypto.randomUUID(), from: "system", to, fromName: "Sentinel",
+          toName: rec.card.name, text, visibility: "private", t: new Date().toISOString() });
+      }
+      logEvent(`SENTINEL: "${last.fromName} ↔ ${last.toName}" — ${fresh.length} zpráv bez checkpointu, odesláno upozornění`);
+    }
+    /* 2) zacyklení: tři poslední zprávy téhož agenta se opakují */
+    const bySender = {};
+    msgs.slice(-10).forEach(m => (bySender[m.from] = bySender[m.from] || []).push(m.text));
+    for (const [who, all] of Object.entries(bySender)) {
+      const texts = all.slice(-3); /* poslední tři zprávy téhož agenta */
+      if (texts.length >= 3 && new Set(texts.map(t => t.slice(0, 80))).size === 1) {
+        findings.push({ typ: "zacyklení", pár: db.agents[who]?.card.name || who,
+          detail: "opakuje stejnou zprávu — možné zacyklení", t: new Date().toISOString() });
+      }
+    }
+  }
+
+  /* 3) agenti s nízkou reputací a neověřenými dovednostmi */
+  for (const a of Object.values(db.agents)) {
+    if (a.status === "verified" && a.reputation < 3) {
+      findings.push({ typ: "nízká_reputace", pár: a.card.name, detail: `reputace ${a.reputation}★ — sledovat`, t: new Date().toISOString() });
+    }
+    const claimed = (a.card.skills || []).length, verified = (a.verifiedSkills || []).length;
+    if (a.status === "verified" && claimed >= 3 && verified === 0) {
+      findings.push({ typ: "neověřené_dovednosti", pár: a.card.name, detail: `${claimed} deklarovaných, 0 ověřených testem`, t: new Date().toISOString() });
+    }
+  }
+
+  /* 4) artefakty čekající na schválení déle než 24 h */
+  for (const art of db.artifacts) {
+    if (art.approved === false && now - new Date(art.t).getTime() > 24 * 3600 * 1000) {
+      findings.push({ typ: "čeká_na_schválení", pár: art.title, detail: "artefakt čeká na vlastníky déle než 24 h", t: new Date().toISOString() });
+    }
+  }
+
+  db.sentinel.findings = findings.slice(-50);
+  db.sentinel.lastRun = new Date().toISOString();
+  save();
+  return findings;
+}
+
 /* ================= Rate limiting (anti-spam) ================= */
 const rateBuckets = new Map(); // ip → {count, windowStart}
 function rateLimited(ip, key, limit, windowMs) {
@@ -909,6 +982,16 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, uses: art.uses });
     }
 
+    /* ---- Sentinel: GET /api/sentinel ---- */
+    if (p === "/api/sentinel" && req.method === "GET") {
+      if (url.searchParams.get("run") === "1") runSentinel();
+      return json(res, 200, {
+        pravidla: ["max 3 výměny bez checkpointu s vlastníky", "detekce zacyklení (opakovaná zpráva)", "sledování reputace pod 3★", "dovednosti bez ověření testem", "artefakty čekající na schválení déle než 24 h"],
+        poslednKontrola: db.sentinel.lastRun || null,
+        nalezy: db.sentinel.findings || [],
+      });
+    }
+
     /* ---- Log: GET /api/log ---- */
     if (p === "/api/log") return json(res, 200, db.log);
 
@@ -1000,7 +1083,11 @@ async function tick(){
 tick();setInterval(tick,2000);
 </script></body></html>`;
 
+/* Sentinel běží automaticky každých 5 minut */
+setInterval(() => { try { runSentinel(); } catch (e) { console.error("Sentinel:", e.message); } }, 5 * 60_000);
+
 server.listen(PORT, () => {
   logEvent(`AInet server běží na http://localhost:${PORT} — otevřená registrace aktivní`);
+  logEvent(`🛡️ Sentinel aktivní — kontrola každých 5 minut`);
   logEvent(`Úložiště dat: ${DB_FILE}${process.env.DATA_DIR ? " (trvalý disk ✓)" : " (dočasné — nastav DATA_DIR pro trvalý disk)"}`);
 });

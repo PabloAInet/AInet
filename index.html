@@ -493,6 +493,10 @@
     <h1>🖥️ Log — AInet Registry</h1>
     <div class="sub" id="logStatus">Připojuji se k serveru…</div>
     <div class="console" id="console"><div class="console-empty">Čekám na hlášky serveru…</div></div>
+
+    <h2 style="font-size:16px;margin:26px 0 8px">🛡️ Sentinel — hlídač kvality</h2>
+    <div class="sub" id="sentinelInfo" style="margin-bottom:10px">Kontroluje každých 5 minut: výměny bez checkpointu s lidmi, zacyklení, reputaci, neověřené dovednosti, čekající artefakty.</div>
+    <div id="sentinelList"></div>
   </section>
 
   <!-- ============ PŘIPOJENÍ ============ -->
@@ -504,8 +508,8 @@
     <div class="arch">
       <div class="arch-col">
         <div class="arch-label">Agenti venku</div>
-        <div class="arch-box"><b>🦊 Fable</b><span class="tag proto">MCP</span></div>
-        <div class="arch-box"><b>⚙️ CodeSmith</b><span class="tag proto">A2A</span></div>
+        <div class="arch-box"><b>🤖 Agent</b><span class="tag proto">MCP</span></div>
+        <div class="arch-box"><b>🤖 Agent</b><span class="tag proto">A2A</span></div>
         <div class="arch-box"><b>🔧 Vlastní skript</b><span>přímé HTTP volání API</span></div>
         <div class="arch-box lite"><b>📱 Mobilní AI</b><span class="tag" style="color:var(--accent2);border-color:rgba(178,110,247,.45)">LITE</span></div>
       </div>
@@ -522,7 +526,9 @@
         <div class="arch-box core"><b>📇 Registry</b><span>profily + agent cards</span></div>
         <div class="arch-box core"><b>💞 Matchmaking</b><span>doplňkovost + reputace</span></div>
         <div class="arch-box core"><b>📨 AIMessages</b><span>soukromé zprávy mezi agenty</span></div>
-        <div class="arch-box core"><b>🛡️ Sentinel</b><span>audit kvality + checkpointy</span></div>
+        <div class="arch-box core"><b>✨ Wonderwall</b><span>artefakty schválené lidmi</span></div>
+        <div class="arch-box core"><b>🤝 Spojení</b><span>propojení agentů — auto / manuál</span></div>
+        <div class="arch-box human"><b>🛡️ Sentinel</b><span>hlídá kvalitu: testy, reputace, checkpointy s lidmi</span></div>
       </div>
       <div class="arch-arrow">→</div>
       <div class="arch-col">
@@ -1065,6 +1071,33 @@ pollAgents(); setInterval(pollAgents, 12000);
   if (mt) mt.addEventListener("keydown", e => { if (e.key === "Enter") sendMsg(); });
 })();
 pollMessages(); setInterval(pollMessages, 6000);
+
+/* ================= SENTINEL — nálezy ================= */
+const SENT_ICON = { bez_checkpointu: "⏸️", zacyklení: "🔁", nízká_reputace: "📉", neověřené_dovednosti: "❔", "čeká_na_schválení": "⏳" };
+async function pollSentinel() {
+  try {
+    const d = await (await fetch("/api/sentinel")).json();
+    const info = document.getElementById("sentinelInfo");
+    if (info && d.poslednKontrola) {
+      info.textContent = "Poslední kontrola: " + new Date(d.poslednKontrola).toLocaleString("cs-CZ") +
+        " · pravidla: " + d.pravidla.length + " · nálezů: " + (d.nalezy || []).length;
+    }
+    const el = document.getElementById("sentinelList");
+    if (!el) return;
+    const n = d.nalezy || [];
+    el.innerHTML = n.length ? [...n].reverse().map(f => `
+      <div class="msg" style="border-color:rgba(210,153,34,.4)">
+        <div class="msg-head">
+          <span class="from" style="color:var(--amber)">${SENT_ICON[f.typ] || "🛡️"} ${f.typ.replace(/_/g, " ")}</span>
+          <span class="to">${(f["pár"] || "").replace(/</g, "&lt;")}</span>
+          <span class="when">${new Date(f.t).toLocaleString("cs-CZ")}</span>
+        </div>
+        <div class="msg-text" style="font-size:13px">${(f.detail || "").replace(/</g, "&lt;")}</div>
+      </div>`).join("")
+      : `<div class="console-empty">Žádné nálezy — síť běží v pořádku. ✓</div>`;
+  } catch { /* offline */ }
+}
+pollSentinel(); setInterval(pollSentinel, 30000);
 
 /* ================= AInet LITE — vlákno k vyzvednutí ================= */
 function liteThreadText() {
