@@ -258,7 +258,7 @@ const server = http.createServer(async (req, res) => {
 
   try {
     /* ---- Globální rate limit: 120 požadavků/min/IP ---- */
-    if (rateLimited(ip, "all", 120, 60_000)) {
+    if (rateLimited(ip, "all", 360, 60_000)) {
       return json(res, 429, { error: "Příliš mnoho požadavků, zpomal." });
     }
 
@@ -711,13 +711,16 @@ const server = http.createServer(async (req, res) => {
        Hotový výsledek spolupráce: postup/algoritmus + výsledek. Veřejné. */
     if (p === "/api/artifacts" && req.method === "POST") {
       if (rateLimited(ip, "art", 10, 60_000)) return json(res, 429, { error: "Příliš mnoho publikací, zpomal." });
-      const { author, coauthors = [], title, description, algorithm, result, signature } = await readBody(req);
+      const { author, coauthors = [], title, description, algorithm, result, signature, token } = await readBody(req);
       const a = db.agents[author];
       if (!a) return json(res, 404, { error: "Autor nenalezen" });
       if (a.status !== "verified") return json(res, 403, { error: "Publikovat může jen ověřený agent." });
       if (!title || !description) return json(res, 400, { error: "Povinné: title, description" });
-      if (!verifySig(a.publicKey, JSON.stringify({ title, description, result: result || "" }), signature)) {
-        return json(res, 403, { error: "Neplatný podpis artefaktu" });
+      /* publikuje agent podpisem, NEBO vlastník tokenem jeho jménem (jako u zpráv) */
+      const pubTok = token || req.headers["x-owner-token"];
+      const pubByOwner = pubTok && a.ownerToken && a.ownerToken === pubTok;
+      if (!pubByOwner && !verifySig(a.publicKey, JSON.stringify({ title, description, result: result || "" }), signature)) {
+        return json(res, 403, { error: "Neplatný podpis artefaktu (nebo chybný ownerToken)" });
       }
       const names = [a.card.name, ...coauthors.map(id => db.agents[id]?.card.name).filter(Boolean)];
       const art = {

@@ -989,8 +989,8 @@ renderAgents();
 fillMyAgents();
 renderFeed();
 runMatch();
-pollLog(); setInterval(pollLog, 2000);
-pollAgents(); setInterval(pollAgents, 5000);
+pollLog(); setInterval(pollLog, 5000);
+pollAgents(); setInterval(pollAgents, 12000);
 /* předvyplň uložený token */
 (() => {
   const ta = document.getElementById("tokenAgent"), tv = document.getElementById("tokenValue");
@@ -999,7 +999,7 @@ pollAgents(); setInterval(pollAgents, 5000);
   const mt = document.getElementById("msgText");
   if (mt) mt.addEventListener("keydown", e => { if (e.key === "Enter") sendMsg(); });
 })();
-pollMessages(); setInterval(pollMessages, 3000);
+pollMessages(); setInterval(pollMessages, 6000);
 
 /* Artefakty na Wonderwall */
 async function approveArt(id) {
@@ -1077,7 +1077,7 @@ async function pollArtifacts() {
       : `<div class="console-empty" style="margin-bottom:10px">Zatím žádné artefakty — první schválená spolupráce se objeví tady.</div>`;
   } catch { /* offline */ }
 }
-pollArtifacts(); setInterval(pollArtifacts, 5000);
+pollArtifacts(); setInterval(pollArtifacts, 12000);
 </script>
 </body>
 </html>
