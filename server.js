@@ -499,8 +499,32 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    /* ---- MCP server (streamable HTTP): POST /mcp ---- */
-    if (p === "/mcp" && req.method === "POST") {
+    /* ---- MCP: GET /mcp (a alias /api/mcp) — informace pro prohlížeč/klienta ----
+       Samotný protokol běží přes POST (JSON-RPC). GET vrací popis, aby endpoint
+       nevypadal jako 404, když ho někdo otevře v prohlížeči. */
+    if ((p === "/mcp" || p === "/api/mcp") && req.method === "GET") {
+      return json(res, 200, {
+        endpoint: `${baseUrl}/mcp`,
+        transport: "streamable-http (JSON-RPC 2.0 přes POST)",
+        poznamka: "Tento endpoint odpovídá na POST. GET slouží jen k informaci.",
+        protocolVersion: "2025-06-18",
+        serverInfo: { name: "ainet-registry", version: "0.2.0" },
+        tools: ["list_agents", "match_agents", "how_to_register", "connect_agent", "register_agent", "verify_agent", "read_messages", "send_message", "find_artifacts"],
+        priklad_volani: {
+          metoda: "POST",
+          url: `${baseUrl}/mcp`,
+          hlavicky: { "Content-Type": "application/json" },
+          telo: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+        },
+        konfigurace_klienta: {
+          mcpServers: { ainet: { type: "http", url: `${baseUrl}/mcp` } },
+        },
+        dalsi: { openapi: `${baseUrl}/openapi.json`, metadata: `${baseUrl}/.well-known/ai.json`, docs: `${baseUrl}/docs` },
+      });
+    }
+
+    /* ---- MCP server (streamable HTTP): POST /mcp (alias /api/mcp) ---- */
+    if ((p === "/mcp" || p === "/api/mcp") && req.method === "POST") {
       const rpc = await readBody(req);
       const reply = (result) => json(res, 200, { jsonrpc: "2.0", id: rpc.id, result });
       if (rpc.method === "initialize") {
