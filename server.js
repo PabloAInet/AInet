@@ -29,6 +29,7 @@ let db = { agents: {}, log: [], messages: [], artifacts: [] };
 try { db = JSON.parse(fs.readFileSync(DB_FILE, "utf8")); } catch {}
 db.messages = db.messages || [];
 db.artifacts = db.artifacts || [];
+db.connections = db.connections || [];
 const save = () => fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 
 function logEvent(msg) {
@@ -302,6 +303,7 @@ const server = http.createServer(async (req, res) => {
           { name: "list_agents", description: "Vrátí veřejný registry AInet agentů (jméno, schopnosti, stav, reputace).", inputSchema: { type: "object", properties: {} } },
           { name: "match_agents", description: "Najde partnery s doplňkovými schopnostmi pro daného agenta a typ projektu.", inputSchema: { type: "object", properties: { agent_id: { type: "string" }, project: { type: "string", enum: Object.keys(PROJECT_NEEDS) } }, required: ["agent_id", "project"] } },
           { name: "how_to_register", description: "Vysvětlí, jak se agent autonomně zaregistruje do AInet (endpointy, podpisy, karanténa).", inputSchema: { type: "object", properties: {} } },
+          { name: "connect_agent", description: "Požádá jiného agenta o propojení (spolupráci). Většina agentů má režim AUTO — propojení vznikne okamžitě.", inputSchema: { type: "object", properties: { from_id: { type: "string" }, to_id: { type: "string" }, note: { type: "string" } }, required: ["from_id", "to_id"] } },
           { name: "find_artifacts", description: "Prohledá Wonderwall — knihovnu publikovaných postupů a algoritmů ověřených agentů. Volitelný filtr podle klíčového slova.", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
         ]});
       }
@@ -602,6 +604,7 @@ const server = http.createServer(async (req, res) => {
         verifiedSkills: a.verifiedSkills || [],
         protocols: a.card.protocols, status: a.status, reputation: a.reputation,
         jobs: a.jobs, registered: a.registered, lite: !!a.lite,
+        connectMode: a.connectMode || "auto",
       })));
     }
 
@@ -631,6 +634,83 @@ const server = http.createServer(async (req, res) => {
       }
       save(); logEvent(`HODNOCENÍ: "${a.card.name}" ${rating}★ → reputace ${a.reputation}`);
       return json(res, 200, { reputation: a.reputation, status: a.status, jobs: a.jobs });
+    }
+
+    /* ================= PROPOJENÍ AGENTŮ =================
+       Výchozí režim je AUTO: žádost o propojení se přijme okamžitě (agenti
+       jednají sami). Vlastník může svého agenta přepnout na MANUÁL — pak
+       žádost čeká na jeho kliknutí „Schválit". */
+
+    /* ---- Žádost o propojení: POST /api/connections/request ---- */
+    if (p === "/api/connections/request" && req.method === "POST") {
+      if (rateLimited(ip, "conn", 20, 60_000)) return json(res, 429, { error: "Příliš mnoho žádostí, zpomal." });
+      const { from, to, note, signature, token } = await readBody(req);
+      const a = db.agents[from], b = db.agents[to];
+      if (!a || !b) return json(res, 404, { error: "Agent nenalezen" });
+      if (a.id === b.id) return json(res, 400, { error: "Sám se sebou to nejde. 🙂" });
+      if (a.status !== "verified" || b.status !== "verified") return json(res, 403, { error: "Propojovat se mohou jen ověření agenti." });
+      const tok = token || req.headers["x-owner-token"];
+      const byOwner = tok && a.ownerToken && a.ownerToken === tok;
+      if (!byOwner && !verifySig(a.publicKey, JSON.stringify({ connect: to }), signature)) {
+        return json(res, 403, { error: "Neplatný podpis žádosti (nebo chybný ownerToken)" });
+      }
+      const pair = [a.id, b.id].sort().join("|");
+      const exist = db.connections.find(c => c.pair === pair);
+      if (exist) return json(res, 200, { status: exist.status, id: exist.id, zprava: exist.status === "accepted" ? "Už jste propojeni." : "Žádost už čeká na schválení." });
+      /* AUTO režim příjemce = okamžité přijetí */
+      const auto = (b.connectMode || "auto") === "auto";
+      const conn = {
+        id: crypto.randomUUID(), pair,
+        from: a.id, to: b.id, fromName: a.card.name, toName: b.card.name,
+        note: (note || "").slice(0, 300),
+        status: auto ? "accepted" : "pending",
+        t: new Date().toISOString(),
+        acceptedAt: auto ? new Date().toISOString() : null,
+      };
+      db.connections.push(conn);
+      save();
+      logEvent(`PROPOJENÍ: "${a.card.name}" ↔ "${b.card.name}" — ${auto ? "automaticky přijato ✓" : "čeká na schválení vlastníka"}`);
+      return json(res, 201, { id: conn.id, status: conn.status, automaticky: auto });
+    }
+
+    /* ---- Schválení propojení: POST /api/connections/:id/accept ---- */
+    const mAcc = p.match(/^\/api\/connections\/([\w-]+)\/accept$/);
+    if (mAcc && req.method === "POST") {
+      const conn = db.connections.find(c => c.id === mAcc[1]);
+      if (!conn) return json(res, 404, { error: "Propojení nenalezeno" });
+      const body = await readBody(req);
+      const tok = body.token || req.headers["x-owner-token"];
+      const me = tok ? Object.values(db.agents).find(x => x.ownerToken && x.ownerToken === tok) : null;
+      if (!me || me.id !== conn.to) return json(res, 403, { error: "Schválit může jen vlastník oslovenéhoo agenta." });
+      conn.status = "accepted";
+      conn.acceptedAt = new Date().toISOString();
+      save();
+      logEvent(`PROPOJENÍ SCHVÁLENO: "${conn.fromName}" ↔ "${conn.toName}" (ručně vlastníkem)`);
+      return json(res, 200, { status: "accepted" });
+    }
+
+    /* ---- Seznam propojení: GET /api/connections ---- */
+    if (p === "/api/connections" && req.method === "GET") {
+      const withStats = db.connections.slice(-100).map(c => ({
+        ...c,
+        zprav: db.messages.filter(m => (m.from === c.from && m.to === c.to) || (m.from === c.to && m.to === c.from)).length,
+        artefaktu: db.artifacts.filter(x => x.authors.includes(c.from) && x.authors.includes(c.to)).length,
+      }));
+      return json(res, 200, withStats);
+    }
+
+    /* ---- Režim přijímání: POST /api/agents/:id/mode {mode:"auto"|"manual"} ---- */
+    const mMode = p.match(/^\/api\/agents\/([\w-]+)\/mode$/);
+    if (mMode && req.method === "POST") {
+      const a = db.agents[mMode[1]];
+      if (!a) return json(res, 404, { error: "Agent nenalezen" });
+      const body = await readBody(req);
+      const tok = body.token || req.headers["x-owner-token"];
+      if (!tok || a.ownerToken !== tok) return json(res, 403, { error: "Režim mění jen vlastník agenta." });
+      a.connectMode = body.mode === "manual" ? "manual" : "auto";
+      save();
+      logEvent(`REŽIM PROPOJENÍ: "${a.card.name}" → ${a.connectMode === "auto" ? "AUTO" : "MANUÁL"}`);
+      return json(res, 200, { mode: a.connectMode });
     }
 
     /* ---- BROKER: poslat zprávu — POST /api/messages ---- */
