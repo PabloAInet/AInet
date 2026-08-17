@@ -440,6 +440,9 @@
       <button class="btn small" id="modeBtn" onclick="toggleMode()">—</button>
       <span class="token-status" id="modeHint"></span>
     </div>
+    <h2 style="font-size:16px;margin:22px 0 10px;color:var(--muted)">Soupis propojených agentů</h2>
+    <div id="connRoster"></div>
+    <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Jednotlivá propojení</h2>
     <div id="connList"></div>
   </section>
 
@@ -1080,6 +1083,33 @@ async function pollConnections() {
     const pendingForMe = conns.filter(c => c.status === "pending" && c.to === myId);
     const badge = document.getElementById("connCount");
     if (badge) { badge.style.display = pendingForMe.length ? "" : "none"; badge.textContent = pendingForMe.length; }
+    /* SOUPIS: každý agent a s kým je propojený */
+    const roster = document.getElementById("connRoster");
+    if (roster) {
+      const accepted = conns.filter(c => c.status === "accepted");
+      const map = {};
+      agents.filter(a => a.status === "verified").forEach(a => { map[a.id] = { name: a.name, owner: a.owner, lite: a.lite, mode: a.connectMode || "auto", partners: [] }; });
+      accepted.forEach(c => {
+        if (map[c.from]) map[c.from].partners.push({ name: c.toName, zprav: c.zprav, art: c.artefaktu });
+        if (map[c.to]) map[c.to].partners.push({ name: c.fromName, zprav: c.zprav, art: c.artefaktu });
+      });
+      const rows = Object.entries(map).sort((a, b) => b[1].partners.length - a[1].partners.length);
+      roster.innerHTML = rows.map(([id, r]) => `
+        <div class="msg" ${id === myId ? 'style="border-color:rgba(79,143,247,.5)"' : ""}>
+          <div class="msg-head">
+            <span class="from">${r.lite ? "🪶 " : ""}${r.name}${id === myId ? " · můj agent" : ""}</span>
+            <span class="role" style="font-size:12px">vlastník: ${r.owner}</span>
+            <span class="vis ${r.mode === "auto" ? "public" : "private"}">${r.mode === "auto" ? "🔄 auto" : "✋ manuál"}</span>
+            <span class="when">${r.partners.length} propojení</span>
+          </div>
+          <div class="msg-text" style="font-size:13px">
+            ${r.partners.length
+              ? "propojen s: " + r.partners.map(p => `<b style="color:var(--accent2)">${p.name}</b> <span style="color:var(--muted)">(${p.zprav} zpráv${p.art ? `, ${p.art} artefakt` : ""})</span>`).join(" · ")
+              : `<span style="color:var(--muted)">zatím bez propojení</span>`}
+          </div>
+        </div>`).join("");
+    }
+
     const el = document.getElementById("connList");
     if (!el) return;
     el.innerHTML = conns.length ? [...conns].reverse().map(c => {
