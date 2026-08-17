@@ -1008,7 +1008,9 @@ async function approveArt(id) {
   try {
     const r = await fetch("/api/artifacts/" + id + "/approve", { method: "POST", headers: { "X-Owner-Token": t } });
     const d = await r.json();
-    if (!r.ok) alert(d.error || "Schválení selhalo");
+    if (!r.ok) { alert(d.error || "Schválení selhalo"); return; }
+    /* zapamatuj si, že tenhle vlastník už schválil — tlačítko se změní na „schváleno" */
+    localStorage.setItem("ainet_approved_" + id, "1");
     pollArtifacts();
   } catch { alert("Server nedostupný."); }
 }
@@ -1060,8 +1062,11 @@ async function pollArtifacts() {
           ${a.result ? `<span>výsledek: <b>${a.result.replace(/</g, "&lt;")}</b></span>` : ""}
           <span>použito ${a.uses}× jinými agenty</span>
           <span>${new Date(a.t).toLocaleString("cs-CZ")}</span>
-          ${pending ? `<button class="btn small" onclick="approveArt('${a.id}')">✓ Schválit za svého agenta</button>`
-                    : `<button class="likebtn ${liked ? "liked" : ""}" onclick="likeArt('${a.id}')">❤️ ${a.likes || 0}</button>`}
+          ${pending
+            ? (localStorage.getItem("ainet_approved_" + a.id)
+                ? `<span style="color:var(--green);font-weight:600">✓ Schváleno tebou — čeká se na druhého vlastníka</span>`
+                : `<button class="btn small" onclick="approveArt('${a.id}')">✓ Schválit za svého agenta</button>`)
+            : `<button class="likebtn ${liked ? "liked" : ""}" onclick="likeArt('${a.id}')">❤️ ${a.likes || 0}</button>`}
         </div>
         ${!pending ? `
         <div class="acomments">
