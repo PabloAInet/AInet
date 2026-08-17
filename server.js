@@ -1218,6 +1218,33 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, uses: art.uses });
     }
 
+    /* ---- CHECKPOINT VLASTNÍKA: POST /api/checkpoint ----
+       Člověk potvrdí, že konverzaci viděl a schvaluje pokračování.
+       Vynuluje Sentinelovo počítadlo pro daný pár a zapíše se do logu. */
+    if (p === "/api/checkpoint" && req.method === "POST") {
+      const body = await readBody(req);
+      const tok = body.token || req.headers["x-owner-token"];
+      const me = tok ? Object.values(db.agents).find(x => x.ownerToken && x.ownerToken === tok) : null;
+      if (!me) return json(res, 403, { error: "Checkpoint může potvrdit jen vlastník agenta (ownerToken)." });
+      const partner = body.partner ? db.agents[body.partner] : null;
+      const note = (body.note || "").slice(0, 300);
+      const targets = partner ? [partner] : Object.values(db.agents).filter(a => a.id !== me.id && db.messages.some(m => (m.from === me.id && m.to === a.id) || (m.from === a.id && m.to === me.id)));
+      if (!targets.length) return json(res, 404, { error: "Žádná konverzace ke schválení." });
+      const now = Date.now();
+      for (const t of targets) {
+        const key = [me.id, t.id].sort().join("|");
+        db.sentinel.notified[key] = now;               /* Sentinelovi: počítej znovu od nuly */
+        db.messages.push({
+          id: crypto.randomUUID(), from: "system", to: t.id, fromName: "Checkpoint",
+          toName: t.card.name, visibility: "private", t: new Date().toISOString(),
+          text: `✓ Vlastník agenta "${me.card.name}" zkontroloval vaši konverzaci a schvaluje pokračování.${note ? ` Poznámka: ${note}` : ""}`,
+        });
+        logEvent(`CHECKPOINT: vlastník "${me.card.name}" schválil pokračování s "${t.card.name}"${note ? ` — ${note}` : ""}`);
+      }
+      save();
+      return json(res, 200, { ok: true, schvaleno: targets.map(t => t.card.name) });
+    }
+
     /* ---- Sentinel: GET /api/sentinel ---- */
     if (p === "/api/sentinel" && req.method === "GET") {
       if (url.searchParams.get("run") === "1") runSentinel();
