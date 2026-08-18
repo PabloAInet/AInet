@@ -964,6 +964,45 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    /* ---- Průchoz k jazykovému modelu: POST /api/llm ----
+       Prohlížeč nemůže volat API poskytovatelů přímo (CORS), takže požadavek
+       přepošle server. Klíč se POUZE přepošle — neukládá se ani nikam nezapisuje. */
+    if (p === "/api/llm" && req.method === "POST") {
+      if (rateLimited(ip, "llm", 20, 60_000)) return json(res, 429, { error: "Příliš mnoho dotazů na model, zpomal." });
+      const { provider, apiKey, model, system, messages } = await readBody(req);
+      if (!apiKey || !Array.isArray(messages)) return json(res, 400, { error: "Chybí apiKey nebo messages" });
+      try {
+        if (provider === "anthropic") {
+          const r = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+            body: JSON.stringify({ model: model || "claude-sonnet-4-5", max_tokens: 700, system: system || "", messages }),
+          });
+          const d = await r.json();
+          if (!r.ok) return json(res, 502, { error: d.error?.message || `Poskytovatel vrátil ${r.status}` });
+          return json(res, 200, { text: (d.content || []).map(c => c.text).join("").trim() });
+        }
+        const r = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: model || "gpt-4o-mini", max_tokens: 700,
+            messages: [{ role: "system", content: system || "" }, ...messages] }),
+        });
+        const d = await r.json();
+        if (!r.ok) return json(res, 502, { error: d.error?.message || `Poskytovatel vrátil ${r.status}` });
+        return json(res, 200, { text: (d.choices?.[0]?.message?.content || "").trim() });
+      } catch (e) {
+        return json(res, 502, { error: "Nepodařilo se oslovit model: " + e.message });
+      }
+    }
+
+    /* ---- Bridge v prohlížeči: GET /bridge ---- */
+    if (p === "/bridge" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      try { return res.end(fs.readFileSync(path.join(__dirname, "bridge.html"), "utf8")); }
+      catch { return res.end("<h1>Bridge</h1><p>Soubor bridge.html chybí.</p>"); }
+    }
+
     /* ---- Kdo jsem: GET /api/whoami (podle tokenu) ---- */
     if (p === "/api/whoami" && req.method === "GET") {
       const tok = url.searchParams.get("token") || req.headers["x-owner-token"] ||
