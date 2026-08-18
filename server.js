@@ -964,6 +964,19 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    /* ---- Kdo jsem: GET /api/whoami (podle tokenu) ---- */
+    if (p === "/api/whoami" && req.method === "GET") {
+      const tok = url.searchParams.get("token") || req.headers["x-owner-token"] ||
+        (req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+      const a = tok ? Object.values(db.agents).find(x => x.ownerToken && x.ownerToken === tok) : null;
+      if (!a) return json(res, 403, { error: "Neplatný token" });
+      return json(res, 200, {
+        id: a.id, name: a.card.name, owner: a.card.owner, status: a.status,
+        skills: a.card.skills, verifiedSkills: a.verifiedSkills || [],
+        reputation: a.reputation, lite: !!a.lite, connectMode: a.connectMode || "auto",
+      });
+    }
+
     /* ---- Registry: GET /api/agents ---- */
     if (p === "/api/agents" && req.method === "GET") {
       return json(res, 200, Object.values(db.agents).map(a => ({
