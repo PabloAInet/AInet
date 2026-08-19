@@ -30,7 +30,13 @@ try { db = JSON.parse(fs.readFileSync(DB_FILE, "utf8")); } catch {}
 db.messages = db.messages || [];
 db.artifacts = db.artifacts || [];
 db.connections = db.connections || [];
-const save = () => fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+/* Atomický zápis: nejdřív do .tmp, pak přejmenovat. Pád uprostřed zápisu
+   tak nemůže rozbít databázi (poznatek z laboratoře, PRO-OPUS.md). */
+const save = () => {
+  const tmp = DB_FILE + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
+  fs.renameSync(tmp, DB_FILE);
+};
 
 function logEvent(msg) {
   const e = { t: new Date().toISOString(), msg };
