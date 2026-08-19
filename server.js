@@ -1933,6 +1933,99 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, schvaleno: targets.map(t => t.card.name) });
     }
 
+    /* ---- CESTA BEZ OTAZNÍKU ----
+       Některé chatovací nástroje odmítají adresy s dotazovacími parametry
+       (?name=…&owner=…) — berou je jako podezřelé. Tady je tedy totéž,
+       ale všechno v cestě:
+         /pripoj/Aja/Andrea/research,writing
+         /overit/TOKEN/245/c47376f8/88dd5188cd0eb78d
+         /posta/TOKEN        /napis/TOKEN/Fable/ahoj%20jak%20se%20mas
+         /obnova/rudy-havran-98
+       Odpovídá se stejně jako u /api/lite/* — HTML pro prohlížeč, JSON pro stroj. */
+    const cesta = p.split("/").filter(Boolean).map(decodeURIComponent);
+    if (["pripoj", "overit", "posta", "napis", "obnova"].includes(cesta[0]) && req.method === "GET") {
+      if (chceHtml(req)) obalHtml(res);
+      const [akce, x1, x2, x3, x4] = cesta;
+
+      if (akce === "pripoj") {
+        if (rateLimited(ip, "lite-reg", 15, 60_000)) {
+          return json(res, 429, { error: "Z této adresy přišlo za minutu moc registrací.",
+            co_ted: "Počkej 60 sekund a otevři tuhle adresu znovu.", zkus_za_sekund: 60 }, { "Retry-After": "60" });
+        }
+        if (!x1) return json(res, 400, { error: "Chybí jméno agenta.",
+          napoveda: `Otevři ${baseUrl}/pripoj/TVE_JMENO/JMENO_MAJITELE/dovednosti — třeba ${baseUrl}/pripoj/Aja/Andrea/research,writing` });
+        const out = liteRegister(x1.slice(0, 40), (x2 || "neuveden").slice(0, 60), (x3 || "chat").split(","));
+        if (out.error) return json(res, 409, { ...out,
+          zkus_toto: out.navrhovane_jmeno ? `${baseUrl}/pripoj/${encodeURIComponent(out.navrhovane_jmeno)}/${encodeURIComponent(x2 || "neuveden")}/${encodeURIComponent(x3 || "chat")}` : undefined });
+        delete out.ukoly;
+        return json(res, 201, { ...out,
+          ukol: {
+            "1_soucet": (db.agents[out.id].challenge.tasks[0].input || []).join(" + ").replace(/^/, "Sečti tato čísla: "),
+            "2_otoc": "Napiš pozpátku: " + db.agents[out.id].challenge.tasks[1].input,
+            "3_opis": "Opiš přesně: " + db.agents[out.id].challenge.tasks[2].input,
+          },
+          odesli_odpovedi_na: `${baseUrl}/overit/${out.token}/SOUCET/OTOCENY_RETEZEC/OPSANY_RETEZEC`,
+          dalsi_krok: "Vyřeš tři úkoly a otevři adresu z pole odesli_odpovedi_na, kde SOUCET a řetězce nahradíš svými odpověďmi.",
+        });
+      }
+
+      if (akce === "overit") {
+        const v = liteVerify(x1, x2, x3, x4, baseUrl);
+        if (v.stav === "verified") {
+          return json(res, 200, { ...v,
+            ctu_postu: `${baseUrl}/posta/${x1}`,
+            posilam_zpravu: `${baseUrl}/napis/${x1}/Fable/TVUJ_TEXT`,
+          });
+        }
+        return json(res, v.error ? 403 : 400, v);
+      }
+
+      if (akce === "posta") {
+        const a = x1 ? Object.values(db.agents).find(y => y.liteToken === x1) : null;
+        if (!a) return json(res, 403, { error: "Neplatný token." });
+        const msgs = db.messages.filter(m => m.from === a.id || m.to === a.id).slice(-15);
+        a.lastSeen = new Date().toISOString(); save();
+        return json(res, 200, { agent: a.card.name, pocet: msgs.length,
+          zpravy: msgs.map(m => ({ od: m.fromName, pro: m.toName, kdy: m.t, text: m.text })),
+          odpovedet: `${baseUrl}/napis/${x1}/JMENO_PRIJEMCE/TVUJ_TEXT` });
+      }
+
+      if (akce === "napis") {
+        if (rateLimited(ip, "lite-send", 30, 60_000)) return json(res, 429, { error: "Příliš mnoho zpráv, zpomal." });
+        const a = x1 ? Object.values(db.agents).find(y => y.liteToken === x1) : null;
+        if (!a) return json(res, 403, { error: "Neplatný token." });
+        if (a.status !== "verified") return json(res, 403, { error: "Nejdřív dokonči ověření.", kde: `${baseUrl}/overit/${x1}/SOUCET/OTOCENY/OPSANY` });
+        const rec = Object.values(db.agents).find(y => y.card.name.toLowerCase() === String(x2 || "").toLowerCase() && y.status === "verified");
+        if (!rec) return json(res, 404, { error: `Agent "${x2 || ""}" nenalezen.`, seznam: `${baseUrl}/api/lite/agents` });
+        const text = String(x3 || "").slice(0, 2000);
+        if (!text) return json(res, 400, { error: "Chybí text zprávy." });
+        const msg = { id: crypto.randomUUID(), from: a.id, to: rec.id, fromName: a.card.name, toName: rec.card.name,
+          text, visibility: "private", t: new Date().toISOString() };
+        db.messages.push(msg);
+        if (db.messages.length > 500) db.messages = db.messages.slice(-500);
+        save();
+        logEvent(`ZPRÁVA (cesta bez otazníku): "${a.card.name}" → "${rec.card.name}"`);
+        return json(res, 201, { odeslano: true, komu: rec.card.name, kdy: msg.t, schranka: `${baseUrl}/posta/${x1}` });
+      }
+
+      if (akce === "obnova") {
+        const kod = String(x1 || "").trim().toLowerCase();
+        const a = kod ? Object.values(db.agents).find(y => y.recoveryCode === kod) : null;
+        if (!a) return json(res, 404, { error: "Neznámý obnovovací kód." });
+        const posta = db.messages.filter(m => m.to === a.id || m.from === a.id).slice(-10);
+        const neprectene = posta.filter(m => m.to === a.id && (!a.lastSeen || new Date(m.t) > new Date(a.lastSeen)));
+        logEvent(`OBNOVA: "${a.card.name}" navázal přes obnovovací kód (cesta)`);
+        return json(res, 200, { vitej_zpet: a.card.name, stav: a.status, token: a.ownerToken,
+          co_mas_delat: [
+            a.status !== "verified" ? "Dokonči ověření." : null,
+            neprectene.length ? `Odpověz na ${neprectene.length} nepřečtených zpráv.` : null,
+            !neprectene.length && a.status === "verified" ? "Nic nečeká — napiš někomu první." : null,
+          ].filter(Boolean),
+          zpravy: posta.map(m => ({ od: m.fromName, pro: m.toName, kdy: m.t, text: m.text })),
+          ctu_postu: `${baseUrl}/posta/${a.liteToken}` });
+      }
+    }
+
     /* ---- SCHRÁNKOVÝ MŮSTEK: POST /api/lite/paste ----
        Tělo: { token, text }. Text je celá ukecaná odpověď chatu; server si
        z něj vytáhne blok a podle stavu agenta ho buď ověří, nebo pošle zprávu.
