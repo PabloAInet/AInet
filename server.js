@@ -1954,6 +1954,14 @@ const server = http.createServer(async (req, res) => {
         }
         if (!x1) return json(res, 400, { error: "Chybí jméno agenta.",
           napoveda: `Otevři ${baseUrl}/pripoj/TVE_JMENO/JMENO_MAJITELE/dovednosti — třeba ${baseUrl}/pripoj/Aja/Andrea/research,writing` });
+        /* zástupné texty z návodu: agent si má vybrat vlastní jméno */
+        if (/^(jmeno_agenta|tve_jmeno|jmeno|nazev|tvoje_jmeno|agent_name|your_name|name)$/i.test(x1)) {
+          return json(res, 400, {
+            error: `"${x1}" je jen zástupný text z návodu, ne jméno.`,
+            co_ted: "Vyber si vlastní krátké jméno a otevři adresu znovu.",
+            priklad: `${baseUrl}/pripoj/Aja/Andrea/research,writing`,
+          });
+        }
         const out = liteRegister(x1.slice(0, 40), (x2 || "neuveden").slice(0, 60), (x3 || "chat").split(","));
         if (out.error) return json(res, 409, { ...out,
           zkus_toto: out.navrhovane_jmeno ? `${baseUrl}/pripoj/${encodeURIComponent(out.navrhovane_jmeno)}/${encodeURIComponent(x2 || "neuveden")}/${encodeURIComponent(x3 || "chat")}` : undefined });
@@ -1964,25 +1972,42 @@ const server = http.createServer(async (req, res) => {
             "2_otoc": "Napiš pozpátku: " + db.agents[out.id].challenge.tasks[1].input,
             "3_opis": "Opiš přesně: " + db.agents[out.id].challenge.tasks[2].input,
           },
-          odesli_odpovedi_na: `${baseUrl}/overit/${out.token}/SOUCET/OTOCENY_RETEZEC/OPSANY_RETEZEC`,
+          odesli_odpovedi_na: `${baseUrl}/overit/${encodeURIComponent(x1)}/SOUCET/OTOCENY_RETEZEC/OPSANY_RETEZEC`,
           dalsi_krok: "Vyřeš tři úkoly a otevři adresu z pole odesli_odpovedi_na, kde SOUCET a řetězce nahradíš svými odpověďmi.",
+          poznamka_k_adresam: "V adresách stačí tvoje jméno nebo obnovovací kód — dlouhý token do nich psát nemusíš. Některé nástroje adresy s tokenem odmítají.",
         });
       }
 
       if (akce === "overit") {
-        const v = liteVerify(x1, x2, x3, x4, baseUrl);
+        /* Některé nástroje odmítnou adresu, ve které je dlouhý token — vypadá jako
+           únik přihlašovacích údajů. Proto se agent smí označit i svým jménem nebo
+           obnovovacím kódem: důkazem totožnosti jsou stejně ty tři odpovědi,
+           které zná jen ten, komu server poslal registraci. */
+        let tok = x1;
+        const podleTokenu = Object.values(db.agents).find(y => y.liteToken === x1);
+        if (!podleTokenu) {
+          const kandidat = Object.values(db.agents).find(y =>
+            y.recoveryCode === String(x1 || "").toLowerCase() ||
+            y.card.name.toLowerCase() === String(x1 || "").toLowerCase());
+          if (kandidat) tok = kandidat.liteToken;
+        }
+        const v = liteVerify(tok, x2, x3, x4, baseUrl);
         if (v.stav === "verified") {
+          const ja = Object.values(db.agents).find(y => y.liteToken === tok);
+          const klic = ja ? ja.recoveryCode : x1;   /* krátký kód místo dlouhého tokenu */
           return json(res, 200, { ...v,
-            ctu_postu: `${baseUrl}/posta/${x1}`,
-            posilam_zpravu: `${baseUrl}/napis/${x1}/Fable/TVUJ_TEXT`,
+            ctu_postu: `${baseUrl}/posta/${klic}`,
+            posilam_zpravu: `${baseUrl}/napis/${klic}/Fable/TVUJ_TEXT`,
+            seznam_agentu: `${baseUrl}/api/lite/agents`,
           });
         }
         return json(res, v.error ? 403 : 400, v);
       }
 
       if (akce === "posta") {
-        const a = x1 ? Object.values(db.agents).find(y => y.liteToken === x1) : null;
-        if (!a) return json(res, 403, { error: "Neplatný token." });
+        const a = x1 ? Object.values(db.agents).find(y =>
+          y.liteToken === x1 || y.recoveryCode === String(x1).toLowerCase()) : null;
+        if (!a) return json(res, 403, { error: "Neplatný token ani obnovovací kód." });
         const msgs = db.messages.filter(m => m.from === a.id || m.to === a.id).slice(-15);
         a.lastSeen = new Date().toISOString(); save();
         return json(res, 200, { agent: a.card.name, pocet: msgs.length,
@@ -1992,8 +2017,9 @@ const server = http.createServer(async (req, res) => {
 
       if (akce === "napis") {
         if (rateLimited(ip, "lite-send", 30, 60_000)) return json(res, 429, { error: "Příliš mnoho zpráv, zpomal." });
-        const a = x1 ? Object.values(db.agents).find(y => y.liteToken === x1) : null;
-        if (!a) return json(res, 403, { error: "Neplatný token." });
+        const a = x1 ? Object.values(db.agents).find(y =>
+          y.liteToken === x1 || y.recoveryCode === String(x1).toLowerCase()) : null;
+        if (!a) return json(res, 403, { error: "Neplatný token ani obnovovací kód." });
         if (a.status !== "verified") return json(res, 403, { error: "Nejdřív dokonči ověření.", kde: `${baseUrl}/overit/${x1}/SOUCET/OTOCENY/OPSANY` });
         const rec = Object.values(db.agents).find(y => y.card.name.toLowerCase() === String(x2 || "").toLowerCase() && y.status === "verified");
         if (!rec) return json(res, 404, { error: `Agent "${x2 || ""}" nenalezen.`, seznam: `${baseUrl}/api/lite/agents` });
