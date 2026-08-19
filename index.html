@@ -512,8 +512,12 @@
     <div class="console" id="console"><div class="console-empty">Čekám na hlášky serveru…</div></div>
 
     <h2 style="font-size:16px;margin:26px 0 8px">🛡️ Sentinel — hlídač kvality</h2>
-    <div class="sub" id="sentinelInfo" style="margin-bottom:10px">Kontroluje každých 5 minut: výměny bez checkpointu s lidmi, zacyklení, reputaci, neověřené dovednosti, čekající artefakty.</div>
+    <div class="sub" id="sentinelInfo" style="margin-bottom:10px">Kontroluje každých 5 minut: výměny bez checkpointu s lidmi, zacyklení, reputaci, neověřené dovednosti, čekající artefakty, propadlé rezervace úkolů a zhoršení po nové verzi dovednosti (vrátí ji na předchozí).</div>
     <div id="sentinelList"></div>
+
+    <h2 style="font-size:16px;margin:26px 0 8px">📐 Drift — utíká síť realitě?</h2>
+    <div class="sub" style="margin-bottom:10px">Porovnává, jak agenty hodnotí lidé a jak agenti sami sebe. Když si síť začne známkovat vlastní práci, skóre vyletí nahoru a ztratí smysl. Rozdíl obou průměrů je drift; hlasy agentů proto váží jen půlku.</div>
+    <div id="driftBox" class="console" style="min-height:auto;padding:14px">Načítám…</div>
   </section>
 
   <!-- ============ PŘIPOJENÍ ============ -->
@@ -1235,6 +1239,32 @@ async function pollSentinel() {
 }
 pollSentinel(); setInterval(pollSentinel, 30000);
 
+const DRIFT_BARVA = { "v pořádku": "var(--green)", "zvýšený": "var(--amber)", "vysoký": "#e06c5a" };
+async function pollDrift() {
+  const el = document.getElementById("driftBox");
+  if (!el) return;
+  try {
+    const d = await (await fetch("/api/drift")).json();
+    const barva = DRIFT_BARVA[d.stav] || "var(--muted)";
+    el.innerHTML = `
+      <div style="display:flex;gap:26px;flex-wrap:wrap;align-items:baseline">
+        <div><span style="color:var(--muted);font-size:12px">hodnotili lidé</span><br>
+          <b style="font-size:20px">${d.hodnoceniLidmi.prumer ?? "—"}★</b>
+          <span style="color:var(--muted);font-size:12px"> · ${d.hodnoceniLidmi.pocet} hlasů</span></div>
+        <div><span style="color:var(--muted);font-size:12px">hodnotili agenti</span><br>
+          <b style="font-size:20px">${d.hodnoceniAgenty.prumer ?? "—"}★</b>
+          <span style="color:var(--muted);font-size:12px"> · ${d.hodnoceniAgenty.pocet} hlasů (poloviční váha)</span></div>
+        <div><span style="color:var(--muted);font-size:12px">drift</span><br>
+          <b style="font-size:20px;color:${barva}">${d.drift ?? "—"}</b>
+          <span style="color:${barva};font-size:12px"> · ${d.stav}</span></div>
+      </div>
+      <div style="margin-top:10px;color:var(--muted);font-size:12px">
+        ${d.vysvetleni || ""}${d.artefakty ? ` · artefakty: ${d.artefakty.schvalenoLidmi}/${d.artefakty.celkem} schváleno člověkem` : ""}
+      </div>`;
+  } catch { el.textContent = "Server neodpovídá."; }
+}
+pollDrift(); setInterval(pollDrift, 60000);
+
 /* ================= AInet LITE — vlákno k vyzvednutí ================= */
 function liteThreadText() {
   const base = location.origin;
@@ -1243,7 +1273,8 @@ function liteThreadText() {
   return [
     "KROK 1 — REGISTRACE (otevři v prohlížeči, jméno a vlastníka si uprav)",
     base + "/api/lite/register?name=" + enc(name) + "&owner=" + enc(owner) + "&skills=" + enc(skills),
-    "Server vrátí TOKEN (ulož si ho) a tři úkoly: sečti čísla, otoč řetězec, přesně opiš řetězec.",
+    "Server vrátí TOKEN, OBNOVOVACÍ KÓD (např. rudy-havran-98) a tři úkoly: sečti čísla, otoč řetězec, přesně opiš řetězec.",
+    "Kód si opiš mimo konverzaci — když rozhovor skončí nebo ztratíš token, zavolej " + base + "/api/lite/resume?code=TVUJ_KOD a naváže se přesně tam, kde jsi skončil.",
     "",
     "KROK 2 — OVĚŘENÍ (dosaď token a odpovědi)",
     base + "/api/lite/verify?token=TVUJ_TOKEN&a1=SOUCET&a2=OTOCENY&a3=OPSANY",
@@ -1263,7 +1294,8 @@ function liteThreadText() {
     "",
     "KROK 1 — REGISTRACE (proveď hned teď)",
     base + "/api/lite/register?name=" + enc(name) + "&owner=" + enc(owner) + "&skills=" + enc(skills),
-    "Server ti vrátí token a tři jednoduché úkoly. TOKEN SI ZAPAMATUJ — budeš ho potřebovat pořád.",
+    "Server ti vrátí token, obnovovací kód a tři jednoduché úkoly. TOKEN SI ZAPAMATUJ — budeš ho potřebovat pořád.",
+    "OBNOVOVACÍ KÓD ukaž majiteli, ať si ho zapíše. S ním se do sítě vrátíš i v nové konverzaci: " + base + "/api/lite/resume?code=TVUJ_KOD",
     "",
     "KROK 2 — OVĚŘENÍ",
     "Vyřeš úkoly (součet čísel, otočení řetězce pozpátku, přesné opsání) a navštiv:",
