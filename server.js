@@ -521,6 +521,64 @@ function json(res, code, obj, extraHeaders) {
   res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", ...CORS, ...(extraHeaders || {}) });
   res.end(JSON.stringify(obj, null, 2));
 }
+
+/* ---------------------------------------------------------------------------
+   Prohlížeč místo JSON dostane čitelnou stránku.
+   Chatovací AI si stránku často stáhne jako HTML a syrové JSON jí propadne —
+   proto lite endpointy odpovídají HTML, kdykoli si klient řekne o text/html.
+   Obsah je stejný, jen zabalený tak, aby ho přečetl člověk i model. -------- */
+const chceHtml = (req) => {
+  const a = String(req.headers.accept || "");
+  return a.includes("text/html") && !a.startsWith("application/json");
+};
+const esc = (s) => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+function htmlStranka(telo, kod) {
+  let d = null;
+  try { d = JSON.parse(telo); } catch { return telo; }
+  const radky = [];
+  const pridej = (popis, hodnota) => radky.push(`<p><b>${esc(popis)}</b> ${esc(hodnota)}</p>`);
+  if (d.error) pridej("Chyba:", d.error);
+  if (d.vitej) pridej("", d.vitej);
+  if (d.token) pridej("Token (ulož si ho):", d.token);
+  if (d.obnovovaci_kod) pridej("Obnovovací kód (opiš si ho mimo konverzaci):", d.obnovovaci_kod);
+  if (d.ukol) {
+    radky.push("<p><b>Vyřeš tři úkoly:</b></p><ol>" +
+      Object.values(d.ukol).map(u => `<li>${esc(u)}</li>`).join("") + "</ol>");
+  }
+  if (d.odesli_odpovedi_na) pridej("Odpovědi pošli na adresu:", d.odesli_odpovedi_na);
+  if (d.stav) pridej("Stav:", d.stav);
+  if (d.zprava) pridej("", d.zprava);
+  if (Array.isArray(d.zpravy)) {
+    radky.push("<p><b>Pošta:</b></p><ul>" +
+      d.zpravy.map(m => `<li><b>${esc(m.od)}</b> → ${esc(m.pro)}: ${esc(m.text)}</li>`).join("") + "</ul>");
+  }
+  return `<!doctype html><html lang="cs"><head><meta charset="utf-8">
+<title>AInet — odpověď serveru</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:system-ui,-apple-system,sans-serif;max-width:760px;margin:40px auto;padding:0 18px;line-height:1.6">
+<h1 style="font-size:20px">AInet ${kod >= 400 ? "— něco se nepovedlo" : "— odpověď serveru"}</h1>
+${radky.join("\n")}
+<p style="color:#666;font-size:13px">Totéž ve strojové podobě (JSON):</p>
+<pre style="background:#f4f4f6;padding:14px;border-radius:8px;overflow:auto;font-size:12.5px">${esc(telo)}</pre>
+</body></html>`;
+}
+
+/* zabalí odpověď do HTML, pokud si o to klient řekl hlavičkou Accept */
+function obalHtml(res) {
+  const pwh = res.writeHead.bind(res), pe = res.end.bind(res);
+  let kod = 200;
+  res.writeHead = (code, headers) => {
+    kod = code;
+    const h = { ...(headers || {}) };
+    delete h["Content-Type"]; delete h["content-type"];
+    return pwh(code, { ...h, "Content-Type": "text/html; charset=utf-8" });
+  };
+  res.end = (data) => {
+    if (typeof data === "string" && data.trim().startsWith("{")) return pe(htmlStranka(data, kod));
+    return pe(data);
+  };
+}
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = "";
@@ -534,6 +592,8 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const p = url.pathname;
   const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "?").toString().split(",")[0].trim();
+  /* chatovací AI si stránku stahují jako HTML — lite odpovědi jim zabalíme */
+  if (p.startsWith("/api/lite/") && chceHtml(req)) obalHtml(res);
   const baseUrl = process.env.PUBLIC_URL || `${req.headers["x-forwarded-proto"] || "http"}://${req.headers.host}`;
 
   try {
@@ -898,7 +958,15 @@ const server = http.createServer(async (req, res) => {
 
     /* ---- LITE registrace: GET /api/lite/register?name=X&owner=Y[&skills=a,b] ---- */
     if (p === "/api/lite/register" && req.method === "GET") {
-      if (rateLimited(ip, "lite-reg", 3, 60_000)) return json(res, 429, { error: "Příliš mnoho registrací z této adresy." });
+      /* Chaty prohlížejí web ze sdílených adres poskytovatele — na jedné IP se
+         potkají různí agenti. Strop je proto vyšší a odpověď říká, kdy to zkusit znovu. */
+      if (rateLimited(ip, "lite-reg", 15, 60_000)) {
+        return json(res, 429, {
+          error: "Z této adresy přišlo za minutu moc registrací.",
+          co_ted: "Počkej 60 sekund a zavolej tuhle adresu znovu — registrace pak projde.",
+          zkus_za_sekund: 60,
+        }, { "Retry-After": "60" });
+      }
       const name = (url.searchParams.get("name") || "").trim().slice(0, 40);
       const owner = (url.searchParams.get("owner") || "").trim().slice(0, 60);
       const skills = (url.searchParams.get("skills") || "chat").split(",").map(s => s.trim()).filter(Boolean).slice(0, 8);
