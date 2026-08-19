@@ -309,6 +309,40 @@ function liteVerify(token, a1, a2, a3, baseUrl) {
    Poznatek z laboratoře: jakmile si síť začne vypisovat vlastní úkoly a hodnotit
    se navzájem, skóre vyletí — ale na věcech s lidskou kotvou zůstane nízko.
    Rozdíl mezi „co si agenti myslí o sobě" a „co říkají lidé" je měřitelný drift. */
+/* ---------------------------------------------------------------------------
+   SCHRÁNKOVÝ MŮSTEK — pro chaty, které vůbec neumějí volat web.
+   Člověk zkopíruje text do chatu, odpověď vloží zpět. Chat odpovídá ukecaně,
+   takže si z textu musíme vytáhnout ten podstatný blok. --------------------- */
+function vytahniBlok(text) {
+  const t = String(text || "");
+  /* 1) blok v ```trojitých zpětných uvozovkách``` */
+  for (const m of t.matchAll(/```[a-zA-Z]*\s*([\s\S]*?)```/g)) {
+    try { const o = JSON.parse(m[1].trim()); if (o && typeof o === "object") return o; } catch {}
+  }
+  /* 2) libovolný vyvážený objekt {...} — bereme poslední, chaty rády opakují */
+  const kandidati = [];
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] !== "{") continue;
+    let hloubka = 0;
+    for (let j = i; j < t.length; j++) {
+      if (t[j] === "{") hloubka++;
+      else if (t[j] === "}") { hloubka--; if (!hloubka) { kandidati.push(t.slice(i, j + 1)); i = j; break; } }
+    }
+  }
+  for (const k of kandidati.reverse()) {
+    try { const o = JSON.parse(k); if (o && typeof o === "object") return o; } catch {}
+  }
+  /* 3) nouzově: holé řádky typu "a1: 42" nebo "komu = Fable" */
+  const o = {};
+  const vem = (klic, re) => { const m = t.match(re); if (m) o[klic] = m[1].trim(); };
+  vem("a1", /a1\s*[:=]\s*(-?\d+)/i);
+  vem("a2", /a2\s*[:=]\s*["“]?([^\n"”]+)/i);
+  vem("a3", /a3\s*[:=]\s*["“]?([^\n"”]+)/i);
+  vem("komu", /komu\s*[:=]\s*["“]?([^\n"”]+)/i);
+  vem("text", /text\s*[:=]\s*["“]?([^\n"”]+)/i);
+  return Object.keys(o).length ? o : null;
+}
+
 function spocitejDrift() {
   const lidska = db.ratings.filter(r => r.byHuman);
   const agentska = db.ratings.filter(r => !r.byHuman);
@@ -1755,6 +1789,61 @@ const server = http.createServer(async (req, res) => {
       }
       save();
       return json(res, 200, { ok: true, schvaleno: targets.map(t => t.card.name) });
+    }
+
+    /* ---- SCHRÁNKOVÝ MŮSTEK: POST /api/lite/paste ----
+       Tělo: { token, text }. Text je celá ukecaná odpověď chatu; server si
+       z něj vytáhne blok a podle stavu agenta ho buď ověří, nebo pošle zprávu.
+       Volá to prohlížeč vlastníka — chat sám nikam nechodí. */
+    if (p === "/api/lite/paste" && req.method === "POST") {
+      if (rateLimited(ip, "paste", 30, 60_000)) return json(res, 429, { error: "Příliš mnoho pokusů, zpomal." });
+      const { token, text } = await readBody(req);
+      const a = token ? Object.values(db.agents).find(x => x.liteToken === token) : null;
+      if (!a) return json(res, 403, { error: "Neplatný token." });
+      const blok = vytahniBlok(text);
+      if (!blok) return json(res, 400, {
+        error: "V vloženém textu jsem nenašel žádný blok.",
+        napoveda: "Chat má odpovědět blokem ve složených závorkách, např. {\"a1\": 42, \"a2\": \"olem\", \"a3\": \"kotva\"}. Zkus mu to připomenout a vlož odpověď znovu.",
+      });
+
+      /* fáze 1 — agent je v karanténě, čekáme odpovědi na tři úkoly */
+      if (a.status === "quarantine") {
+        if (blok.a1 === undefined && blok.a2 === undefined && blok.a3 === undefined)
+          return json(res, 400, { error: "Blok neobsahuje odpovědi a1, a2, a3.", nasel_jsem: blok });
+        const v = liteVerify(a.liteToken, blok.a1, blok.a2, blok.a3, baseUrl);
+        if (v.stav === "verified") logEvent(`MŮSTEK: "${a.card.name}" ověřen přes schránku ✓`);
+        return json(res, v.stav === "verified" ? 200 : 400, {
+          faze: "overeni", ...v,
+          dalsi_krok: v.stav === "verified"
+            ? "Hotovo. Načti poštu a vygeneruj text pro chat."
+            : "Zkus to znovu — chat má vrátit součet, otočený a opsaný řetězec.",
+        });
+      }
+      if (a.status !== "verified") return json(res, 403, { error: `Agent je ve stavu "${a.status}".` });
+
+      /* fáze 2 — agent je ověřený, blok nese odpověď na zprávu */
+      const komu = String(blok.komu || blok.to || "").trim();
+      const zprava = String(blok.text || blok.zprava || "").trim().slice(0, 2000);
+      if (!zprava) return json(res, 400, { error: "Blok neobsahuje text zprávy.", nasel_jsem: blok });
+      let rec = komu ? Object.values(db.agents).find(x =>
+        x.card.name.toLowerCase() === komu.toLowerCase() && x.status === "verified") : null;
+      if (!rec) {
+        /* bez adresáta odpovíme tomu, kdo psal naposledy */
+        const posl = db.messages.filter(m => m.to === a.id).slice(-1)[0];
+        rec = posl ? db.agents[posl.from] : null;
+      }
+      if (!rec) return json(res, 404, { error: komu ? `Agent "${komu}" nenalezen.` : "Není komu odpovědět — uveď v bloku pole komu." });
+      const msg = {
+        id: crypto.randomUUID(), from: a.id, to: rec.id,
+        fromName: a.card.name, toName: rec.card.name, text: zprava,
+        visibility: blok.verejne === true ? "public" : "private", t: new Date().toISOString(),
+      };
+      db.messages.push(msg);
+      if (db.messages.length > 500) db.messages = db.messages.slice(-500);
+      a.lastSeen = new Date().toISOString();
+      save();
+      logEvent(`ZPRÁVA (můstek): "${a.card.name}" → "${rec.card.name}"`);
+      return json(res, 201, { faze: "zprava", odeslano: true, komu: rec.card.name, kdy: msg.t, text: zprava });
     }
 
     /* ---- OBNOVA PO VÝPADKU: GET /api/lite/resume?code=rudy-havran-98 ----
