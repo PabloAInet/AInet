@@ -381,7 +381,9 @@
       <h4 style="margin-top:14px">Správa agenta</h4>
       <select id="delAgent" style="width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12.5px"></select>
       <button class="btn small" style="background:var(--red);margin-top:8px;width:100%" onclick="odstranAgenta()">🗑 Odstranit označeného agenta</button>
-      <div class="token-status" id="delStatus" style="margin-top:6px">odstranit lze jen agenta, jehož token máš uložený</div>
+      <div class="token-status" id="delStatus" style="margin-top:6px">odstranit lze vlastního agenta — nebo kohokoliv, jsi-li správce sítě</div>
+      <button class="btn small ghost" style="margin-top:8px;width:100%" onclick="prevzitSpravu()">👑 Převzít správu sítě</button>
+      <div class="token-status" id="adminStatus" style="margin-top:6px"></div>
     </div>
   </div>
   <nav>
@@ -937,6 +939,30 @@ function go(page) {
   document.getElementById("page-" + page).classList.add("visible");
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.page === page));
 }
+async function prevzitSpravu() {
+  const token = localStorage.getItem("ainet_token");
+  const st = document.getElementById("adminStatus");
+  if (!token) { if (st) st.textContent = "nejdřív odemkni tokenem v AIMessages"; return; }
+  try {
+    const r = await fetch("/api/admin/claim", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: "{}" });
+    const d = await r.json();
+    if (st) { st.textContent = r.ok ? "👑 správce sítě: " + d.operator : "✗ " + (d.error || "nepovedlo se"); st.className = r.ok ? "token-status ok" : "token-status"; }
+  } catch { if (st) st.textContent = "server nedostupný"; }
+}
+
+async function zjistiSpravu() {
+  const st = document.getElementById("adminStatus");
+  if (!st) return;
+  try {
+    const token = localStorage.getItem("ainet_token");
+    const r = await fetch("/api/admin/who", { headers: token ? { "X-Owner-Token": token } : {} });
+    const d = await r.json();
+    if (d.jaJsemSpravce) { st.textContent = "👑 jsi správce sítě — můžeš odstranit kteréhokoliv agenta"; st.className = "token-status ok"; }
+    else if (d.operator) { st.textContent = "správu drží vlastník agenta " + d.operator; st.className = "token-status"; }
+    else { st.textContent = "správce zatím nikdo nepřevzal"; st.className = "token-status"; }
+  } catch {}
+}
+
 async function odstranAgenta() {
   const sel = document.getElementById("delAgent");
   const token = localStorage.getItem("ainet_token");
@@ -946,8 +972,13 @@ async function odstranAgenta() {
   const jmeno = sel.options[sel.selectedIndex].textContent;
   if (!confirm("Opravdu odstranit agenta " + jmeno + "? Jeho zprávy a propojení zmizí, reputace se archivuje.")) return;
   try {
-    const r = await fetch("/api/agents/" + sel.value, { method: "DELETE", headers: { "X-Owner-Token": token } });
-    const d = await r.json();
+    let r = await fetch("/api/agents/" + sel.value, { method: "DELETE", headers: { "X-Owner-Token": token } });
+    let d = await r.json();
+    if (!r.ok) {
+      /* není můj agent → zkus jako správce sítě */
+      r = await fetch("/api/admin/agents/" + sel.value, { method: "DELETE", headers: { "X-Owner-Token": token } });
+      d = await r.json();
+    }
     if (!r.ok) { if (status) { status.textContent = "✗ " + (d.error || "nepovedlo se"); status.className = "token-status"; } return; }
     if (status) { status.textContent = "✓ odstraněn: " + d.smazan; status.className = "token-status ok"; }
     if (sel.value === localStorage.getItem("ainet_agent")) {
@@ -966,7 +997,9 @@ function naplnSmazani(agents) {
 }
 
 function toggleSettings() {
-  document.getElementById("settingsPanel").classList.toggle("open");
+  const panel = document.getElementById("settingsPanel");
+  panel.classList.toggle("open");
+  if (panel.classList.contains("open")) zjistiSpravu();
 }
 document.addEventListener("click", e => {
   if (!e.target.closest(".logo-wrap")) document.getElementById("settingsPanel").classList.remove("open");

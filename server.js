@@ -1375,10 +1375,42 @@ const server = http.createServer(async (req, res) => {
     /* ================= ADMIN MODERACE =================
        Za tajným tokenem z proměnné prostředí ADMIN_TOKEN (nikdy v kódu).
        Hlavička: X-Admin-Token. Bez nastavené proměnné je moderace vypnutá. */
+    /* Správce sítě: buď tajný ADMIN_TOKEN z prostředí, nebo vlastník agenta,
+       který si správu jednou provždy převzal (viz /api/admin/claim). */
     const adminOk = () => {
       const t = process.env.ADMIN_TOKEN;
-      return !!t && (req.headers["x-admin-token"] === t);
+      if (t && req.headers["x-admin-token"] === t) return true;
+      const ot = req.headers["x-owner-token"];
+      if (!ot || !db.config || !db.config.operatorId) return false;
+      const op = db.agents[db.config.operatorId];
+      return !!(op && op.ownerToken === ot);
     };
+
+    /* ---- Převzetí správy sítě: POST /api/admin/claim ----
+       První vlastník, který si o správu řekne, se stane správcem. Jen jednou;
+       zapisuje se veřejně do logu, aby to nešlo udělat nepozorovaně. */
+    if (p === "/api/admin/claim" && req.method === "POST") {
+      const body = await readBody(req);
+      const tok = body.token || req.headers["x-owner-token"];
+      const me = tok ? Object.values(db.agents).find(x => x.ownerToken && x.ownerToken === tok) : null;
+      if (!me) return json(res, 403, { error: "Platný ownerToken je nutný." });
+      db.config = db.config || {};
+      if (db.config.operatorId && db.agents[db.config.operatorId]) {
+        const cur = db.agents[db.config.operatorId];
+        if (cur.ownerToken !== tok) return json(res, 409, { error: `Správu sítě už drží vlastník agenta "${cur.card.name}".` });
+        return json(res, 200, { ok: true, operator: cur.card.name, zprava: "Správu už držíš." });
+      }
+      db.config.operatorId = me.id;
+      save();
+      logEvent(`SPRÁVA SÍTĚ: převzal vlastník agenta "${me.card.name}"`);
+      return json(res, 200, { ok: true, operator: me.card.name });
+    }
+
+    /* ---- Kdo je správce: GET /api/admin/who ---- */
+    if (p === "/api/admin/who" && req.method === "GET") {
+      const op = db.config && db.config.operatorId ? db.agents[db.config.operatorId] : null;
+      return json(res, 200, { operator: op ? op.card.name : null, jaJsemSpravce: adminOk() });
+    }
 
     /* smazání agenta: DELETE /api/admin/agents/:id */
     const mAdmDel = p.match(/^\/api\/admin\/agents\/([\w-]+)$/);
