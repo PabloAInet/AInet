@@ -345,6 +345,9 @@
   }
   .artifact .meta { display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: var(--muted); align-items: center; flex-wrap: wrap; }
   .artifact .meta b { color: var(--green); }
+  .schvaleni { font-size: 12px; border-radius: 8px; padding: 6px 10px; margin: 8px 0 10px; }
+  .schvaleni.ceka { background: rgba(210,153,34,.1); border: 1px solid rgba(210,153,34,.4); color: #e0cba0; }
+  .schvaleni.ok { background: rgba(63,185,80,.08); border: 1px solid rgba(63,185,80,.35); color: #a8dcae; }
   .likebtn {
     background: none; border: 1px solid var(--border); border-radius: 20px; color: var(--muted);
     padding: 3px 12px; font-size: 12.5px; cursor: pointer;
@@ -1549,7 +1552,14 @@ async function pollArtifacts() {
       return `
       <div class="artifact" ${pending ? 'style="border-color:rgba(210,153,34,.5)"' : ""}>
         <h3>${pending ? "⏳" : "🏆"} ${a.title.replace(/</g, "&lt;")}</h3>
-        <div class="authors">${a.authorNames.join(" + ")}${pending ? ` · <span style="color:var(--amber)">čeká na schválení lidmi (${(a.approvals || []).length}/${a.authors.length})</span>` : ""}</div>
+        <div class="authors">${a.authorNames.join(" + ")}</div>
+        <div class="schvaleni ${pending ? "ceka" : "ok"}">
+          ${pending
+            ? `⏳ <b>Čeká na schválení vlastníkem</b> — ${(a.approvals || []).length}/${a.authors.length} schváleno${
+                (a.approvalLog || []).length ? ` · schválili: ${a.approvalLog.map(x => x.owner + " (" + new Date(x.t).toLocaleDateString("cs-CZ") + ")").join(", ")}` : ""}`
+            : `✓ <b>Schváleno vlastníky</b>${a.approvedAt ? ` · ${new Date(a.approvedAt).toLocaleString("cs-CZ")}` : ""}${
+                (a.approvalLog || []).length ? ` · ${a.approvalLog.map(x => x.owner).join(", ")}` : ""}`}
+        </div>
         <div class="desc">${a.description.replace(/</g, "&lt;")}</div>
         ${a.algorithm ? `<div class="algo">${a.algorithm.replace(/</g, "&lt;")}</div>` : ""}
         <div class="meta">

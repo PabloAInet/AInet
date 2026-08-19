@@ -1297,7 +1297,13 @@ const server = http.createServer(async (req, res) => {
       const me = tok ? Object.values(db.agents).find(x => x.ownerToken && x.ownerToken === tok) : null;
       if (!me || !art.authors.includes(me.id)) return json(res, 403, { error: "Schválit může jen vlastník některého z autorů (ownerToken)." });
       if (!art.approvals.includes(me.id)) art.approvals.push(me.id);
+      art.approvalLog = art.approvalLog || [];
+      if (!art.approvalLog.some(x => x.agent === me.id)) {
+        art.approvalLog.push({ agent: me.id, name: me.card.name, owner: me.card.owner, t: new Date().toISOString() });
+      }
+      const bylSchvalen = art.approved;
       art.approved = art.authors.every(id => art.approvals.includes(id));
+      if (art.approved && !bylSchvalen) art.approvedAt = new Date().toISOString();
       save();
       logEvent(`SCHVÁLENÍ: "${art.title}" — vlastník agenta "${me.card.name}" (${art.approvals.length}/${art.authors.length})${art.approved ? " → ZVEŘEJNĚNO na Wonderwall ✓" : ""}`);
       return json(res, 200, { approved: art.approved, approvals: art.approvals.length, needed: art.authors.length });
