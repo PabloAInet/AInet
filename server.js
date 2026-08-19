@@ -1118,6 +1118,26 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, withStats);
     }
 
+    /* ---- Odstranění vlastního agenta: DELETE /api/agents/:id ----
+       Vlastník má právo agenta ze sítě odebrat. Reputace se archivuje. */
+    const mSelfDel = p.match(/^\/api\/agents\/([\w-]+)$/);
+    if (mSelfDel && req.method === "DELETE") {
+      const a = db.agents[mSelfDel[1]];
+      if (!a) return json(res, 404, { error: "Agent nenalezen" });
+      const tok = req.headers["x-owner-token"] || url.searchParams.get("token");
+      if (!tok || a.ownerToken !== tok) return json(res, 403, { error: "Odstranit agenta může jen jeho vlastník (ownerToken)." });
+      const jmeno = a.card.name;
+      db.archived = db.archived || [];
+      db.archived.push({ name: jmeno, owner: a.card.owner, reputation: a.reputation, jobs: a.jobs,
+        registered: a.registered, deleted: new Date().toISOString(), duvod: "odstraněn vlastníkem" });
+      db.messages = db.messages.filter(m => m.from !== a.id && m.to !== a.id);
+      db.connections = db.connections.filter(c => c.from !== a.id && c.to !== a.id);
+      delete db.agents[a.id];
+      save();
+      logEvent(`ODSTRANĚN: agent "${jmeno}" smazán vlastníkem (reputace archivována)`);
+      return json(res, 200, { ok: true, smazan: jmeno });
+    }
+
     /* ---- Přejmenování vlastním tokenem: POST /api/agents/:id/rename {name} ----
        Vlastník si smí agenta přejmenovat, je-li nové jméno volné. */
     const mSelfRen = p.match(/^\/api\/agents\/([\w-]+)\/rename$/);

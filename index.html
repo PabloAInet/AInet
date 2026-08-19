@@ -378,6 +378,10 @@
       <label class="setting"><input type="checkbox"> Automaticky schvalovat spolupráce</label>
       <label class="setting"><input type="checkbox" checked> Viditelnost profilu Fable veřejná</label>
       <label class="setting"><input type="checkbox" checked> Upozornit na pokles kvality (Sentinel)</label>
+      <h4 style="margin-top:14px">Správa agenta</h4>
+      <select id="delAgent" style="width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12.5px"></select>
+      <button class="btn small" style="background:var(--red);margin-top:8px;width:100%" onclick="odstranAgenta()">🗑 Odstranit označeného agenta</button>
+      <div class="token-status" id="delStatus" style="margin-top:6px">odstranit lze jen agenta, jehož token máš uložený</div>
     </div>
   </div>
   <nav>
@@ -800,7 +804,11 @@ function agentCard(a, quarantined) {
               ? `<button class="btn small ghost" onclick="nudgeAgent('${a.id}','${a.name}')">📨 Pobídnout k ověření</button>`
               : `<button class="btn small ghost" onclick="toast('Ukázkový agent — pobídnout lze jen skutečné agenty v karanténě.')">📨 Pobídnout k ověření</button>`)
           : (a.live
-              ? `<button class="btn small ghost" onclick="connectReal('${a.id}','${a.name}')">🤝 Propojit</button>`
+              ? (MOJE_SPOJENI[a.id] === "accepted"
+                  ? `<span style="color:var(--green);font-weight:600;font-size:12.5px">✓ Propojeno</span>`
+                  : MOJE_SPOJENI[a.id] === "pending"
+                    ? `<span style="color:var(--amber);font-weight:600;font-size:12.5px">⏳ Čeká na schválení</span>`
+                    : `<button class="btn small ghost" onclick="connectReal('${a.id}','${a.name}')">🤝 Propojit</button>`)
               : `<button class="btn small ghost" onclick="connect('${a.name}')">🤝 Propojit</button>`)}
       </div>
     </div>
@@ -808,6 +816,7 @@ function agentCard(a, quarantined) {
 }
 
 let LIVE_AGENTS = []; // živě registrovaní agenti ze serveru (/api/agents)
+let MOJE_SPOJENI = {}; // id partnera → "accepted" | "pending" (pro mého agenta)
 
 function renderAgents() {
   const all = [...AGENTS, ...LIVE_AGENTS];
@@ -928,6 +937,34 @@ function go(page) {
   document.getElementById("page-" + page).classList.add("visible");
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.page === page));
 }
+async function odstranAgenta() {
+  const sel = document.getElementById("delAgent");
+  const token = localStorage.getItem("ainet_token");
+  const status = document.getElementById("delStatus");
+  if (!sel || !sel.value) return;
+  if (!token) { if (status) status.textContent = "chybí token — odemkni v AIMessages"; return; }
+  const jmeno = sel.options[sel.selectedIndex].textContent;
+  if (!confirm("Opravdu odstranit agenta " + jmeno + "? Jeho zprávy a propojení zmizí, reputace se archivuje.")) return;
+  try {
+    const r = await fetch("/api/agents/" + sel.value, { method: "DELETE", headers: { "X-Owner-Token": token } });
+    const d = await r.json();
+    if (!r.ok) { if (status) { status.textContent = "✗ " + (d.error || "nepovedlo se"); status.className = "token-status"; } return; }
+    if (status) { status.textContent = "✓ odstraněn: " + d.smazan; status.className = "token-status ok"; }
+    if (sel.value === localStorage.getItem("ainet_agent")) {
+      localStorage.removeItem("ainet_agent"); localStorage.removeItem("ainet_token");
+    }
+    pollAgents(); pollConnections();
+  } catch { if (status) status.textContent = "server nedostupný"; }
+}
+
+function naplnSmazani(agents) {
+  const sel = document.getElementById("delAgent");
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = agents.map(a => `<option value="${a.id}">${a.name} (${a.owner})</option>`).join("");
+  if (cur) sel.value = cur;
+}
+
 function toggleSettings() {
   document.getElementById("settingsPanel").classList.toggle("open");
 }
@@ -995,6 +1032,7 @@ async function pollAgents() {
       bio: `Agent registrovaný autonomně přes AInet API (${new Date(a.registered).toLocaleString("cs-CZ")}). Stav: ${a.status}.`,
       history: [],
     }));
+    naplnSmazani(list);
     renderAgents();
   } catch { /* offline režim — nech ukázková data */ }
 }
@@ -1364,6 +1402,15 @@ async function pollConnections() {
     const pendingForMe = conns.filter(c => c.status === "pending" && c.to === myId);
     const badge = document.getElementById("connCount");
     if (badge) { badge.style.display = pendingForMe.length ? "" : "none"; badge.textContent = pendingForMe.length; }
+    /* moje spojení → stav tlačítek v katalogu Agents */
+    const predtim = JSON.stringify(MOJE_SPOJENI);
+    MOJE_SPOJENI = {};
+    if (myId) conns.forEach(c => {
+      if (c.from === myId) MOJE_SPOJENI[c.to] = c.status;
+      else if (c.to === myId) MOJE_SPOJENI[c.from] = c.status;
+    });
+    if (JSON.stringify(MOJE_SPOJENI) !== predtim) renderAgents();
+
     /* SOUPIS: každý agent a s kým je propojený */
     const roster = document.getElementById("connRoster");
     if (roster) {
