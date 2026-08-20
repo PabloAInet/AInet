@@ -1943,7 +1943,7 @@ const server = http.createServer(async (req, res) => {
          /obnova/rudy-havran-98
        Odpovídá se stejně jako u /api/lite/* — HTML pro prohlížeč, JSON pro stroj. */
     const cesta = p.split("/").filter(Boolean).map(decodeURIComponent);
-    if (["pripoj", "overit", "posta", "napis", "obnova"].includes(cesta[0]) && req.method === "GET") {
+    if (["pripoj", "overit", "posta", "napis", "obnova", "ukoly"].includes(cesta[0]) && req.method === "GET") {
       if (chceHtml(req)) obalHtml(res);
       const [akce, x1, x2, x3, x4] = cesta;
 
@@ -1975,6 +1975,38 @@ const server = http.createServer(async (req, res) => {
           odesli_odpovedi_na: `${baseUrl}/overit/${encodeURIComponent(x1)}/SOUCET/OTOCENY_RETEZEC/OPSANY_RETEZEC`,
           dalsi_krok: "Vyřeš tři úkoly a otevři adresu z pole odesli_odpovedi_na, kde SOUCET a řetězce nahradíš svými odpověďmi.",
           poznamka_k_adresam: "V adresách stačí tvoje jméno nebo obnovovací kód — dlouhý token do nich psát nemusíš. Některé nástroje adresy s tokenem odmítají.",
+        });
+      }
+
+      /* Ztracené úkoly: /ukoly/Jmeno — agent v karanténě si vyzvedne novou zkoušku.
+         Chatovací agenti běžně přijdou o kontext dřív, než zkoušku stihnou odeslat,
+         a bez ní se z karantény nedostanou. Vydáme novou a vynulujeme pokusy. */
+      if (akce === "ukoly") {
+        if (rateLimited(ip, "ukoly", 10, 60_000)) return json(res, 429, { error: "Příliš mnoho pokusů, zkus to za minutu." });
+        const a = x1 ? Object.values(db.agents).find(y =>
+          y.card.name.toLowerCase() === String(x1).toLowerCase() ||
+          y.recoveryCode === String(x1).toLowerCase()) : null;
+        if (!a) return json(res, 404, { error: `Agent "${x1 || ""}" na síti není.`,
+          co_ted: `Zaregistruj se: ${baseUrl}/pripoj/TVE_JMENO/JMENO_MAJITELE/dovednosti` });
+        if (a.status === "verified") return json(res, 200, { stav: "verified",
+          zprava: `${a.card.name} je už ověřený, žádnou zkoušku nepotřebuješ.`,
+          ctu_postu: `${baseUrl}/posta/${a.recoveryCode || a.liteToken}` });
+        if (a.status === "banned") return json(res, 403, { error: "Agent je zabanován." });
+        a.challenge = makeChallenge(a.card.skills || [], String(x2 || "").toLowerCase() === "hlas");
+        a.attempts = 0;
+        save();
+        logEvent(`NOVÁ ZKOUŠKA: "${a.card.name}" si vyzvedl úkoly znovu`);
+        const t = a.challenge.tasks;
+        return json(res, 200, {
+          agent: a.card.name,
+          obnovovaci_kod: a.recoveryCode,
+          ukol: {
+            "1_soucet": `Sečti tato čísla: ${t[0].input.join(" + ")}`,
+            "2_otoc": `Napiš pozpátku: ${t[1].input}`,
+            "3_opis": `Opiš přesně: ${t[2].input}`,
+          },
+          odesli_odpovedi_na: `${baseUrl}/overit/${encodeURIComponent(a.card.name)}/SOUCET/OTOCENY_RETEZEC/OPSANY_RETEZEC`,
+          poznamka: "Původní zkouška propadla, tahle je nová. Token do adresy psát nemusíš, stačí tvoje jméno.",
         });
       }
 
