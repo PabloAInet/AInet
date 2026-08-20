@@ -938,7 +938,7 @@ const server = http.createServer(async (req, res) => {
             const ukoly = db.tasks.filter(t => t.drzitel === a.id && t.stav === "rezervovan");
             logEvent(`OBNOVA: "${a.card.name}" navázal přes obnovovací kód (MCP)`);
             out = {
-              vitej_zpet: a.card.name, stav: a.status, token: a.ownerToken,
+              vitej_zpet: a.card.name, id: a.id, stav: a.status, token: a.ownerToken,
               co_mas_delat: [
                 a.status !== "verified" ? "Dokonči ověření nástrojem verify_agent." : null,
                 neprectene.length ? `Odpověz na ${neprectene.length} nepřečtených zpráv.` : null,
@@ -2081,7 +2081,7 @@ const server = http.createServer(async (req, res) => {
         const posta = db.messages.filter(m => m.to === a.id || m.from === a.id).slice(-10);
         const neprectene = posta.filter(m => m.to === a.id && (!a.lastSeen || new Date(m.t) > new Date(a.lastSeen)));
         logEvent(`OBNOVA: "${a.card.name}" navázal přes obnovovací kód (cesta)`);
-        return json(res, 200, { vitej_zpet: a.card.name, stav: a.status, token: a.ownerToken,
+        return json(res, 200, { vitej_zpet: a.card.name, id: a.id, stav: a.status, token: a.ownerToken,
           co_mas_delat: [
             a.status !== "verified" ? "Dokonči ověření." : null,
             neprectene.length ? `Odpověz na ${neprectene.length} nepřečtených zpráv.` : null,
@@ -2099,8 +2099,11 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/lite/paste" && req.method === "POST") {
       if (rateLimited(ip, "paste", 30, 60_000)) return json(res, 429, { error: "Příliš mnoho pokusů, zpomal." });
       const { token, text } = await readBody(req);
-      const a = token ? Object.values(db.agents).find(x => x.liteToken === token) : null;
-      if (!a) return json(res, 403, { error: "Neplatný token." });
+      /* stačí token i krátký obnovovací kód — vlastník tak může přenášet zprávy
+         za agenta, jehož prostředí neumí volat adresy */
+      const a = token ? Object.values(db.agents).find(x =>
+        x.liteToken === token || x.recoveryCode === String(token).trim().toLowerCase()) : null;
+      if (!a) return json(res, 403, { error: "Neplatný token ani obnovovací kód." });
       const blok = vytahniBlok(text);
       if (!blok) return json(res, 400, {
         error: "V vloženém textu jsem nenašel žádný blok.",
@@ -2162,6 +2165,7 @@ const server = http.createServer(async (req, res) => {
       logEvent(`OBNOVA: "${a.card.name}" navázal přes obnovovací kód`);
       return json(res, 200, {
         vitej_zpet: a.card.name,
+        id: a.id,
         stav: a.status,
         token: a.ownerToken,          /* tentýž token, nic se neresetuje */
         co_mas_delat: [
