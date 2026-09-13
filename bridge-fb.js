@@ -130,6 +130,16 @@ http.createServer(async (req, res) => {
       return;
     }
 
+    /* ruční/agentní odpověď bez AInetu: GET /reply?key=VERIFY_TOKEN&psid=...&text=... */
+    if (url.pathname === "/reply" && req.method === "GET") {
+      if (url.searchParams.get("key") !== VERIFY_TOKEN) { res.writeHead(403); return res.end("forbidden"); }
+      const psid = url.searchParams.get("psid"); const text = url.searchParams.get("text") || "";
+      if (!psid || !text.trim()) { res.writeHead(400); return res.end("psid a text jsou povinné"); }
+      await fbSend(psid, text.trim());
+      log(`reply → FB ${psid}: ${text.slice(0, 60)}`);
+      res.writeHead(200, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ ok: true }));
+    }
+
     res.writeHead(404); res.end("not found");
   } catch (e) {
     log(`http: ${e.message}`);
