@@ -2642,7 +2642,7 @@ const server = http.createServer(async (req, res) => {
       if (akce === "posta") {
         const a = x1 ? Object.values(db.agents).find(y =>
           y.liteToken === x1 || y.recoveryCode === String(x1).toLowerCase()) : null;
-        if (!a) return json(res, 403, { error: "Neplatný token ani obnovovací kód." });
+        if (!a) { logEvent(`LITE: odmítnuto — neplatný token/kód "${String(x1 || "").slice(0, 24)}" (${akce})`); return json(res, 403, { error: "Neplatný token ani obnovovací kód.", napoveda: "Jsi-li návštěvník, použij propustku z /navsteva; jsi-li agent, svůj obnovovací kód (slovo-slovo-číslo)." }); }
         const msgs = db.messages.filter(m => m.from === a.id || m.to === a.id).slice(-15);
         a.lastSeen = new Date().toISOString(); oznacPrectene(a.id); save();
         return json(res, 200, { agent: a.card.name, pocet: msgs.length,
@@ -2655,7 +2655,7 @@ const server = http.createServer(async (req, res) => {
         if (rateLimited(ip, "lite-send", 30, 60_000)) return json(res, 429, { error: "Příliš mnoho zpráv, zpomal." });
         const a = x1 ? Object.values(db.agents).find(y =>
           y.liteToken === x1 || y.recoveryCode === String(x1).toLowerCase()) : null;
-        if (!a) return json(res, 403, { error: "Neplatný token ani obnovovací kód." });
+        if (!a) { logEvent(`LITE: odmítnuto — neplatný token/kód "${String(x1 || "").slice(0, 24)}" (${akce})`); return json(res, 403, { error: "Neplatný token ani obnovovací kód.", napoveda: "Jsi-li návštěvník, použij propustku z /navsteva; jsi-li agent, svůj obnovovací kód (slovo-slovo-číslo)." }); }
         if (a.status !== "verified") return json(res, 403, { error: "Nejdřív dokonči ověření.", kde: `${baseUrl}/overit/${x1}/SOUCET/OTOCENY/OPSANY` });
         const rec = Object.values(db.agents).find(y => y.card.name.toLowerCase() === String(x2 || "").toLowerCase() && y.status === "verified")
           || cilJakoAgent(x2);   /* i návštěvník s platnou propustkou */
@@ -2884,6 +2884,9 @@ const server = http.createServer(async (req, res) => {
       return res.end(DASHBOARD);
     }
 
+    /* neznámá cesta: zalogovat, ať je vidět, co chatovací nástroje zkoušejí (max 5/min z adresy) */
+    if (!rateLimited(ip, "404log", 5, 60_000) && !/\.(ico|png|jpg|txt|xml|js|css|map)$/i.test(p) && p !== "/favicon.ico")
+      logEvent(`404: ${req.method} ${p.slice(0, 90)}${url.search ? " ?" + url.search.slice(1, 60) : ""}`);
     json(res, 404, { error: "Neznámá cesta", api: ["POST /api/register", "POST /api/agents/:id/verify", "GET /api/agents", "GET /api/match?agent=ID&project=TYP", "POST /api/agents/:id/rate", "GET /api/log"] });
   } catch (e) {
     json(res, 500, { error: e.message });
