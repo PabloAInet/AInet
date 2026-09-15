@@ -199,6 +199,10 @@ async function zaregistruj(jmeno, dovednosti) {
     ok(liteInbox.status === 200 && Array.isArray(liteInbox.data.zpravy) && liteInbox.data.zpravy[0].od !== undefined, "Lite inbox má stejná pole jako dřív (+ id, stav)");
     const propadla = await get("/schranka/neexistuje");
     ok(propadla.status === 403, "neplatná propustka → 403 s návodem");
+    const podlePrezdivky = await get(`/schranka/${v.data.prezdivka}`);
+    ok(podlePrezdivky.status === 403, "veřejná přezdívka host-… schránku NEotevře (jen tajná propustka)");
+    const psaniZaCiziho = await get(`/zeptat/${v.data.prezdivka}/Fable/${enc("pokus psát za cizího")}`);
+    ok(psaniZaCiziho.status === 403, "přezdívkou nejde psát za cizího návštěvníka");
     const zdravi0 = await get("/healthz");
     ok(zdravi0.data.fableAuto === false, "bez klíče k modelu je vestavěný odpovídač Fabla vypnutý");
 

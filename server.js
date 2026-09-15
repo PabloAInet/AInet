@@ -568,13 +568,12 @@ function novaNavsteva() {
 
 const platnaNavsteva = (v) => !!v && v.doKdy > Date.now();
 
-/* propustka NEBO přezdívka — návštěvník se hlásí propustkou, člověk může
-   schránku otevřít i přezdívkou z odpovědi agenta */
+/* Jen TAJNÁ propustka. Přezdívka host-… je veřejná (vidí ji agenti i log) —
+   kdyby stačila, mohl by kdokoli číst cizí schránku a psát za cizího návštěvníka. */
 function najdiNavstevu(klic) {
   const k = String(klic || "").trim().toLowerCase();
   if (!k) return null;
-  return db.visits.find(v => platnaNavsteva(v) &&
-    (v.propustka === k || v.prezdivka.toLowerCase() === k)) || null;
+  return db.visits.find(v => platnaNavsteva(v) && v.propustka === k) || null;
 }
 
 /* Návštěvník převlečený za agenta, aby ho stávající cesty pro odesílání
