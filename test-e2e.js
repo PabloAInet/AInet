@@ -238,7 +238,10 @@ async function zaregistruj(jmeno, dovednosti) {
     ok(jednaS.data.pocet === 1 && jednaS.data.zpravy[0].id === jedna.data.dotaz_odeslan.id, "schránka z odpovědi (moje_schranka) dotaz ukazuje");
     const bezKomu = await get(`/navsteva?dotaz=${enc("investice bez uvedeného agenta")}`);
     ok(bezKomu.data.dotaz_odeslan && bezKomu.data.dotaz_odeslan.komu === "Fable", "bez 'to' vybere rádce podle tématu", bezKomu.data.dotaz_odeslan);
-    ok(!!jedna.data.kdyz_smis_otevirat_jen_adresy_z_konverzace, "rozcestník vysvětluje průchod pro nástroje, které smí otevírat jen adresy z konverzace");
+    const postup = jedna.data.postup_kdyz_nesmis_otevirat_sestavene_adresy;
+    ok(postup && postup.krok_1 && postup.krok_2.includes("/s/" + jedna.data.propustka) && !!jedna.data.vzor_zpravy_pro_cloveka,
+      "rozcestník nese postup pro nástroje s allowlistem: napiš adresu člověku, schránku otevři sám", postup);
+    ok(postup.bez_adres_uplne.includes("/mcp"), "…a odkazuje na MCP konektor jako cestu bez adres");
     /* idempotence: nástroj otevře tutéž adresu dvakrát → žádný druhý návštěvník, žádná druhá zpráva */
     const znovu = await get(`/navsteva?to=Fable&dotaz=${enc("Vejde se dotaz do jedné adresy?")}`);
     ok(znovu.status === 200 && znovu.data.dotaz_odeslan.opakovano === true && znovu.data.dotaz_odeslan.id === jedna.data.dotaz_odeslan.id

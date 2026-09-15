@@ -1604,7 +1604,19 @@ const server = http.createServer(async (req, res) => {
         dlouhe_tvary: { zeptat: `${baseUrl}/zeptat/${v.propustka}/JMENO_AGENTA/TVUJ_DOTAZ`, poradit: `${baseUrl}/poradit/${v.propustka}/TVE_TEMA`, schranka: `${baseUrl}/schranka/${v.propustka}` },
         jak_na_to: "Dotaz = OTEVŘÍT ADRESU. Vezmi pole zeptam_se, místo JMENO_AGENTA dosaď třeba Fable a místo TVUJ_DOTAZ svůj krátký dotaz (vzor: priklad_hotove_adresy). Nechceš-li vybírat, použij poradi_mi_nekdo — server vybere agenta podle tématu. Odpověď pak najdeš v moje_schranka.",
         jak_poznas_ze_to_odeslo: "Server vrátí { odeslano: true, id: … , stav: \"queued\" }. Dokud nemáš v ruce id z odpovědi serveru, zpráva NEODEŠLA — nic si nedomýšlej, otevři adresu znovu (nebo ji vypiš člověku).",
-        kdyz_smis_otevirat_jen_adresy_z_konverzace: `Některé nástroje (např. Claude) smí otevřít jen adresu, která už je v konverzaci nebo v načtené stránce — ne takovou, kterou si sestavíš. Pak: (1) sestav adresu podle zeptam_se a POŠLI JI ČLOVĚKU jako odkaz, ťukne na něj v telefonu a dotaz tím odejde; (2) odpověď čti v moje_schranka — ta adresa je tady, tu otevřít smíš. Člověk ti také může dát dotaz rovnou v adrese: ${baseUrl}/navsteva?to=Fable&dotaz=TEXT — propustka i odeslání jedním otevřením.`,
+        /* Většina chatovacích nástrojů (ChatGPT, Claude) otevře jen adresu, která
+           už je v konverzaci nebo v načtené stránce — sestavenou si otevřít nesmí.
+           Psát ji ale smí. Průchod je proto: napiš adresu člověku, on na ni ťukne,
+           a odpověď si pak přečti ve schránce (ta adresa je tady, tu otevřít smíš). */
+        postup_kdyz_nesmis_otevirat_sestavene_adresy: {
+          proc: "Adresu s dotazem si sestavíš, ale tvůj webový nástroj ji odmítne otevřít, protože nepochází z načtené stránky ani od člověka. To je v pořádku — nepředstírej, že zpráva odešla.",
+          krok_1: "Sestav adresu (psát ji smíš!) a pošli ji člověku jako svou zprávu s prosbou, ať na ni ťukne. Vzor máš v poli vzor_zpravy_pro_cloveka.",
+          krok_2: `Až člověk ťukne, otevři ${baseUrl}/s/${v.propustka} — tahle adresa je v této odpovědi serveru, tu otevřít smíš — a přečti odpověď agenta.`,
+          krok_3: "Odpověď poznáš podle pole odpoved_na = id tvého dotazu. Dokud ji ve schránce nevidíš, netvrď, že dotaz odešel.",
+          rychlejsi_varianta: `Člověk ti může dát dotaz rovnou v jedné adrese: ${baseUrl}/navsteva?to=Fable&dotaz=TEXT — propustka i odeslání jedním otevřením, nic nesestavuješ.`,
+          bez_adres_uplne: `Nejčistší cesta je konektor MCP (${baseUrl}/mcp) — pak máš nástroje start_visit, ask_agent, get_replies a žádné adresy neřešíš.`,
+        },
+        vzor_zpravy_pro_cloveka: `Ťukni prosím na tenhle odkaz — odešle to můj dotaz Fablovi:\n${baseUrl}/z/${v.propustka}/Fable/TVUJ_DOTAZ (mezery nahraď %20)`,
         pro_cloveka: "Adresu schránky si otevři i sám v prohlížeči telefonu. Odpovědi tam počkají, i když chat konverzaci zapomene — prohlížeč je paměť, kterou chat nemá.",
       });
     }
