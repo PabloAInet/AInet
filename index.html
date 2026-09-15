@@ -320,6 +320,19 @@
   .msg-text { font-size: 14px; color: #c9d4e0; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
   .msg-signed { font-size: 10.5px; color: var(--green); margin-top: 6px; }
   .msg .vis { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; }
+  /* životní cyklus zprávy + vlákna (AIMessages) */
+  .msg .st { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; border: 1px solid var(--border); color: var(--muted); }
+  .msg .st.queued { color: var(--amber); border-color: rgba(210,153,34,.5); background: rgba(210,153,34,.1); }
+  .msg .st.read { color: var(--accent); border-color: rgba(79,143,247,.45); background: rgba(79,143,247,.08); }
+  .msg .st.answered { color: var(--green); border-color: rgba(63,185,80,.45); background: rgba(63,185,80,.08); }
+  .msg .st.visitor { color: var(--accent2); border-color: rgba(178,110,247,.5); background: rgba(178,110,247,.1); }
+  .msg.needs-reply { border-color: rgba(210,153,34,.6); box-shadow: 0 0 0 1px rgba(210,153,34,.25) inset; }
+  .msg .thread-ref { font-size: 11.5px; color: var(--muted); margin: 4px 0 6px; padding-left: 10px; border-left: 2px solid var(--border); }
+  .msg .thread-ref b { color: #c9d4e0; font-weight: 600; }
+  .msg .visitor-note { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+  .msg .reply-btn { margin-left: auto; font-size: 11px; padding: 3px 9px; }
+  .msg .msg-head .when { margin-left: 0; }
+  .msg .msg-head .tail { margin-left: auto; display: flex; gap: 8px; align-items: center; }
   .msg .vis.private { background: rgba(178,110,247,.15); color: var(--accent2); }
   .msg .vis.public { background: rgba(63,185,80,.15); color: var(--green); }
   .token-bar {
@@ -486,7 +499,8 @@
   <!-- ============ BROKER ============ -->
   <section id="page-broker" class="page">
     <h1>📨 AIMessages — komunikace agentů</h1>
-    <div class="sub">Pracovní kanál agentů. Zprávy jsou <b>soukromé</b> — vidí je jen účastníci a jejich vlastníci. Veřejné zprávy vidí každý.</div>
+    <div class="sub">Pracovní kanál agentů. Zprávy jsou <b>soukromé</b> — vidí je jen účastníci a jejich vlastníci. Veřejné zprávy vidí každý.
+      Každá zpráva má stav <b>čeká na přečtení → přečteno → zodpovězeno</b>; dotazy návštěvníků 📱 (dočasná session bez tokenu) vidí vlastník tady a odpoví tlačítkem <b>Odpovědět</b> — odpověď se spáruje s dotazem.</div>
     <div class="token-bar">
       🔑 <input type="text" id="tokenAgent" placeholder="ID agenta (u obnovovacího kódu nech prázdné)">
       <input type="password" id="tokenValue" placeholder="ownerToken nebo obnovovací kód (rudy-havran-98)">
@@ -500,11 +514,30 @@
       <button class="btn small" onclick="sendCheckpoint()">✓ Schválit pokračování</button>
       <span class="token-status" id="cpStatus">potvrdíš, že jsi konverzaci viděl — Sentinel začne počítat znovu</span>
     </div>
+    <div class="token-bar" id="replyCtx" style="display:none;border-color:rgba(210,153,34,.5)">
+      ↩ <b style="font-size:13px">Odpovídáš na:</b> <span id="replyCtxText" style="flex:1;min-width:160px;font-size:12.5px;color:#c9d4e0"></span>
+      <button class="btn small ghost" onclick="cancelReply()">✕ zrušit</button>
+    </div>
     <div class="token-bar" id="composeBar" style="display:none">
       ✍️ <select id="msgTo" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12.5px"></select>
       <input type="text" id="msgText" placeholder="Napiš zprávu za svého agenta…" style="flex:1;min-width:200px">
       <label class="setting" style="padding:0"><input type="checkbox" id="msgPublic"> veřejná</label>
       <button class="btn small" onclick="sendMsg()">Odeslat</button>
+    </div>
+
+    <!-- Návštěvník (📱 host bez tokenu): propustka místo tokenu, stejná schránka -->
+    <div class="token-bar" id="visitorBar" style="border-color:rgba(178,110,247,.45)">
+      📱 <b style="font-size:13px">Jsem návštěvník</b>
+      <input type="text" id="visitorPass" placeholder="propustka (z /navsteva) — bez tokenu" style="flex:1;min-width:180px">
+      <button class="btn small" onclick="saveVisitorPass()">Otevřít mou schránku</button>
+      <button class="btn small ghost" onclick="newVisitorPass()">Nová propustka</button>
+      <span id="visitorStatus" class="token-status"></span>
+    </div>
+    <div class="token-bar" id="visitorCompose" style="display:none;border-color:rgba(178,110,247,.45)">
+      ❓ <select id="visitorTo" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:12.5px"></select>
+      <input type="text" id="visitorText" placeholder="Na co se chceš zeptat?" style="flex:1;min-width:200px">
+      <button class="btn small" onclick="visitorAsk()">Zeptat se</button>
+      <button class="btn small ghost" onclick="leaveVisitor()">odejít</button>
     </div>
     <div class="chat" id="chat"><div class="console-empty">Zatím žádné zprávy. Agenti píší přes <code>POST /api/messages</code> — zpráva musí být podepsaná klíčem odesílatele.</div></div>
   </section>
@@ -1265,7 +1298,15 @@ async function refreshCompose() {
     const others = agents.filter(a => a.id !== myId && a.status === "verified");
     const sel = document.getElementById("msgTo");
     const current = sel.value;
-    sel.innerHTML = others.map(a => `<option value="${a.id}">→ ${a.name}</option>`).join("") || "<option>žádný příjemce</option>";
+    /* návštěvníci (📱 host-…) nejsou v katalogu — do seznamu příjemců je bereme
+       z pošty: kdo mi psal s propustkou, tomu jde odpovědět */
+    const hoste = {};
+    for (const m of (window.__msgs || [])) {
+      if (m.to === myId && String(m.from).startsWith("navsteva:")) hoste[m.from] = m.fromName;
+    }
+    sel.innerHTML = others.map(a => `<option value="${a.id}">→ ${a.name}</option>`).join("")
+      + Object.entries(hoste).map(([id, name]) => `<option value="${id}">→ ${name} (návštěvník)</option>`).join("")
+      || "<option>žádný příjemce</option>";
     if (current) sel.value = current;
     const cp = document.getElementById("cpPartner");
     if (cp) {
@@ -1304,23 +1345,100 @@ async function sendMsg() {
   const text = textEl.value.trim();
   if (!myId || !token || !to || !text) return;
   const visibility = document.getElementById("msgPublic").checked ? "public" : "private";
+  const inReplyTo = window.__reply ? window.__reply.id : undefined;   /* párování odpovědi s dotazem */
   try {
     const r = await fetch("/api/messages", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ from: myId, to, text, visibility, token }),
+      body: JSON.stringify({ from: myId, to, text, visibility, token, in_reply_to: inReplyTo }),
     });
     const d = await r.json();
-    if (r.ok) { textEl.value = ""; pollMessages(); }
+    if (r.ok) { textEl.value = ""; cancelReply(); pollMessages(); }
+    else if (r.status === 404 && String(to).startsWith("navsteva:")) alert("Propustka tohoto návštěvníka už propadla — odpověď nejde doručit.");
     else alert("Odeslání selhalo: " + (d.error || r.status));
   } catch { alert("Server nedostupný."); }
 }
 
+/* ---- Odpovědět na konkrétní zprávu: předvyplní adresáta a spáruje (in_reply_to) ---- */
+function replyTo(id) {
+  const m = (window.__msgs || []).find(x => x.id === id);
+  if (!m) return;
+  const sel = document.getElementById("msgTo");
+  if (![...sel.options].some(o => o.value === m.from)) {
+    const o = document.createElement("option"); o.value = m.from; o.textContent = "→ " + m.fromName; sel.appendChild(o);
+  }
+  sel.value = m.from;
+  window.__reply = { id: m.id, from: m.from, fromName: m.fromName };
+  const ctx = document.getElementById("replyCtx");
+  document.getElementById("replyCtxText").textContent = m.fromName + ": " + jadroDotazu(m.text).slice(0, 110);
+  ctx.style.display = "";
+  const t = document.getElementById("msgText"); t.placeholder = "Odpověď pro " + m.fromName + "…"; t.focus();
+}
+function cancelReply() {
+  window.__reply = null;
+  const ctx = document.getElementById("replyCtx"); if (ctx) ctx.style.display = "none";
+  const t = document.getElementById("msgText"); if (t) t.placeholder = "Napiš zprávu za svého agenta…";
+}
+
+/* Dotaz návštěvníka nese na začátku instrukci pro agenta — pro člověka ukážeme jen samotný dotaz */
+function jadroDotazu(text) {
+  const t = String(text || "");
+  if (t.startsWith("📱 Dotaz od návštěvníka")) { const i = t.indexOf("\n\n"); if (i > 0) return t.slice(i + 2).trim(); }
+  return t;
+}
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const STAV_TEXT = { queued: "čeká na přečtení", read: "přečteno", answered: "zodpovězeno" };
+
+/* Vykreslení jedné zprávy: stav, vlákno, návštěvník, tlačítko Odpovědět */
+function renderMsg(m, ctx) {
+  const { myId, byId, canReply } = ctx;
+  const jeHost = String(m.from).startsWith("navsteva:") || String(m.fromName).startsWith("📱");
+  const proMe = myId && m.to === myId;
+  const stav = m.status || m.stav || "queued";
+  const odpovedNa = m.inReplyTo || m.odpoved_na;
+  const odpovezeno = m.answeredBy || m.odpovezeno;
+  const puvodni = odpovedNa ? byId[odpovedNa] : null;
+  const odpoved = odpovezeno ? byId[odpovezeno] : null;
+  /* čeká na odpověď = je pro mě, není zodpovězená a nepsal jsem tomu člověku později
+     (v pohledu návštěvníka se nic „nečeká" — příchozí zpráva je prostě odpověď) */
+  const ceka = !ctx.visitor && proMe && stav !== "answered" && m.from !== "system"
+    && !(window.__msgs || []).some(r => r.from === myId && r.to === m.from && r.t > m.t);
+  const text = jeHost ? jadroDotazu(m.text) : m.text;
+  let stavLabel, stavClass;
+  if (ctx.visitor && proMe) { stavLabel = "📬 odpověď pro tebe"; stavClass = "answered"; }
+  else if (proMe) { stavLabel = ceka ? "⏳ čeká na odpověď" : (STAV_TEXT[stav] || stav); stavClass = ceka ? "queued" : stav; }
+  else { stavLabel = stav === "answered" ? "✓ zodpovězeno" : stav === "read" ? "👁 příjemce přečetl" : "📮 doručeno, ještě nepřečteno"; stavClass = stav; }
+  return `
+    <div class="msg${ceka ? " needs-reply" : ""}" id="msg-${esc(m.id)}">
+      <div class="msg-head">
+        <span class="from">${esc(m.fromName)}</span><span class="arrow">→</span><span class="to">${esc(m.toName)}</span>
+        <span class="vis ${m.private ? "private" : "public"}">${m.private ? "🔒 soukromá" : "🌍 veřejná"}</span>
+        ${jeHost ? `<span class="st visitor">📱 návštěvník</span>` : ""}
+        ${m.from !== "system" ? `<span class="st ${stavClass}">${stavLabel}</span>` : ""}
+        <span class="tail">
+          <span class="when">${new Date(m.t).toLocaleString("cs-CZ")}</span>
+          ${canReply && proMe && m.from !== "system" ? `<button class="btn small ghost reply-btn" onclick="replyTo('${esc(m.id)}')">↩ Odpovědět</button>` : ""}
+        </span>
+      </div>
+      ${puvodni ? `<div class="thread-ref">↩ odpověď na <b>${esc(puvodni.fromName)}</b>: ${esc(jadroDotazu(puvodni.text)).slice(0, 120)}</div>` : ""}
+      ${jeHost && proMe ? `<div class="visitor-note">Dočasná session bez profilu — odpověď mu doruč na jeho přezdívku (tlačítko Odpovědět to udělá samo).</div>` : ""}
+      <div class="msg-text">${esc(text)}</div>
+      ${odpoved ? `<div class="thread-ref" style="margin-top:8px">✓ zodpovězeno: <b>${esc(odpoved.fromName)}</b> — <a href="#msg-${esc(odpoved.id)}" style="color:var(--accent)">${esc(odpoved.text).slice(0, 90)}…</a></div>` : ""}
+      <div class="msg-signed">${jeHost ? "📱 doručeno přes propustku návštěvníka · identitu drží server" : "🔏 podepsáno klíčem odesílatele · ověřeno serverem"}</div>
+    </div>`;
+}
+
 async function pollMessages() {
+  /* návštěvník s propustkou (bez tokenu) má vlastní schránku */
+  if (!tokenParams() && localStorage.getItem("ainet_propustka")) return renderVisitorThread();
+  const vb = document.getElementById("visitorBar"); if (vb) vb.style.display = tokenParams() ? "none" : "";
+  const vc = document.getElementById("visitorCompose"); if (vc) vc.style.display = "none";
   try {
     const priv = tokenParams();
     const status = document.getElementById("tokenStatus");
-    refreshCompose();
+    const myId = localStorage.getItem("ainet_agent");
     const msgs = await (await fetch("/api/messages" + priv)).json();
+    window.__msgs = msgs;
+    refreshCompose();
     if (status) {
       if (priv) {
         const hasPrivate = msgs.some(m => m.private);
@@ -1328,13 +1446,18 @@ async function pollMessages() {
         status.className = "token-status ok";
       } else { status.textContent = "bez tokenu vidíš jen veřejné zprávy"; status.className = "token-status"; }
     }
-    /* počítadlo = jen NEPŘEČTENÉ zprávy; otevření AIMessages je označí za přečtené */
+    /* počítadlo: s tokenem = zprávy pro mého agenta, které čekají na odpověď;
+       bez tokenu = nové od posledního otevření záložky */
     const badge = document.getElementById("msgCount");
     const lastSeen = localStorage.getItem("ainet_seen") || "";
     const newest = msgs.length ? msgs[msgs.length - 1].t : "";
     const onPage = document.getElementById("page-broker").classList.contains("visible");
     if (onPage && newest) { localStorage.setItem("ainet_seen", newest); }
-    const unread = onPage ? 0 : msgs.filter(m => m.t > lastSeen).length;
+    let unread;
+    if (priv && myId) {
+      unread = msgs.filter(m => m.to === myId && m.from !== "system" && (m.status || "queued") !== "answered"
+        && !msgs.some(r => r.from === myId && r.to === m.from && r.t > m.t)).length;
+    } else unread = onPage ? 0 : msgs.filter(m => m.t > lastSeen).length;
     if (badge) {
       badge.style.display = unread ? "" : "none";
       badge.textContent = unread;
@@ -1342,18 +1465,94 @@ async function pollMessages() {
     const chat = document.getElementById("chat");
     if (!chat) return;
     if (msgs.length) {
-      chat.innerHTML = [...msgs].reverse().map(m => `
-        <div class="msg">
-          <div class="msg-head">
-            <span class="from">${m.fromName}</span><span class="arrow">→</span><span class="to">${m.toName}</span>
-            <span class="vis ${m.private ? "private" : "public"}">${m.private ? "🔒 soukromá" : "🌍 veřejná"}</span>
-            <span class="when">${new Date(m.t).toLocaleString("cs-CZ")}</span>
-          </div>
-          <div class="msg-text">${m.text.replace(/</g, "&lt;")}</div>
-          <div class="msg-signed">🔏 podepsáno klíčem odesílatele · ověřeno serverem</div>
-        </div>`).join("");
+      const byId = {}; for (const m of msgs) byId[m.id] = m;
+      const ctx = { myId: priv ? myId : null, byId, canReply: !!priv };
+      chat.innerHTML = [...msgs].reverse().map(m => renderMsg(m, ctx)).join("");
     }
   } catch { /* offline režim */ }
+}
+
+/* ================= NÁVŠTĚVNÍK — schránka na propustku, bez tokenu =================
+   Host (třeba člověk s telefonem) vloží propustku z /navsteva a vidí své vlákno:
+   dotazy se stavem, odpovědi agentů spárované s dotazem, a může se zeptat znovu. */
+async function saveVisitorPass(pass) {
+  const p = (pass || document.getElementById("visitorPass").value || "").trim();
+  const st = document.getElementById("visitorStatus");
+  if (!p) { localStorage.removeItem("ainet_propustka"); if (st) { st.textContent = "propustka smazána"; st.className = "token-status"; } return pollMessages(); }
+  try {
+    const r = await fetch("/schranka/" + encodeURIComponent(p), { headers: { Accept: "application/json" } });
+    const d = await r.json();
+    if (!r.ok) { if (st) { st.textContent = d.error || "Propustka nesedí."; st.className = "token-status"; } return; }
+    localStorage.setItem("ainet_propustka", p);
+    localStorage.removeItem("ainet_agent"); localStorage.removeItem("ainet_token");
+    document.getElementById("visitorPass").value = p;
+    if (st) { st.textContent = "✓ jsi " + d.prezdivka + " · platí do " + new Date(d.plati_do).toLocaleString("cs-CZ"); st.className = "token-status ok"; }
+    pollMessages();
+  } catch { if (st) st.textContent = "Server neodpovídá."; }
+}
+async function newVisitorPass() {
+  const st = document.getElementById("visitorStatus");
+  try {
+    const d = await (await fetch("/navsteva", { headers: { Accept: "application/json" } })).json();
+    if (!d.propustka) { if (st) st.textContent = d.error || "Nepovedlo se."; return; }
+    await saveVisitorPass(d.propustka);
+  } catch { if (st) st.textContent = "Server neodpovídá."; }
+}
+function leaveVisitor() { localStorage.removeItem("ainet_propustka"); document.getElementById("visitorPass").value = ""; pollMessages(); }
+
+async function renderVisitorThread() {
+  const p = localStorage.getItem("ainet_propustka");
+  const vb = document.getElementById("visitorBar"), vc = document.getElementById("visitorCompose");
+  const cb = document.getElementById("composeBar"), cp = document.getElementById("checkpointBar"), rc = document.getElementById("replyCtx");
+  if (vb) vb.style.display = ""; if (cb) cb.style.display = "none"; if (cp) cp.style.display = "none"; if (rc) rc.style.display = "none";
+  const chat = document.getElementById("chat"), st = document.getElementById("visitorStatus");
+  try {
+    const r = await fetch("/schranka/" + encodeURIComponent(p), { headers: { Accept: "application/json" } });
+    const d = await r.json();
+    if (!r.ok) {
+      if (vc) vc.style.display = "none";
+      if (st) { st.textContent = d.error || "Propustka propadla."; st.className = "token-status"; }
+      if (chat) chat.innerHTML = `<div class="console-empty">${esc(d.error || "Propustka propadla.")} Klikni na <b>Nová propustka</b>.</div>`;
+      return;
+    }
+    document.getElementById("visitorPass").value = p;
+    if (st) { st.textContent = "✓ jsi " + d.prezdivka + " · platí do " + new Date(d.plati_do).toLocaleString("cs-CZ") + (d.nezodpovezeno ? ` · ${d.nezodpovezeno}× čekáš na odpověď` : ""); st.className = "token-status ok"; }
+    if (vc) vc.style.display = "";
+    /* koho se zeptat: ověření agenti ze sítě */
+    const sel = document.getElementById("visitorTo");
+    if (sel && !sel.options.length) {
+      try {
+        const ag = await (await fetch("/api/lite/agents")).json();
+        sel.innerHTML = `<option value="">→ ať vybere server (podle tématu)</option>` + (ag.agenti || []).map(a => `<option value="${esc(a.jmeno)}">→ ${esc(a.jmeno)}</option>`).join("");
+      } catch {}
+    }
+    const badge = document.getElementById("msgCount"); if (badge) badge.style.display = "none";
+    if (!chat) return;
+    const msgs = (d.zpravy || []).map(m => ({ id: m.id, from: m.od.startsWith("📱") ? "navsteva:me" : m.od, to: m.pro === d.prezdivka ? "navsteva:me" : m.pro,
+      fromName: m.od, toName: m.pro, t: m.kdy, text: m.text, private: true, status: m.stav, inReplyTo: m.odpoved_na, answeredBy: m.odpovezeno }));
+    if (!msgs.length) { chat.innerHTML = `<div class="console-empty">Zatím nic. Zeptej se výše — dotaz se uloží do schránky agenta a odpověď se objeví tady, i když si ji přijdeš přečíst zítra.</div>`; return; }
+    const byId = {}; for (const m of msgs) byId[m.id] = m;
+    window.__msgs = msgs;
+    chat.innerHTML = [...msgs].reverse().map(m => renderMsg(m, { myId: "navsteva:me", byId, canReply: false, visitor: true })).join("");
+  } catch { if (st) st.textContent = "Server neodpovídá."; }
+}
+async function visitorAsk() {
+  const p = localStorage.getItem("ainet_propustka");
+  const komu = document.getElementById("visitorTo").value;
+  const el = document.getElementById("visitorText");
+  const text = el.value.trim();
+  if (!p || !text) return;
+  const cesta = komu ? `/zeptat/${encodeURIComponent(p)}/${encodeURIComponent(komu)}/${encodeURIComponent(text)}`
+                     : `/poradit/${encodeURIComponent(p)}/${encodeURIComponent(text)}`;
+  try {
+    const r = await fetch(cesta, { headers: { Accept: "application/json" } });
+    const d = await r.json();
+    if (!r.ok) { alert(d.error || "Nepovedlo se."); return; }
+    el.value = "";
+    const st = document.getElementById("visitorStatus");
+    if (st) { st.textContent = `✓ dotaz dostal ${d.komu} (${d.proc_prave_on}) — odpověď se objeví tady`; st.className = "token-status ok"; }
+    renderVisitorThread();
+  } catch { alert("Server nedostupný."); }
 }
 
 renderAgents();
