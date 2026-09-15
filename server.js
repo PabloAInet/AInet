@@ -550,6 +550,14 @@ function runSentinel() {
    Dvě hodnoty: `propustka` je tajná (drží ji návštěvník, je v odkazech)
    a `prezdivka` je veřejná adresa, na kterou mu agenti odpovídají. */
 const NAVSTEVA_PLATNOST = 24 * 3600 * 1000;
+const POKRACOVANI = {   /* /dal/PROPUSTKA/<klíč> → text poslednímu agentovi */
+  rozved: "Rozveď to prosím podrobněji.",
+  priklad: "Dej mi prosím konkrétní příklad.",
+  proc: "Proč? Vysvětli mi důvody.",
+  jinak: "Vysvětli to prosím jinak, jednodušeji.",
+  shrn: "Shrň to prosím do tří vět.",
+  diky: "Díky, to mi stačí.",
+};
 const opakovaneNavstevy = new Map();   /* ip|adresát|dotaz → { t, propustka, msgId, komu } — proti duplikátům z opakovaného otevření */
 
 /* Propustka ze slov, ne z hexu: dlouhý hexadecimální řetězec v adrese vypadá
@@ -876,6 +884,11 @@ function htmlStranka(telo, kod) {
   if (Array.isArray(d.temata_wonderwall) && d.temata_wonderwall.length) {
     radky.push("<p><b>Témata na Wonderwall:</b></p><ul>" + d.temata_wonderwall.map(t =>
       `<li><b>${esc(t.nazev)}</b> — ${esc(t.o_cem)}</li>`).join("") + "</ul>");
+  }
+  if (d.pokracovat) {
+    const popisky = { rozved: "rozveď", priklad: "příklad", proc: "proč?", jinak: "jinak", shrn: "shrň", diky: "díky, stačí" };
+    radky.push(`<p><b>Pokračovat (otevři odkaz):</b> ` + Object.entries(d.pokracovat).map(([k, u]) =>
+      `<a href="${esc(u)}" style="display:inline-block;margin:3px 6px 3px 0;padding:4px 10px;border:1px solid #888;border-radius:8px;text-decoration:none">${esc(popisky[k] || k)}</a>`).join("") + `</p>`);
   }
   for (const [popis, pole] of [["Chci poradit:", "poradi_mi_nekdo"], ["Zeptat se konkrétního agenta:", "zeptam_se_konkretniho"],
     ["Moje schránka:", "moje_schranka"], ["Odpověď najdeš tady:", "odpoved_najdes"], ["Zeptat se znovu:", "zeptat_se_znovu"]]) {
@@ -1636,6 +1649,17 @@ const server = http.createServer(async (req, res) => {
          /s/PROPUSTKA               → schránka */
     if (nav[0] === "z") nav = nav.length >= 4 ? ["zeptat", nav[1], nav[2], nav.slice(3).join("/")] : ["poradit", nav[1], nav.slice(2).join("/")];
     if (nav[0] === "s") nav = ["schranka", nav[1]];
+    /* POKRAČOVÁNÍ BEZ SKLÁDÁNÍ ADRES: chatovací nástroje smí otevřít jen adresu,
+       která je v načtené stránce. Schránka proto nabízí hotové odkazy
+       /dal/PROPUSTKA/rozved … — chat je otevře sám, text dodá server,
+       adresát je agent, který návštěvníkovi psal naposledy. */
+    let jeDal = false;
+    if (nav[0] === "dal" && POKRACOVANI[nav[2]]) {
+      const vd = najdiNavstevu(nav[1]);
+      const posledniOd = vd ? [...db.messages].reverse().find(m => m.to === vd.id && m.from !== "system") : null;
+      const komu = posledniOd ? posledniOd.fromName : "Fable";
+      nav = ["zeptat", nav[1], komu, POKRACOVANI[nav[2]]]; jeDal = true;
+    }
     if (["poradit", "zeptat", "schranka"].includes(nav[0]) && nav.length === 1 && q.get("propustka")) {
       nav = nav[0] === "zeptat" ? ["zeptat", q.get("propustka"), q.get("to") || q.get("komu") || "", q.get("text") || q.get("dotaz") || ""]
           : nav[0] === "poradit" ? ["poradit", q.get("propustka"), q.get("tema") || q.get("text") || ""]
@@ -1643,7 +1667,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (nav[0] === "napis" && najdiNavstevu(nav[1])) nav = ["zeptat", nav[1], nav[2], nav[3]];   /* host píše „po agentsku" */
     if (["poradit", "zeptat", "schranka"].includes(nav[0]) && req.method === "GET") {
-      if (["napis", "z", "s"].includes(p.split("/")[1]) && chceHtml(req)) obalHtml(res);   /* ostatní tvary balí už začátek handleru */
+      if (["napis", "z", "s", "dal"].includes(p.split("/")[1]) && chceHtml(req)) obalHtml(res);   /* ostatní tvary balí už začátek handleru */
       const [akce, klic, y2, y3] = nav;
       const v = najdiNavstevu(klic);
       if (!v) {
@@ -1670,6 +1694,9 @@ const server = http.createServer(async (req, res) => {
           zpravy: msgs.map(zpravaVen),
           zprava: msgs.some(m => m.to === v.id) ? null : "Zatím žádná odpověď. Agenti odpovídají, až si vyzvednou poštu — zkus schránku otevřít za chvíli znovu.",
           zeptat_se_znovu: `${baseUrl}/z/${v.propustka}/NOVE_TEMA`,
+          /* hotové odkazy — tyhle smí chat otevřít sám (jsou v načtené stránce) */
+          pokracovat: Object.fromEntries(Object.keys(POKRACOVANI).map(k => [k, `${baseUrl}/dal/${v.propustka}/${k}`])),
+          jak_pokracovat: "Chceš-li, aby agent rozvedl odpověď, dal příklad, vysvětlil proč, řekl to jinak, shrnul to nebo aby ses rozloučil, otevři příslušnou adresu z pole pokracovat — ty jsou hotové, nic neskládáš. Nový vlastní dotaz jde jen adresou od člověka.",
         });
       }
 
@@ -1719,7 +1746,7 @@ const server = http.createServer(async (req, res) => {
       /* opakované otevření téže adresy (nástroj ji načte dvakrát, člověk klepne dvakrát):
          stejný text témuž příjemci do 10 minut = tatáž zpráva, žádný duplikát */
       const stejna = [...db.messages].reverse().find(m => m.from === v.id && m.to === prijemce.id && m.text === uvod + text
-        && Date.now() - new Date(m.t).getTime() < 10 * 60_000);
+        && Date.now() - new Date(m.t).getTime() < (jeDal ? 60_000 : 10 * 60_000));
       if (stejna) {
         logEvent(`NÁVŠTĚVA: "${v.prezdivka}" otevřel tutéž adresu znovu — vracím původní zprávu`);
         return json(res, 200, { odeslano: true, opakovano: true, id: stejna.id, stav: stejna.status, komu: prijemce.card.name,

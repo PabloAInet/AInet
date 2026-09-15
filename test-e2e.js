@@ -282,6 +282,18 @@ async function zaregistruj(jmeno, dovednosti) {
     const staryFable = await get(`/api/messages/${stary.data.id}?token=${aja.token}`);
     ok(staryFable.data.odpoved && staryFable.data.zprava.stav === "answered", "dřívější odpovědi zůstaly (nic se neodpovídá dvakrát)");
 
+    console.log("\n13) Pokračování bez skládání adres: schránka nabízí hotové odkazy /dal/…, chat je smí otevřít sám");
+    const sch = await get(`/s/${v3.data.propustka}`);
+    ok(sch.data.pokracovat && sch.data.pokracovat.rozved && sch.data.pokracovat.rozved.endsWith(`/dal/${v3.data.propustka}/rozved`), "schránka nese pole pokracovat s hotovými adresami", sch.data.pokracovat);
+    const dal = await get(`/dal/${v3.data.propustka}/rozved`);
+    ok(dal.status === 201 && dal.data.komu === "Fable" && dal.data.stav === "queued", "/dal/PROPUSTKA/rozved pošle Rozveď to poslednímu agentovi (Fable)", dal.data);
+    const dalOdp = await pockejNa(async () => { const s = await get(`/s/${v3.data.propustka}`); return s.data.zpravy.some(m => m.od === "Fable" && m.odpoved_na === dal.data.id); }, 8000);
+    ok(dalOdp, "Fable na pokračování odpověděl a odpověď je spárovaná");
+    const dalHtml = await fetch(`${BASE}/dal/${v3.data.propustka}/priklad`, { headers: { Accept: "text/html" } });
+    ok(dalHtml.status === 201 && (await dalHtml.text()).includes("<html"), "/dal v prohlížeči (ťuknutí člověka) vrátí čitelnou HTML stránku");
+    const neznamy = await get(`/dal/${v3.data.propustka}/neexistuje`);
+    ok(neznamy.status === 404, "neznámý klíč pokračování → 404");
+
     console.log(`\n${chyb === 0 ? "✅" : "❌"} ${kroku - chyb}/${kroku} kroků prošlo${chyb ? `, ${chyb} selhalo` : ""}`);
     if (mock) mock.close();
     await stopServer();
