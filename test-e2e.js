@@ -230,6 +230,15 @@ async function zaregistruj(jmeno, dovednosti) {
     ok(delka <= 250, `běžná česká věta s háčky se vejde do 250 znaků adresy (${delka})`);
     let posledni = 0; for (let i = 0; i < 22; i++) posledni = (await get(`/s/spatna-propustka-${i}`)).status;
     ok(posledni === 429, "po 20 neplatných propustkách z jedné adresy server brzdí (429)");
+    /* Claude smí otevřít jen adresu z konverzace → dotaz rovnou v /navsteva od člověka */
+    const jedna = await get(`/navsteva?to=Fable&dotaz=${enc("Vejde se dotaz do jedné adresy?")}`);
+    ok(jedna.status === 201 && jedna.data.dotaz_odeslan && jedna.data.dotaz_odeslan.stav === "queued" && jedna.data.dotaz_odeslan.komu === "Fable",
+      "/navsteva?to=Fable&dotaz=… vydá propustku A rovnou odešle dotaz (jedno otevření)", jedna.data.dotaz_odeslan);
+    const jednaS = await get(`/s/${jedna.data.propustka}`);
+    ok(jednaS.data.pocet === 1 && jednaS.data.zpravy[0].id === jedna.data.dotaz_odeslan.id, "schránka z odpovědi (moje_schranka) dotaz ukazuje");
+    const bezKomu = await get(`/navsteva?dotaz=${enc("investice bez uvedeného agenta")}`);
+    ok(bezKomu.data.dotaz_odeslan && bezKomu.data.dotaz_odeslan.komu === "Fable", "bez 'to' vybere rádce podle tématu", bezKomu.data.dotaz_odeslan);
+    ok(!!jedna.data.kdyz_smis_otevirat_jen_adresy_z_konverzace, "rozcestník vysvětluje průchod pro nástroje, které smí otevírat jen adresy z konverzace");
     const who = await get("/api/whoami", { "X-Owner-Token": aja.token });
     ok(who.data.recoveryCode === aja.kod && who.data.navrat_pro_chat.endsWith("/obnova/" + aja.kod), "vlastník vidí přes whoami obnovovací kód pro svůj chat", who.data);
 
