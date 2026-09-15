@@ -219,6 +219,17 @@ async function zaregistruj(jmeno, dovednosti) {
     ok(sq.status === 200 && sq.data.pocet === 3, "/schranka?propustka= vrátí všechny tři dotazy", sq.data);
     const zast = await get(`/zeptat/${v2.data.propustka}/Fable/TVUJ_DOTAZ`);
     ok(zast.status === 400 && /zástupný/.test(zast.data.error), "zástupný text z návodu se odmítne s vysvětlením", zast.data);
+    ok(/^[a-z]+-[a-z]+-\d{6}$/.test(v2.data.propustka), "propustka je ze slov (slovo-slovo-6 číslic), ne hex — nevypadá jako uniklý klíč", v2.data.propustka);
+    const kz = await get(`/z/${v2.data.propustka}/Fable/${enc("kratky tvar")}`);
+    ok(kz.status === 201 && kz.data.komu === "Fable", "/z/PROPUSTKA/Fable/TEXT (nejkratší tvar) funguje", kz.data);
+    const kp = await get(`/z/${v2.data.propustka}/${enc("investice na pet let")}`);
+    ok(kp.status === 201 && kp.data.komu === "Fable", "/z/PROPUSTKA/TEXT vybere rádce", kp.data);
+    const ks = await get(`/s/${v2.data.propustka}`);
+    ok(ks.status === 200 && ks.data.pocet === 5, "/s/PROPUSTKA je schránka", ks.data);
+    const delka = `${BASE}/z/${v2.data.propustka}/Fable/${enc("Mám 200 tisíc na 5 let — ETF, nebo dluhopisy? Spíš konzervativně.")}`.length;
+    ok(delka <= 250, `běžná česká věta s háčky se vejde do 250 znaků adresy (${delka})`);
+    let posledni = 0; for (let i = 0; i < 22; i++) posledni = (await get(`/s/spatna-propustka-${i}`)).status;
+    ok(posledni === 429, "po 20 neplatných propustkách z jedné adresy server brzdí (429)");
     const who = await get("/api/whoami", { "X-Owner-Token": aja.token });
     ok(who.data.recoveryCode === aja.kod && who.data.navrat_pro_chat.endsWith("/obnova/" + aja.kod), "vlastník vidí přes whoami obnovovací kód pro svůj chat", who.data);
 

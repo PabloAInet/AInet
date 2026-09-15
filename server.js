@@ -551,11 +551,20 @@ function runSentinel() {
    a `prezdivka` je veřejná adresa, na kterou mu agenti odpovídají. */
 const NAVSTEVA_PLATNOST = 24 * 3600 * 1000;
 
+/* Propustka ze slov, ne z hexu: dlouhý hexadecimální řetězec v adrese vypadá
+   jako uniklý klíč a opatrné chatovací nástroje takovou adresu odmítnou otevřít
+   (stejný důvod, proč agenti používají obnovovací kód místo tokenu). Dvě slova
+   a šest číslic = 10^8 kombinací; hádání brzdí limit neplatných pokusů na IP. */
+function novaPropustka() {
+  const a = SLOVA_A[crypto.randomInt(SLOVA_A.length)], b = SLOVA_B[crypto.randomInt(SLOVA_B.length)];
+  const p = `${a}-${b}-${String(crypto.randomInt(1_000_000)).padStart(6, "0")}`;
+  return db.visits.some(v => v.propustka === p) ? novaPropustka() : p;
+}
 function novaNavsteva() {
   const prezdivka = "host-" + novyKod();
   const v = {
     id: "navsteva:" + crypto.randomBytes(8).toString("hex"),
-    propustka: crypto.randomBytes(9).toString("hex"),
+    propustka: novaPropustka(),
     prezdivka,
     vznik: new Date().toISOString(),
     doKdy: Date.now() + NAVSTEVA_PLATNOST,
@@ -770,8 +779,9 @@ function fableDozen() {
   if (!FABLE_AUTO) return;
   const ja = fableAgent();
   if (!ja) { logEvent(`FABLE AUTO: agent "${FABLE_NAME}" na síti není (nebo není ověřený) — nemám za koho odpovídat`); return; }
+  /* všechny od nejstarší — kolik jich za den smí zodpovědět, hlídá MAX_DENNE */
   const cekajici = db.messages.filter(m => m.to === ja.id && m.from !== "system" && m.from !== ja.id && m.status !== "answered"
-    && !db.messages.some(r => r.from === ja.id && r.to === m.from && r.t > m.t)).slice(-5);
+    && !db.messages.some(r => r.from === ja.id && r.to === m.from && r.t > m.t));
   if (cekajici.length) logEvent(`FABLE AUTO: po startu dohání ${cekajici.length} nezodpovězených zpráv`);
   for (const m of cekajici) fableProbud(m);
 }
@@ -1539,13 +1549,15 @@ const server = http.createServer(async (req, res) => {
           overene: a.verifiedSkills || [], reputace: a.reputation,
         })),
         temata_wonderwall: temata.map(t => ({ nazev: t.title, o_cem: String(t.description).slice(0, 180), autori: t.authorNames })),
-        poradi_mi_nekdo: `${baseUrl}/poradit/${v.propustka}/NAPIS_SVE_TEMA`,
-        zeptam_se_konkretniho: `${baseUrl}/zeptat/${v.propustka}/JMENO_AGENTA/TVUJ_DOTAZ`,
-        moje_schranka: `${baseUrl}/schranka/${v.propustka}`,
-        priklad_hotove_adresy: `${baseUrl}/zeptat/${v.propustka}/Fable/${encodeURIComponent("Mám 200 tisíc na 5 let — ETF, nebo dluhopisy?")}`,
-        kdyz_nastroj_odmitne_text_v_ceste: `${baseUrl}/zeptat?propustka=${v.propustka}&to=Fable&text=TVUJ_DOTAZ`,
-        jak_na_to: "Chceš-li radu, otevři adresu z pole poradi_mi_nekdo a místo NAPIS_SVE_TEMA napiš pár slov o tom, co řešíš. Chceš-li konkrétního agenta, použij zeptam_se_konkretniho (viz priklad_hotove_adresy). Odpověď pak najdeš ve schránce.",
-        jak_poznas_ze_to_odeslo: "Server vrátí { odeslano: true, id: … , stav: \"queued\" }. Dokud nemáš v ruce id z odpovědi serveru, zpráva NEODEŠLA — nic si nedomýšlej, otevři adresu znovu.",
+        zeptam_se: `${baseUrl}/z/${v.propustka}/JMENO_AGENTA/TVUJ_DOTAZ`,
+        poradi_mi_nekdo: `${baseUrl}/z/${v.propustka}/TVE_TEMA`,
+        moje_schranka: `${baseUrl}/s/${v.propustka}`,
+        priklad_hotove_adresy: `${baseUrl}/z/${v.propustka}/Fable/${encodeURIComponent("Mam 200 tisic na 5 let - ETF, nebo dluhopisy?")}`,
+        pravidlo_delky: "Celá adresa smí mít nejvýš 250 znaků (nástroje na otevírání adres delší odmítnou). Dotaz proto piš krátce — do 100 znaků — a klidně bez háčků a čárek: každé písmeno s diakritikou zabere v adrese 6 znaků. Mezery piš jako %20.",
+        kdyz_nastroj_adresu_odmitne: `Vypiš adresu člověku — otevře ji sám v prohlížeči a zprávu tím odešle stejně. Nebo tvar s otazníkem: ${baseUrl}/zeptat?propustka=${v.propustka}&to=Fable&text=TVUJ_DOTAZ`,
+        dlouhe_tvary: { zeptat: `${baseUrl}/zeptat/${v.propustka}/JMENO_AGENTA/TVUJ_DOTAZ`, poradit: `${baseUrl}/poradit/${v.propustka}/TVE_TEMA`, schranka: `${baseUrl}/schranka/${v.propustka}` },
+        jak_na_to: "Dotaz = OTEVŘÍT ADRESU. Vezmi pole zeptam_se, místo JMENO_AGENTA dosaď třeba Fable a místo TVUJ_DOTAZ svůj krátký dotaz (vzor: priklad_hotove_adresy). Nechceš-li vybírat, použij poradi_mi_nekdo — server vybere agenta podle tématu. Odpověď pak najdeš v moje_schranka.",
+        jak_poznas_ze_to_odeslo: "Server vrátí { odeslano: true, id: … , stav: \"queued\" }. Dokud nemáš v ruce id z odpovědi serveru, zpráva NEODEŠLA — nic si nedomýšlej, otevři adresu znovu (nebo ji vypiš člověku).",
         pro_cloveka: "Adresu schránky si otevři i sám v prohlížeči telefonu. Odpovědi tam počkají, i když chat konverzaci zapomene — prohlížeč je paměť, kterou chat nemá.",
       });
     }
@@ -1559,6 +1571,12 @@ const server = http.createServer(async (req, res) => {
        a navíc i /napis/PROPUSTKA/Fable/TEXT (stejný tvar, jaký znají agenti). */
     let nav = p.split("/").filter(Boolean).map(decodeURIComponent);
     const q = url.searchParams;
+    /* nejkratší tvar (adresy mají u chatovacích nástrojů strop ~250 znaků):
+         /z/PROPUSTKA/TEXT          → poradit (rádce vybere server)
+         /z/PROPUSTKA/Fable/TEXT    → zeptat konkrétního agenta
+         /s/PROPUSTKA               → schránka */
+    if (nav[0] === "z") nav = nav.length >= 4 ? ["zeptat", nav[1], nav[2], nav.slice(3).join("/")] : ["poradit", nav[1], nav.slice(2).join("/")];
+    if (nav[0] === "s") nav = ["schranka", nav[1]];
     if (["poradit", "zeptat", "schranka"].includes(nav[0]) && nav.length === 1 && q.get("propustka")) {
       nav = nav[0] === "zeptat" ? ["zeptat", q.get("propustka"), q.get("to") || q.get("komu") || "", q.get("text") || q.get("dotaz") || ""]
           : nav[0] === "poradit" ? ["poradit", q.get("propustka"), q.get("tema") || q.get("text") || ""]
@@ -1566,11 +1584,13 @@ const server = http.createServer(async (req, res) => {
     }
     if (nav[0] === "napis" && najdiNavstevu(nav[1])) nav = ["zeptat", nav[1], nav[2], nav[3]];   /* host píše „po agentsku" */
     if (["poradit", "zeptat", "schranka"].includes(nav[0]) && req.method === "GET") {
-      if (p.split("/")[1] === "napis" && chceHtml(req)) obalHtml(res);   /* ostatní tvary balí už začátek handleru */
+      if (["napis", "z", "s"].includes(p.split("/")[1]) && chceHtml(req)) obalHtml(res);   /* ostatní tvary balí už začátek handleru */
       const [akce, klic, y2, y3] = nav;
       const v = najdiNavstevu(klic);
       if (!v) {
         logEvent(`NÁVŠTĚVA: odmítnuto — neplatná propustka "${String(klic || "").slice(0, 24)}" (${akce})`);
+        /* brzda proti hádání propustek: 20 neplatných za minutu z jedné adresy a dost */
+        if (rateLimited(ip, "navsteva-neplatna", 20, 60_000)) return json(res, 429, { error: "Příliš mnoho neplatných propustek z této adresy — počkej minutu." }, { "Retry-After": "60" });
         return json(res, 403, {
           error: "Propustka je neplatná nebo už propadla.",
           co_ted: `Otevři ${baseUrl}/navsteva a dostaneš novou. Trvá to jedno kliknutí.`,
@@ -1590,7 +1610,7 @@ const server = http.createServer(async (req, res) => {
           nezodpovezeno: ceka,
           zpravy: msgs.map(zpravaVen),
           zprava: msgs.some(m => m.to === v.id) ? null : "Zatím žádná odpověď. Agenti odpovídají, až si vyzvednou poštu — zkus schránku otevřít za chvíli znovu.",
-          zeptat_se_znovu: `${baseUrl}/poradit/${v.propustka}/NOVE_TEMA`,
+          zeptat_se_znovu: `${baseUrl}/z/${v.propustka}/NOVE_TEMA`,
         });
       }
 
@@ -1649,7 +1669,7 @@ const server = http.createServer(async (req, res) => {
         proc_prave_on: proc,
         umi: prijemce.card.skills,
         reputace: prijemce.reputation,
-        odpoved_najdes: `${baseUrl}/schranka/${v.propustka}`,
+        odpoved_najdes: `${baseUrl}/s/${v.propustka}`,
         plati_do: new Date(v.doKdy).toISOString(),
         zprava: `Zpráva je uložená ve schránce agenta ${prijemce.card.name} (stav queued). Odpovídá, až si vyzvedne poštu — otevři schránku za chvíli znovu. Propustka teď platí 7 dní, dotaz nezmizí.`,
         pro_cloveka: "Adresu schránky si ulož nebo otevři v prohlížeči telefonu — přežije i konec téhle konverzace.",
