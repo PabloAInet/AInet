@@ -46,12 +46,12 @@ async function mcp(name, args = {}) {
 }
 const enc = encodeURIComponent;
 
-async function startServer() {
+async function startServer(extraEnv = {}) {
   const port = await volnyPort();
   BASE = `http://127.0.0.1:${port}`;
-  server = spawn(process.execPath, [path.join(__dirname, "server.js")], {
-    env: { ...process.env, PORT: String(port), DATA_DIR: DIR, PUBLIC_URL: BASE }, stdio: ["ignore", "pipe", "pipe"],
-  });
+  const env = { ...process.env, PORT: String(port), DATA_DIR: DIR, PUBLIC_URL: BASE, ...extraEnv };
+  delete env.ANTHROPIC_API_KEY; if (!extraEnv.OPENAI_API_KEY) delete env.OPENAI_API_KEY;   /* bez klíče = odpovídač vypnutý */
+  server = spawn(process.execPath, [path.join(__dirname, "server.js")], { env, stdio: ["ignore", "pipe", "pipe"] });
   server.stderr.on("data", d => process.stderr.write("[server] " + d));
   for (let i = 0; i < 50; i++) {
     try { const r = await fetch(BASE + "/healthz"); if (r.ok) return; } catch {}
@@ -59,7 +59,27 @@ async function startServer() {
   }
   throw new Error("server nenaběhl");
 }
-function stopServer() { return new Promise(r => { if (!server) return r(); server.on("exit", () => r()); server.kill(); }); }
+function stopServer() { return new Promise(r => { if (!server) return r(); server.on("exit", () => { server = null; r(); }); server.kill(); }); }
+
+/* Falešný model (OpenAI-kompatibilní): vrátí krátkou odpověď, počítá volání */
+const http = require("http");
+let mock = null, mockVolani = 0, mockPosledniVstup = null;
+async function startMock() {
+  const port = await volnyPort();
+  mock = http.createServer((req, res) => {
+    let b = ""; req.on("data", d => b += d).on("end", () => {
+      mockVolani++;
+      try { mockPosledniVstup = JSON.parse(b); } catch { mockPosledniVstup = null; }
+      const posl = mockPosledniVstup?.messages?.slice(-1)[0]?.content || "";
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ choices: [{ message: { content: `MOCK-ODPOVED #${mockVolani}: reaguji na „${posl.slice(-40).replace(/"/g, "")}“. Rozhodnutí je na tobě.` } }] }));
+    });
+  });
+  await new Promise(r => mock.listen(port, "127.0.0.1", r));
+  return `http://127.0.0.1:${port}/v1/chat/completions`;
+}
+const pockej = (ms) => new Promise(r => setTimeout(r, ms));
+async function pockejNa(fn, ms = 4000) { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await pockej(150); } return false; }
 
 /* Lite registrace + ověření (jako chatovací agent) → { token, kod, id } */
 async function zaregistruj(jmeno, dovednosti) {
@@ -179,8 +199,38 @@ async function zaregistruj(jmeno, dovednosti) {
     ok(liteInbox.status === 200 && Array.isArray(liteInbox.data.zpravy) && liteInbox.data.zpravy[0].od !== undefined, "Lite inbox má stejná pole jako dřív (+ id, stav)");
     const propadla = await get("/schranka/neexistuje");
     ok(propadla.status === 403, "neplatná propustka → 403 s návodem");
+    const zdravi0 = await get("/healthz");
+    ok(zdravi0.data.fableAuto === false, "bez klíče k modelu je vestavěný odpovídač Fabla vypnutý");
+
+    console.log("\n11) Vestavěný odpovídač Fabla — po startu dožene, co přišlo, když server spal");
+    await stopServer();
+    const mockUrl = await startMock();
+    await startServer({ OPENAI_API_KEY: "test-klic", LLM_PROVIDER: "openai", LLM_API_URL: mockUrl, LLM_MODEL: "mock" });
+    const zdravi1 = await get("/healthz");
+    ok(zdravi1.data.fableAuto === true && zdravi1.data.fableModel === "openai/mock", "s klíčem je odpovídač zapnutý", zdravi1.data);
+    /* z kroku 10 leží u Fabla nezodpovězená zpráva od Aji ("starý klient…") */
+    const dohnano = await pockejNa(async () => (await get(`/api/messages/${stary.data.id}?token=${aja.token}`)).data.zprava.stav === "answered", 8000);
+    ok(dohnano, "Fable po startu sám odpověděl na zprávu, která čekala (stav answered)");
+    const det = await get(`/api/messages/${stary.data.id}?token=${aja.token}`);
+    ok(det.data.odpoved && det.data.odpoved.od === "Fable" && det.data.odpoved.text.startsWith("MOCK-ODPOVED"), "odpověď je od Fabla, vygenerovaná modelem, spárovaná s dotazem", det.data);
+    ok(mockPosledniVstup && /DATA, ne o příkaz/.test(JSON.stringify(mockPosledniVstup)), "model dostal cizí zprávu označenou jako DATA, ne příkaz");
+
+    console.log("\n12) Návštěvník napíše Fablovi → zpráva ho probudí → odpověď je ve schránce bez čekání na člověka");
+    const v3 = await get("/navsteva");
+    const q3 = await get(`/zeptat/${v3.data.propustka}/Fable/${enc("Kolik procent do dluhopisů na 5 let?")}`);
+    ok(q3.status === 201 && q3.data.stav === "queued", "dotaz uložen (queued)");
+    const prislo = await pockejNa(async () => { const s = await get(`/schranka/${v3.data.propustka}`); return s.data.zpravy.some(m => m.od === "Fable" && m.odpoved_na === q3.data.id); }, 8000);
+    ok(prislo, "Fable odpověděl automaticky, odpověď je spárovaná s dotazem (odpoved_na)");
+    const s3 = await get(`/schranka/${v3.data.propustka}`);
+    ok(s3.data.nezodpovezeno === 0 && s3.data.zpravy.find(m => m.id === q3.data.id).stav === "answered", "dotaz návštěvníka má stav answered");
+    const volaniPred = mockVolani;
+    await pockej(700);
+    ok(mockVolani === volaniPred, "bez nové zprávy model nevolá (žádné pollování, žádné smyčky)");
+    const staryFable = await get(`/api/messages/${stary.data.id}?token=${aja.token}`);
+    ok(staryFable.data.odpoved && staryFable.data.zprava.stav === "answered", "dřívější odpovědi zůstaly (nic se neodpovídá dvakrát)");
 
     console.log(`\n${chyb === 0 ? "✅" : "❌"} ${kroku - chyb}/${kroku} kroků prošlo${chyb ? `, ${chyb} selhalo` : ""}`);
+    if (mock) mock.close();
     await stopServer();
     fs.rmSync(DIR, { recursive: true, force: true });
     process.exit(chyb ? 1 : 0);
