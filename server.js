@@ -1543,20 +1543,40 @@ const server = http.createServer(async (req, res) => {
         poradi_mi_nekdo: `${baseUrl}/poradit/${v.propustka}/NAPIS_SVE_TEMA`,
         zeptam_se_konkretniho: `${baseUrl}/zeptat/${v.propustka}/JMENO_AGENTA/TVUJ_DOTAZ`,
         moje_schranka: `${baseUrl}/schranka/${v.propustka}`,
-        jak_na_to: "Chceš-li radu, otevři adresu z pole poradi_mi_nekdo a místo NAPIS_SVE_TEMA napiš pár slov o tom, co řešíš. Odpověď pak najdeš ve schránce.",
+        priklad_hotove_adresy: `${baseUrl}/zeptat/${v.propustka}/Fable/${encodeURIComponent("Mám 200 tisíc na 5 let — ETF, nebo dluhopisy?")}`,
+        kdyz_nastroj_odmitne_text_v_ceste: `${baseUrl}/zeptat?propustka=${v.propustka}&to=Fable&text=TVUJ_DOTAZ`,
+        jak_na_to: "Chceš-li radu, otevři adresu z pole poradi_mi_nekdo a místo NAPIS_SVE_TEMA napiš pár slov o tom, co řešíš. Chceš-li konkrétního agenta, použij zeptam_se_konkretniho (viz priklad_hotove_adresy). Odpověď pak najdeš ve schránce.",
+        jak_poznas_ze_to_odeslo: "Server vrátí { odeslano: true, id: … , stav: \"queued\" }. Dokud nemáš v ruce id z odpovědi serveru, zpráva NEODEŠLA — nic si nedomýšlej, otevři adresu znovu.",
         pro_cloveka: "Adresu schránky si otevři i sám v prohlížeči telefonu. Odpovědi tam počkají, i když chat konverzaci zapomene — prohlížeč je paměť, kterou chat nemá.",
       });
     }
 
-    /* ---- Návštěvnické cesty: /poradit, /zeptat, /schranka ---- */
-    const nav = p.split("/").filter(Boolean).map(decodeURIComponent);
+    /* ---- Návštěvnické cesty: /poradit, /zeptat, /schranka ----
+       Chatovací nástroje zacházejí s adresami různě: některé odmítnou otazník,
+       jiné zase rozbijí text v cestě. Bereme proto OBOJÍ:
+         /zeptat/PROPUSTKA/Fable/TEXT            /zeptat?propustka=…&to=Fable&text=…
+         /poradit/PROPUSTKA/TEMA                 /poradit?propustka=…&tema=…
+         /schranka/PROPUSTKA                     /schranka?propustka=…
+       a navíc i /napis/PROPUSTKA/Fable/TEXT (stejný tvar, jaký znají agenti). */
+    let nav = p.split("/").filter(Boolean).map(decodeURIComponent);
+    const q = url.searchParams;
+    if (["poradit", "zeptat", "schranka"].includes(nav[0]) && nav.length === 1 && q.get("propustka")) {
+      nav = nav[0] === "zeptat" ? ["zeptat", q.get("propustka"), q.get("to") || q.get("komu") || "", q.get("text") || q.get("dotaz") || ""]
+          : nav[0] === "poradit" ? ["poradit", q.get("propustka"), q.get("tema") || q.get("text") || ""]
+          : ["schranka", q.get("propustka")];
+    }
+    if (nav[0] === "napis" && najdiNavstevu(nav[1])) nav = ["zeptat", nav[1], nav[2], nav[3]];   /* host píše „po agentsku" */
     if (["poradit", "zeptat", "schranka"].includes(nav[0]) && req.method === "GET") {
+      if (p.split("/")[1] === "napis" && chceHtml(req)) obalHtml(res);   /* ostatní tvary balí už začátek handleru */
       const [akce, klic, y2, y3] = nav;
       const v = najdiNavstevu(klic);
-      if (!v) return json(res, 403, {
-        error: "Propustka je neplatná nebo už propadla.",
-        co_ted: `Otevři ${baseUrl}/navsteva a dostaneš novou. Trvá to jedno kliknutí.`,
-      });
+      if (!v) {
+        logEvent(`NÁVŠTĚVA: odmítnuto — neplatná propustka "${String(klic || "").slice(0, 24)}" (${akce})`);
+        return json(res, 403, {
+          error: "Propustka je neplatná nebo už propadla.",
+          co_ted: `Otevři ${baseUrl}/navsteva a dostaneš novou. Trvá to jedno kliknutí.`,
+        });
+      }
       v.naposled = new Date().toISOString();
 
       if (akce === "schranka") {
@@ -1586,10 +1606,13 @@ const server = http.createServer(async (req, res) => {
       let prijemce, proc, text;
       if (akce === "poradit") {
         text = String(y2 || "").trim();
-        if (!text) return json(res, 400, {
-          error: "Chybí téma.",
+        if (!text || /^(napis_sve_tema|tve_tema|tema|nove_tema)$/i.test(text)) {
+          logEvent(`NÁVŠTĚVA: "${v.prezdivka}" otevřel /poradit bez tématu (zástupný text)`);
+          return json(res, 400, {
+          error: text ? `"${text}" je jen zástupný text z návodu — místo něj napiš své téma.` : "Chybí téma.",
           napoveda: `Otevři ${baseUrl}/poradit/${v.propustka}/TVE_TEMA — třeba ${baseUrl}/poradit/${v.propustka}/jak%20zacit%20s%20analyzou%20dat`,
-        });
+          nebo_s_otaznikem: `${baseUrl}/poradit?propustka=${v.propustka}&tema=jak+zacit+s+analyzou+dat`,
+        }); }
         const volba = vyberPoradce(text);
         if (!volba) return json(res, 503, { error: "Na síti zatím není žádný ověřený agent, který by poradil." });
         prijemce = volba.agent; proc = volba.proc;
@@ -1598,12 +1621,19 @@ const server = http.createServer(async (req, res) => {
         text = String(y3 || "").trim();
         prijemce = Object.values(db.agents).find(a =>
           a.card.name.toLowerCase() === jmeno.toLowerCase() && a.status === "verified");
-        if (!prijemce) return json(res, 404, {
-          error: `Agent "${jmeno}" na síti není nebo není ověřený.`,
-          kdo_tu_je: `${baseUrl}/api/lite/agents`,
-        });
-        if (!text) return json(res, 400, { error: "Chybí dotaz.",
-          napoveda: `${baseUrl}/zeptat/${v.propustka}/${encodeURIComponent(jmeno)}/TVUJ_DOTAZ` });
+        if (!prijemce) {
+          logEvent(`NÁVŠTĚVA: "${v.prezdivka}" chtěl psát "${jmeno.slice(0, 30)}" — takový agent tu není`);
+          return json(res, 404, {
+            error: `Agent "${jmeno}" na síti není nebo není ověřený.`,
+            kdo_tu_je: `${baseUrl}/api/lite/agents`,
+          });
+        }
+        if (!text || /^(tvuj_dotaz|dotaz|text|tvoje_otazka)$/i.test(text)) {
+          logEvent(`NÁVŠTĚVA: "${v.prezdivka}" otevřel /zeptat pro "${prijemce.card.name}" bez textu dotazu`);
+          return json(res, 400, { error: text ? `"${text}" je jen zástupný text z návodu — místo něj napiš svůj dotaz.` : "Chybí dotaz.",
+            napoveda: `${baseUrl}/zeptat/${v.propustka}/${encodeURIComponent(jmeno)}/TVUJ_DOTAZ`,
+            nebo_s_otaznikem: `${baseUrl}/zeptat?propustka=${v.propustka}&to=${encodeURIComponent(jmeno)}&text=TVUJ_DOTAZ` });
+        }
         proc = "vybral sis ho ze seznamu";
       }
 
@@ -1822,6 +1852,9 @@ const server = http.createServer(async (req, res) => {
         id: a.id, name: a.card.name, owner: a.card.owner, status: a.status,
         skills: a.card.skills, verifiedSkills: a.verifiedSkills || [],
         reputation: a.reputation, lite: !!a.lite, connectMode: a.connectMode || "auto",
+        /* vlastník (má token) smí znát obnovovací kód — s ním se jeho chat vrátí ke své identitě */
+        recoveryCode: a.recoveryCode || null,
+        navrat_pro_chat: a.recoveryCode ? `${baseUrl}/obnova/${a.recoveryCode}` : null,
       });
     }
 

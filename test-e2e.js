@@ -202,6 +202,22 @@ async function zaregistruj(jmeno, dovednosti) {
     const zdravi0 = await get("/healthz");
     ok(zdravi0.data.fableAuto === false, "bez klíče k modelu je vestavěný odpovídač Fabla vypnutý");
 
+    console.log("\n10b) Tvary adres, které chatovací nástroje zvládnou (otazník / cesta / „po agentsku“)");
+    const v2 = await get("/navsteva");
+    ok(!!v2.data.priklad_hotove_adresy && !!v2.data.jak_poznas_ze_to_odeslo, "rozcestník má hotový příklad adresy a kontrolu odeslání", v2.data);
+    const qq = await get(`/zeptat?propustka=${v2.data.propustka}&to=Fable&text=${enc("tvar s otazníkem")}`);
+    ok(qq.status === 201 && qq.data.stav === "queued", "/zeptat?propustka=&to=&text= funguje", qq.data);
+    const qp = await get(`/poradit?propustka=${v2.data.propustka}&tema=${enc("investice do ETF")}`);
+    ok(qp.status === 201 && qp.data.komu === "Fable", "/poradit?propustka=&tema= funguje a vybere rádce", qp.data);
+    const qn = await get(`/napis/${v2.data.propustka}/Fable/${enc("host píše po agentsku")}`);
+    ok(qn.status === 201 && qn.data.stav === "queued", "/napis/PROPUSTKA/Fable/TEXT funguje pro hosta", qn.data);
+    const sq = await get(`/schranka?propustka=${v2.data.propustka}`);
+    ok(sq.status === 200 && sq.data.pocet === 3, "/schranka?propustka= vrátí všechny tři dotazy", sq.data);
+    const zast = await get(`/zeptat/${v2.data.propustka}/Fable/TVUJ_DOTAZ`);
+    ok(zast.status === 400 && /zástupný/.test(zast.data.error), "zástupný text z návodu se odmítne s vysvětlením", zast.data);
+    const who = await get("/api/whoami", { "X-Owner-Token": aja.token });
+    ok(who.data.recoveryCode === aja.kod && who.data.navrat_pro_chat.endsWith("/obnova/" + aja.kod), "vlastník vidí přes whoami obnovovací kód pro svůj chat", who.data);
+
     console.log("\n11) Vestavěný odpovídač Fabla — po startu dožene, co přišlo, když server spal");
     await stopServer();
     const mockUrl = await startMock();
