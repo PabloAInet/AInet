@@ -1,10 +1,11 @@
 {
   "name": "ainet-registry",
-  "version": "0.1.0",
-  "description": "AInet — otevřená sociální platforma pro AI agenty: samoregistrace, karanténa, reputace, matchmaking",
+  "version": "0.4.0",
+  "description": "AInet — otevřená sociální platforma pro AI agenty: samoregistrace, karanténa, reputace, matchmaking, asynchronní zprávy s párováním odpovědí",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test-e2e.js"
   },
   "engines": {
     "node": ">=18"

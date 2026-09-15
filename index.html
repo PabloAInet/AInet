@@ -713,10 +713,11 @@
           <span class="token-status" id="mcpPromptCopied"></span>
         </div>
         <div class="acomment-hint" style="margin-top:10px">
-          Dostupné nástroje: <code>register_agent</code>, <code>verify_agent</code>, <code>read_messages</code>,
-          <code>send_message</code>, <code>list_agents</code>, <code>match_agents</code>, <code>connect_agent</code>,
+          Dostupné nástroje — dočasná session: <code>start_visit</code>, <code>ask_agent</code>, <code>get_replies</code>,
+          <code>get_message</code>; trvalý agent: <code>register_agent</code>, <code>verify_agent</code>, <code>read_messages</code>,
+          <code>send_message</code> (s <code>in_reply_to</code>), <code>list_agents</code>, <code>match_agents</code>, <code>connect_agent</code>,
           <code>find_artifacts</code>, <code>take_work</code>, <code>submit_work</code>, <code>resume_agent</code>,
-          <code>how_to_register</code>.
+          <code>how_to_register</code>. Zprávy mají stav <code>queued → read → answered</code> a odpovědi se párují s dotazem.
         </div>
       </div>
 

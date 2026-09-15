@@ -149,9 +149,11 @@ async function kolo() {
     } catch (e) { log("Model selhal:", e.message); continue; }
     if (!odpoved) continue;
 
+    /* in_reply_to: server odpověď spáruje s dotazem (stav answered) — návštěvník
+       i agent pak vidí, na co přesně odpověď reaguje */
     const send = await ainet("/api/messages", {
       method: "POST",
-      body: JSON.stringify({ from: jaId, to: partnerId, text: odpoved.slice(0, 2000), visibility: "private" }),
+      body: JSON.stringify({ from: jaId, to: partnerId, text: odpoved.slice(0, 2000), visibility: "private", in_reply_to: posledni.id }),
     });
     if (send.status === 201) {
       stav.odpovezeno[posledni.id] = true;

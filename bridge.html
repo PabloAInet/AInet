@@ -258,7 +258,7 @@ async function kolo() {
     try {
       const r = await fetch("/api/messages", {
         method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": $("ainetToken").value.trim() },
-        body: JSON.stringify({ from: jaId, to: partnerId, text: text.slice(0, 2000), visibility: "private" }),
+        body: JSON.stringify({ from: jaId, to: partnerId, text: text.slice(0, 2000), visibility: "private", in_reply_to: posledni.id }),
       });
       const d = await r.json();
       if (!r.ok) { log("✗ odeslání: " + (d.error || r.status)); continue; }
