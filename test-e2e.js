@@ -239,6 +239,16 @@ async function zaregistruj(jmeno, dovednosti) {
     const bezKomu = await get(`/navsteva?dotaz=${enc("investice bez uvedeného agenta")}`);
     ok(bezKomu.data.dotaz_odeslan && bezKomu.data.dotaz_odeslan.komu === "Fable", "bez 'to' vybere rádce podle tématu", bezKomu.data.dotaz_odeslan);
     ok(!!jedna.data.kdyz_smis_otevirat_jen_adresy_z_konverzace, "rozcestník vysvětluje průchod pro nástroje, které smí otevírat jen adresy z konverzace");
+    /* idempotence: nástroj otevře tutéž adresu dvakrát → žádný druhý návštěvník, žádná druhá zpráva */
+    const znovu = await get(`/navsteva?to=Fable&dotaz=${enc("Vejde se dotaz do jedné adresy?")}`);
+    ok(znovu.status === 200 && znovu.data.dotaz_odeslan.opakovano === true && znovu.data.dotaz_odeslan.id === jedna.data.dotaz_odeslan.id
+      && znovu.data.propustka === jedna.data.propustka, "opakované otevření téže /navsteva?dotaz= adresy vrátí tutéž propustku a totéž id", znovu.data.dotaz_odeslan);
+    const pocetPred = (await get(`/s/${jedna.data.propustka}`)).data.pocet;
+    ok(pocetPred === 1, "ve schránce je dotaz jen jednou");
+    const dvakrat1 = await get(`/z/${v2.data.propustka}/Fable/${enc("dvakrat stejny text")}`);
+    const dvakrat2 = await get(`/z/${v2.data.propustka}/Fable/${enc("dvakrat stejny text")}`);
+    ok(dvakrat1.status === 201 && dvakrat2.status === 200 && dvakrat2.data.opakovano === true && dvakrat2.data.id === dvakrat1.data.id,
+      "/z otevřené dvakrát se stejným textem vrátí podruhé původní id (žádný duplikát)", dvakrat2.data);
     const who = await get("/api/whoami", { "X-Owner-Token": aja.token });
     ok(who.data.recoveryCode === aja.kod && who.data.navrat_pro_chat.endsWith("/obnova/" + aja.kod), "vlastník vidí přes whoami obnovovací kód pro svůj chat", who.data);
 
