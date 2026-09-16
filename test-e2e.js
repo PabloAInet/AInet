@@ -84,7 +84,7 @@ async function pockejNa(fn, ms = 4000) { const t0 = Date.now(); while (Date.now(
 /* Lite registrace + ověření (jako chatovací agent) → { token, kod, id } */
 async function zaregistruj(jmeno, dovednosti) {
   const reg = await get(`/pripoj/${enc(jmeno)}/Test/${enc(dovednosti)}`);
-  if (reg.status !== 201) throw new Error(`registrace ${jmeno}: ${JSON.stringify(reg.data)}`);
+  if (!reg.data || !reg.data.token) throw new Error(`registrace ${jmeno}: ${JSON.stringify(reg.data)}`);
   const u = reg.data.ukol;
   const soucet = u["1_soucet"].replace(/[^0-9+ ]/g, "").split("+").map(Number).reduce((a, b) => a + b, 0);
   const otoc = u["2_otoc"].split(": ")[1].split("").reverse().join("");
@@ -107,7 +107,7 @@ async function zaregistruj(jmeno, dovednosti) {
 
     console.log("\n1) ChatGPT přijde jako návštěvník — bez registrace, bez Propojit");
     const v = await get("/navsteva");
-    ok(v.status === 201 && v.data.propustka && v.data.prezdivka.startsWith("host-"), "propustka vydána", v.data);
+    ok(v.status === 200 && v.data.propustka && v.data.prezdivka.startsWith("host-"), "propustka vydána", v.data);
     ok(v.data.kdo_je_na_siti.some(a => a.jmeno === "Fable"), "v rozcestníku je Fable");
     const agenti = await get("/api/agents");
     ok(!agenti.data.some(a => a.name === v.data.prezdivka), "návštěvník NENÍ v katalogu agentů");
@@ -116,7 +116,7 @@ async function zaregistruj(jmeno, dovednosti) {
     console.log("\n2) Dotaz Fablovi → uložen do jeho schránky, stav queued");
     const otazka = "Mám 200 tisíc a chci je na 5 let někam odložit — ETF, nebo dluhopisy?";
     const q = await get(`/zeptat/${P}/Fable/${enc(otazka)}`);
-    ok(q.status === 201 && q.data.odeslano === true, "odesláno, potvrzení hned", q.data);
+    ok(q.status === 200 && q.data.odeslano === true, "odesláno, potvrzení hned", q.data);
     ok(q.data.stav === "queued" && !!q.data.id, "potvrzení nese id a stav queued", q.data);
     ok(q.data.komu === "Fable", "adresát Fable");
     const Q1 = q.data.id;
@@ -165,7 +165,7 @@ async function zaregistruj(jmeno, dovednosti) {
 
     console.log("\n8) Agent ↔ agent (Aja → Fable) s AUTOMATICKÝM párováním bez in_reply_to");
     const a1 = await get(`/napis/${aja.kod}/Fable/${enc("Fable, sepíšeme spolu průvodce pro nováčky?")}`);
-    ok(a1.status === 201 && a1.data.stav === "queued", "Aja poslala dotaz (cesta bez otazníku)", a1.data);
+    ok(a1.status === 200 && a1.data.stav === "queued", "Aja poslala dotaz (cesta bez otazníku)", a1.data);
     const f1 = await mcp("send_message", { token: fable.token, to: "Aja", text: "Jasně, začnu osnovou." });   /* bez in_reply_to */
     ok(f1.odeslano === true && f1.odpoved_na === a1.data.id, "Fable odpověděl přes MCP bez in_reply_to — server spároval sám", f1);
     const ajaPosta = await get(`/posta/${aja.kod}`);
@@ -210,20 +210,20 @@ async function zaregistruj(jmeno, dovednosti) {
     const v2 = await get("/navsteva");
     ok(!!v2.data.priklad_hotove_adresy && !!v2.data.jak_poznas_ze_to_odeslo, "rozcestník má hotový příklad adresy a kontrolu odeslání", v2.data);
     const qq = await get(`/zeptat?propustka=${v2.data.propustka}&to=Fable&text=${enc("tvar s otazníkem")}`);
-    ok(qq.status === 201 && qq.data.stav === "queued", "/zeptat?propustka=&to=&text= funguje", qq.data);
+    ok(qq.status === 200 && qq.data.stav === "queued", "/zeptat?propustka=&to=&text= funguje", qq.data);
     const qp = await get(`/poradit?propustka=${v2.data.propustka}&tema=${enc("investice do ETF")}`);
-    ok(qp.status === 201 && qp.data.komu === "Fable", "/poradit?propustka=&tema= funguje a vybere rádce", qp.data);
+    ok(qp.status === 200 && qp.data.komu === "Fable", "/poradit?propustka=&tema= funguje a vybere rádce", qp.data);
     const qn = await get(`/napis/${v2.data.propustka}/Fable/${enc("host píše po agentsku")}`);
-    ok(qn.status === 201 && qn.data.stav === "queued", "/napis/PROPUSTKA/Fable/TEXT funguje pro hosta", qn.data);
+    ok(qn.status === 200 && qn.data.stav === "queued", "/napis/PROPUSTKA/Fable/TEXT funguje pro hosta", qn.data);
     const sq = await get(`/schranka?propustka=${v2.data.propustka}`);
     ok(sq.status === 200 && sq.data.pocet === 3, "/schranka?propustka= vrátí všechny tři dotazy", sq.data);
     const zast = await get(`/zeptat/${v2.data.propustka}/Fable/TVUJ_DOTAZ`);
     ok(zast.status === 400 && /zástupný/.test(zast.data.error), "zástupný text z návodu se odmítne s vysvětlením", zast.data);
     ok(/^[a-z]+-[a-z]+-\d{6}$/.test(v2.data.propustka), "propustka je ze slov (slovo-slovo-6 číslic), ne hex — nevypadá jako uniklý klíč", v2.data.propustka);
     const kz = await get(`/z/${v2.data.propustka}/Fable/${enc("kratky tvar")}`);
-    ok(kz.status === 201 && kz.data.komu === "Fable", "/z/PROPUSTKA/Fable/TEXT (nejkratší tvar) funguje", kz.data);
+    ok(kz.status === 200 && kz.data.komu === "Fable", "/z/PROPUSTKA/Fable/TEXT (nejkratší tvar) funguje", kz.data);
     const kp = await get(`/z/${v2.data.propustka}/${enc("investice na pet let")}`);
-    ok(kp.status === 201 && kp.data.komu === "Fable", "/z/PROPUSTKA/TEXT vybere rádce", kp.data);
+    ok(kp.status === 200 && kp.data.komu === "Fable", "/z/PROPUSTKA/TEXT vybere rádce", kp.data);
     const ks = await get(`/s/${v2.data.propustka}`);
     ok(ks.status === 200 && ks.data.pocet === 5, "/s/PROPUSTKA je schránka", ks.data);
     const delka = `${BASE}/z/${v2.data.propustka}/Fable/${enc("Mám 200 tisíc na 5 let — ETF, nebo dluhopisy? Spíš konzervativně.")}`.length;
@@ -232,7 +232,7 @@ async function zaregistruj(jmeno, dovednosti) {
     ok(posledni === 429, "po 20 neplatných propustkách z jedné adresy server brzdí (429)");
     /* Claude smí otevřít jen adresu z konverzace → dotaz rovnou v /navsteva od člověka */
     const jedna = await get(`/navsteva?to=Fable&dotaz=${enc("Vejde se dotaz do jedné adresy?")}`);
-    ok(jedna.status === 201 && jedna.data.dotaz_odeslan && jedna.data.dotaz_odeslan.stav === "queued" && jedna.data.dotaz_odeslan.komu === "Fable",
+    ok(jedna.status === 200 && jedna.data.dotaz_odeslan && jedna.data.dotaz_odeslan.stav === "queued" && jedna.data.dotaz_odeslan.komu === "Fable",
       "/navsteva?to=Fable&dotaz=… vydá propustku A rovnou odešle dotaz (jedno otevření)", jedna.data.dotaz_odeslan);
     const jednaS = await get(`/s/${jedna.data.propustka}`);
     ok(jednaS.data.pocet === 1 && jednaS.data.zpravy[0].id === jedna.data.dotaz_odeslan.id, "schránka z odpovědi (moje_schranka) dotaz ukazuje");
@@ -250,7 +250,7 @@ async function zaregistruj(jmeno, dovednosti) {
     ok(pocetPred === 1, "ve schránce je dotaz jen jednou");
     const dvakrat1 = await get(`/z/${v2.data.propustka}/Fable/${enc("dvakrat stejny text")}`);
     const dvakrat2 = await get(`/z/${v2.data.propustka}/Fable/${enc("dvakrat stejny text")}`);
-    ok(dvakrat1.status === 201 && dvakrat2.status === 200 && dvakrat2.data.opakovano === true && dvakrat2.data.id === dvakrat1.data.id,
+    ok(dvakrat1.status === 200 && dvakrat2.status === 200 && dvakrat2.data.opakovano === true && dvakrat2.data.id === dvakrat1.data.id,
       "/z otevřené dvakrát se stejným textem vrátí podruhé původní id (žádný duplikát)", dvakrat2.data);
     const who = await get("/api/whoami", { "X-Owner-Token": aja.token });
     ok(who.data.recoveryCode === aja.kod && who.data.navrat_pro_chat.endsWith("/obnova/" + aja.kod), "vlastník vidí přes whoami obnovovací kód pro svůj chat", who.data);
@@ -271,7 +271,7 @@ async function zaregistruj(jmeno, dovednosti) {
     console.log("\n12) Návštěvník napíše Fablovi → zpráva ho probudí → odpověď je ve schránce bez čekání na člověka");
     const v3 = await get("/navsteva");
     const q3 = await get(`/zeptat/${v3.data.propustka}/Fable/${enc("Kolik procent do dluhopisů na 5 let?")}`);
-    ok(q3.status === 201 && q3.data.stav === "queued", "dotaz uložen (queued)");
+    ok(q3.status === 200 && q3.data.stav === "queued", "dotaz uložen (queued)");
     const prislo = await pockejNa(async () => { const s = await get(`/schranka/${v3.data.propustka}`); return s.data.zpravy.some(m => m.od === "Fable" && m.odpoved_na === q3.data.id); }, 8000);
     ok(prislo, "Fable odpověděl automaticky, odpověď je spárovaná s dotazem (odpoved_na)");
     const s3 = await get(`/schranka/${v3.data.propustka}`);
@@ -286,11 +286,11 @@ async function zaregistruj(jmeno, dovednosti) {
     const sch = await get(`/s/${v3.data.propustka}`);
     ok(sch.data.pokracovat && sch.data.pokracovat.rozved && sch.data.pokracovat.rozved.endsWith(`/dal/${v3.data.propustka}/rozved`), "schránka nese pole pokracovat s hotovými adresami", sch.data.pokracovat);
     const dal = await get(`/dal/${v3.data.propustka}/rozved`);
-    ok(dal.status === 201 && dal.data.komu === "Fable" && dal.data.stav === "queued", "/dal/PROPUSTKA/rozved pošle Rozveď to poslednímu agentovi (Fable)", dal.data);
+    ok(dal.status === 200 && dal.data.komu === "Fable" && dal.data.stav === "queued", "/dal/PROPUSTKA/rozved pošle Rozveď to poslednímu agentovi (Fable)", dal.data);
     const dalOdp = await pockejNa(async () => { const s = await get(`/s/${v3.data.propustka}`); return s.data.zpravy.some(m => m.od === "Fable" && m.odpoved_na === dal.data.id); }, 8000);
     ok(dalOdp, "Fable na pokračování odpověděl a odpověď je spárovaná");
     const dalHtml = await fetch(`${BASE}/dal/${v3.data.propustka}/priklad`, { headers: { Accept: "text/html" } });
-    ok(dalHtml.status === 201 && (await dalHtml.text()).includes("<html"), "/dal v prohlížeči (ťuknutí člověka) vrátí čitelnou HTML stránku");
+    ok(dalHtml.status === 200 && (await dalHtml.text()).includes("<html"), "/dal v prohlížeči (ťuknutí člověka) vrátí čitelnou HTML stránku");
     const neznamy = await get(`/dal/${v3.data.propustka}/neexistuje`);
     ok(neznamy.status === 404, "neznámý klíč pokračování → 404");
 
@@ -315,11 +315,11 @@ async function zaregistruj(jmeno, dovednosti) {
     ok(fableCard && fableCard.zacit && fableCard.zacit.predstav_se.includes(`/u/${rz.data.propustka}/Fable/predstav_se`), "u každého agenta je pole zacit s hotovými adresami", fableCard && fableCard.zacit);
     ok(!!rz.data.jak_zacit_rozhovor_sam, "rozcestník vysvětluje, že tyhle adresy chat otevřít smí");
     const u1 = await get(`/u/${rz.data.propustka}/Fable/predstav_se`);
-    ok(u1.status === 201 && u1.data.komu === "Fable" && u1.data.stav === "queued", "/u/PROPUSTKA/Fable/predstav_se pošle úvodní dotaz", u1.data);
+    ok(u1.status === 200 && u1.data.komu === "Fable" && u1.data.stav === "queued", "/u/PROPUSTKA/Fable/predstav_se pošle úvodní dotaz", u1.data);
     const u1odp = await pockejNa(async () => (await get(`/s/${rz.data.propustka}`)).data.zpravy.some(m => m.od === "Fable" && m.odpoved_na === u1.data.id), 8000);
     ok(u1odp, "Fable na úvodní dotaz odpověděl a odpověď je spárovaná");
     const u2 = await get(`/u/${rz.data.propustka}/Aja/co_umis`);
-    ok(u2.status === 201 && u2.data.komu === "Aja", "úvodní adresa funguje i pro jiného agenta (Aja)", u2.data);
+    ok(u2.status === 200 && u2.data.komu === "Aja", "úvodní adresa funguje i pro jiného agenta (Aja)", u2.data);
     const uX = await get(`/u/${rz.data.propustka}/Fable/neexistuje`);
     ok(uX.status === 404, "neznámý klíč úvodu → 404");
 

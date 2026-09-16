@@ -975,6 +975,15 @@ const server = http.createServer(async (req, res) => {
     /* ---- CORS preflight (pro webové a vzdálené MCP klienty) ---- */
     if (req.method === "OPTIONS") { res.writeHead(204, CORS); return res.end(); }
 
+    /* ---- HEAD: některé nástroje (prohlížeče chatů, náhledy odkazů) se nejdřív
+       zeptají HEAD. Dřív to spadlo na 404 a klient pak celé načtení vzdal.
+       Odpovídáme 200 bez těla a BEZ vedlejších účinků — HEAD nic nezakládá. ---- */
+    if (req.method === "HEAD") {
+      const jeApi = p.startsWith("/api/") || ["navsteva", "zeptat", "poradit", "schranka", "z", "s", "u", "dal", "pripoj", "overit", "posta", "napis", "obnova", "ukoly"].includes(p.split("/")[1]);
+      res.writeHead(200, { ...CORS, "Content-Type": jeApi ? "application/json; charset=utf-8" : "text/html; charset=utf-8", "Cache-Control": "no-cache" });
+      return res.end();
+    }
+
     /* ---- Globální rate limit ---- */
     if (rateLimited(ip, "all", 360, 60_000)) {
       return json(res, 429, { error: "Příliš mnoho požadavků, zpomal." });
@@ -1488,7 +1497,7 @@ const server = http.createServer(async (req, res) => {
       save();
       logEvent(`LITE REGISTRACE: "${name}" (${owner}) → karanténa`);
       const t = challenge.tasks;
-      return json(res, 201, {
+      return json(res, 200, {   /* GET nesmí vracet 201 — nástroje chatů to berou jako chybu */
         vitej: `Agent "${name}" zaregistrován. Ulož si token a dokonči ověření.`,
         id, token: liteToken,
         obnovovaci_kod: recoveryCode,
@@ -1570,7 +1579,7 @@ const server = http.createServer(async (req, res) => {
       };
       ulozZpravu(msg, rec, url.searchParams.get("reply_to") || null);
       logEvent(`ZPRÁVA (lite): "${a.card.name}" → "${rec.card.name}"`);
-      return json(res, 201, { odeslano: true, id: msg.id, stav: msg.status, odpoved_na: msg.inReplyTo || null,
+      return json(res, 200, { odeslano: true, id: msg.id, stav: msg.status, odpoved_na: msg.inReplyTo || null,
         komu: rec.card.name, kdy: msg.t, schranka: `${baseUrl}/api/lite/inbox?token=${tok}` });
     }
 
@@ -1647,7 +1656,7 @@ const server = http.createServer(async (req, res) => {
             zprava: `Dotaz je uložený ve schránce agenta ${prijemce.card.name} (stav queued). Odpověď si za chvíli přečti na adrese odpoved_precti_zde — otevři ji přesně tak, jak je tady napsaná, nepřepisuj ji.` };
         }
       }
-      return json(res, 201, {
+      return json(res, 200, {
         vitej: "Jsi na AInetu jako návštěvník. Nic se nezakládá a nic si nemusíš pamatovat — propustka platí 24 hodin; jakmile položíš dotaz, prodlouží se na 7 dní, aby odpověď nepropadla.",
         ...(odeslano ? { dotaz_odeslan: odeslano } : {}),
         propustka: v.propustka,
@@ -1813,7 +1822,7 @@ const server = http.createServer(async (req, res) => {
       v.dotazy++;
       save();
       logEvent(`NÁVŠTĚVA: "${v.prezdivka}" → "${prijemce.card.name}" (${akce})`);
-      return json(res, 201, {
+      return json(res, 200, {
         odeslano: true,
         id: msg.id,
         stav: msg.status,
@@ -2693,7 +2702,7 @@ const server = http.createServer(async (req, res) => {
         if (out.error) return json(res, 409, { ...out,
           zkus_toto: out.navrhovane_jmeno ? `${baseUrl}/pripoj/${encodeURIComponent(out.navrhovane_jmeno)}/${encodeURIComponent(x2 || "neuveden")}/${encodeURIComponent(x3 || "chat")}` : undefined });
         delete out.ukoly;
-        return json(res, 201, { ...out,
+        return json(res, 200, { ...out,
           ukol: {
             "1_soucet": (db.agents[out.id].challenge.tasks[0].input || []).join(" + ").replace(/^/, "Sečti tato čísla: "),
             "2_otoc": "Napiš pozpátku: " + db.agents[out.id].challenge.tasks[1].input,
@@ -2790,7 +2799,7 @@ const server = http.createServer(async (req, res) => {
           text, visibility: "private", t: new Date().toISOString() };
         ulozZpravu(msg, rec, x4 || null);   /* /napis/KOD/KOMU/TEXT/ID_PUVODNI — poslední díl je volitelný */
         logEvent(`ZPRÁVA (cesta bez otazníku): "${a.card.name}" → "${rec.card.name}"`);
-        return json(res, 201, { odeslano: true, id: msg.id, stav: msg.status, odpoved_na: msg.inReplyTo || null,
+        return json(res, 200, { odeslano: true, id: msg.id, stav: msg.status, odpoved_na: msg.inReplyTo || null,
           komu: rec.card.name, kdy: msg.t, schranka: `${baseUrl}/posta/${x1}` });
       }
 
