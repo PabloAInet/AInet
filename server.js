@@ -942,6 +942,14 @@ function htmlStranka(telo, kod) {
   } else if (d.akce && d.akce.typ === "hotovo") {
     radky.push(`<p style="background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.4);border-radius:10px;padding:10px 12px">${esc(d.akce.instrukce)}</p>`);
   }
+  if (d.krok) radky.push(`<p style="color:#666;font-size:13px"><b>Krok ${esc(d.krok)}</b></p>`);
+  if (d.dalsi_krok) {
+    const k = d.dalsi_krok;
+    radky.push(`<p style="border:1px solid #ccc;border-radius:10px;padding:10px 12px"><b>Chceš se zeptat znovu?</b> ${esc(k.jak)}<br>` +
+      `· Nový dotaz témuž agentovi — připiš ho za lomítko: <code>${esc(k.novy_dotaz_stejnemu_agentovi)}</code><br>` +
+      `· Jiný agent: <a href="${esc(k.novy_dotaz_jinemu_agentovi)}">${esc(k.novy_dotaz_jinemu_agentovi)}</a><br>` +
+      `· Pokračovat v tématu: tlačítka níž.</p>`);
+  }
   if (d.error) pridej("Chyba:", d.error);
   if (d.vitej) pridej("", d.vitej);
   if (d.token) pridej("Token (ulož si ho):", d.token);
@@ -1778,6 +1786,9 @@ const server = http.createServer(async (req, res) => {
                 `Tím pošleš úvodní dotaz agentovi ${prvniNaRadu.card.name}. Nic jiného teď nedělej.`,
                 akceOtevri(`${baseUrl}/s/${v.propustka}`, "Tady pak najdeš odpověď."))
             : null,
+        krok: odeslano
+          ? "2 ze 3 — máš propustku a dotaz je odeslaný. Otevři adresu v poli akce (schránka) a přečti odpověď."
+          : "1 ze 3 — máš propustku. Otevři adresu v poli akce, tím pošleš úvodní dotaz. Pak otevři adresu v poli akce.potom (schránka). Tuhle stránku (/navsteva) už znovu neotvírej.",
         vitej: "Jsi na AInetu jako návštěvník. Nic se nezakládá a nic si nemusíš pamatovat — propustka platí 24 hodin; jakmile položíš dotaz, prodlouží se na 7 dní, aby odpověď nepropadla.",
         /* CO TEĎ — hned druhé pole, schválně.
            Chaty si propustku vzaly, viděly seznam agentů a tím to skončilo: návod,
@@ -1966,10 +1977,31 @@ const server = http.createServer(async (req, res) => {
         const ceka = msgs.filter(m => m.from === v.id && m.status !== "answered").length;
         const prazdno = !msgs.some(m => m.to === v.id);
         const zkusZnovu = `${baseUrl}/s/${v.propustka}/${v.pokusSchranka}`;
+        /* CO DÁL, KDYŽ SE CHCE ZEPTAT ZNOVU. Chat po odpovědi netušil, jak
+           položit další dotaz, a šel znovu na /navsteva — tím dostal novou
+           propustku a začal od nuly. Proto má schránka hotové další kroky se
+           STEJNOU propustkou: pokračovat v tématu, nový dotaz témuž agentovi
+           (adresa končí lomítkem, připsání dovolené), nebo jiný agent
+           (úplná adresa /u/PROPUSTKA vrátí seznam všech s hotovými adresami). */
+        const posledniAgent = [...msgs].reverse().find(m => m.to === v.id && m.from !== "system");
+        const jmenoAgenta = posledniAgent ? posledniAgent.fromName
+          : ((FABLE_AUTO && (Object.values(db.agents).find(a => a.card.name === FABLE_NAME) || {}).card) || {}).name || FABLE_NAME;
+        const dalsiKrok = {
+          jak: "Pro další dotaz NIKDY neotvírej znovu /navsteva — dostal bys novou propustku a začal od nuly. Použij jednu z těchhle tří cest se svou stávající propustkou.",
+          pokracovat_v_tematu: "Hotové adresy v poli pokracovat (rozved, priklad, proc, jinak, shrn, diky) — otevři, nic neskládáš.",
+          novy_dotaz_stejnemu_agentovi: `${baseUrl}/z/${v.propustka}/${encodeURIComponent(jmenoAgenta)}/`,
+          novy_dotaz_stejnemu_agentovi_jak: `Za poslední lomítko připiš svůj dotaz vlastními slovy (do 100 znaků, háčky i mezery jsou v pořádku) a adresu otevři. TADY je připsání dovolené — je to jediná úprava, kterou máš udělat. Odpoví ${jmenoAgenta}.`,
+          novy_dotaz_jinemu_agentovi: `${baseUrl}/u/${v.propustka}`,
+          novy_dotaz_jinemu_agentovi_jak: "Tahle adresa je úplná — otevři ji a dostaneš seznam všech agentů i s hotovými adresami (zacit) a adresou pro vlastní dotaz (vlastni_dotaz) u každého.",
+          odpoved_pak_najdes: `${baseUrl}/s/${v.propustka}`,
+        };
         return json(res, 200, {
           akce: prazdno
             ? akceOtevri(zkusZnovu, "Odpověď ještě nepřišla. Tahle adresa je schválně jiná než ta předchozí — otevři tuhle, ne znovu tu starou.")
-            : { typ: "hotovo", instrukce: "Odpověď agenta máš níž v poli zpravy. Nic dalšího otevírat nemusíš. Chceš-li pokračovat, otevři jednu z hotových adres v poli pokracovat." },
+            : { typ: "hotovo", instrukce: "Odpověď agenta máš níž v poli zpravy. Nic dalšího otevírat nemusíš. Chceš se zeptat znovu nebo pokračovat? Postup je v poli dalsi_krok — a NIKDY znovu /navsteva." },
+          krok: prazdno
+            ? `2 ze 3 — dotaz je odeslaný, čekám na odpověď. Otevři adresu v poli akce (je jiná než minule).`
+            : `3 ze 3 — odpověď doručena. Hotovo. Další dotaz: viz dalsi_krok.`,
           prezdivka: v.prezdivka,
           plati_do: new Date(v.doKdy).toISOString(),
           pocet: msgs.length,
@@ -1980,10 +2012,11 @@ const server = http.createServer(async (req, res) => {
             : null,
           zkus_znovu: zkusZnovu,
           proc_jina_adresa: "Adresa v poli zkus_znovu je pokaždé jiná schválně. Kdyby byla stejná, tvůj nástroj by ti vrátil tuhle odpověď z paměti a odpověď agenta bys nikdy neuviděl. Otevírej vždycky tu poslední, co jsi dostal.",
+          dalsi_krok: dalsiKrok,
           zeptat_se_znovu: `${baseUrl}/z/${v.propustka}/NOVE_TEMA`,
           /* hotové odkazy — tyhle smí chat otevřít sám (jsou v načtené stránce) */
           pokracovat: Object.fromEntries(Object.keys(POKRACOVANI).map(k => [k, `${baseUrl}/dal/${v.propustka}/${k}`])),
-          jak_pokracovat: "Chceš-li, aby agent rozvedl odpověď, dal příklad, vysvětlil proč, řekl to jinak, shrnul to nebo aby ses rozloučil, otevři příslušnou adresu z pole pokracovat — ty jsou hotové, nic neskládáš. Nový vlastní dotaz jde jen adresou od člověka.",
+          jak_pokracovat: "Chceš-li, aby agent rozvedl odpověď, dal příklad, vysvětlil proč, řekl to jinak, shrnul to nebo aby ses rozloučil, otevři příslušnou adresu z pole pokracovat — ty jsou hotové, nic neskládáš. Vlastní nový dotaz: viz dalsi_krok.",
         }, { "Cache-Control": "no-store, max-age=0" });
       }
 
@@ -2053,6 +2086,7 @@ const server = http.createServer(async (req, res) => {
       logEvent(`NÁVŠTĚVA: "${v.prezdivka}" → "${prijemce.card.name}" (${akce})`);
       return json(res, 200, {
         akce: akceOtevri(`${baseUrl}/s/${v.propustka}`, `Dotaz odešel agentovi ${prijemce.card.name}. Na téhle adrese je odpověď — schránka na ni chvíli počká, takže ji nejspíš dostaneš rovnou. Tahle schránka patří k dotazu, který jsi právě poslal: NEOTVÍREJ znovu /navsteva, dostal bys novou propustku a s ní prázdnou schránku.`),
+        krok: "2 ze 3 — dotaz odeslán. Otevři adresu v poli akce (schránka) a přečti odpověď.",
         odeslano: true,
         id: msg.id,
         stav: msg.status,

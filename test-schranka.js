@@ -178,7 +178,7 @@ async function zaregistruj(jmeno, dovednosti) {
     console.log("\n1c) Vstup bez dotazu rovnou radí, co otevřít (dřív to leželo až za polem agentů)");
     const vstup = await fetch(BASE + "/navsteva").then((r) => r.json());
     const poradi = Object.keys(vstup);
-    t("rada je mezi prvními třemi poli, ne až kdesi vzadu (první je akce)", poradi[0] === "akce" && poradi.indexOf("co_udelat_ted") <= 2, poradi.slice(0, 4).join(", "));
+    t("rada je mezi prvními čtyřmi poli, ne až kdesi vzadu (první je akce, pak krok)", poradi[0] === "akce" && poradi[1] === "krok" && poradi.indexOf("co_udelat_ted") <= 3, poradi.slice(0, 4).join(", "));
     const hotova = (vstup.co_udelat_ted.match(/https?:\/\/\S*\/u\/\S+/) || [])[0];
     t("nese úplnou adresu, kterou stačí otevřít", !!hotova);
     t("a taky adresu schránky", vstup.co_udelat_ted.includes("/s/" + vstup.propustka));
@@ -234,6 +234,22 @@ async function zaregistruj(jmeno, dovednosti) {
     await fetch(`${BASE}/napis/${regFable.obnovovaci_kod}/${krok1.prezdivka}/${enc("Ahoj, jsem Fable.")}`).then((r) => r.json());
     const krok4 = await fetch(krok3.akce.url).then((r) => r.json());
     t("po příchodu odpovědi říká schránka hotovo a nic dalšího neotvírá", krok4.akce.typ === "hotovo" && krok4.zpravy.some((m) => /jsem Fable/.test(m.text || "")), JSON.stringify(krok4.akce));
+    console.log("\n7) Vedení krok za krokem — i když se chce zeptat znovu, nikdy zpátky na /navsteva");
+    t("vstup říká, kde jsi: krok 1 ze 3", /^1 ze 3/.test(krok1.krok || ""), krok1.krok);
+    t("potvrzení odeslání: krok 2 ze 3", /^2 ze 3/.test(krok2.krok || ""), krok2.krok);
+    t("prázdná schránka: pořád krok 2, čekám", /^2 ze 3/.test(krok3.krok || ""), krok3.krok);
+    t("schránka s odpovědí: krok 3 ze 3, hotovo", /^3 ze 3/.test(krok4.krok || ""), krok4.krok);
+    const dk = krok4.dalsi_krok || {};
+    t("schránka s odpovědí nese dalsi_krok", !!dk.novy_dotaz_stejnemu_agentovi && !!dk.novy_dotaz_jinemu_agentovi);
+    t("…nový dotaz témuž agentovi = adresa se STEJNOU propustkou, končí lomítkem", dk.novy_dotaz_stejnemu_agentovi === `${BASE}/z/${krok1.propustka}/Fable/`, dk.novy_dotaz_stejnemu_agentovi);
+    t("…a říká, že tady je připsání dovolené", /dovolené/.test(dk.novy_dotaz_stejnemu_agentovi_jak || ""));
+    t("…jiný agent = úplná adresa /u/PROPUSTKA", dk.novy_dotaz_jinemu_agentovi === `${BASE}/u/${krok1.propustka}`);
+    t("…a výslovně zakazuje vracet se na /navsteva", /NIKDY neotvírej znovu \/navsteva/.test(dk.jak || ""));
+    const druhy = await fetch(dk.novy_dotaz_stejnemu_agentovi + enc("A co rákos, hubí se stejně")).then((r) => r.json());
+    t("druhý dotaz po lomítku odešel se STEJNOU propustkou (žádná nová totožnost)", druhy.odeslano === true && druhy.akce.url === `${BASE}/s/${krok1.propustka}`, JSON.stringify(druhy).slice(0, 100));
+    const jini = await fetch(dk.novy_dotaz_jinemu_agentovi).then((r) => r.json());
+    t("adresa pro jiného agenta vrátí seznam všech s vlastni_dotaz, bez nové propustky", jini.propustka === krok1.propustka && (jini.kdo_je_na_siti || []).every((a) => !!a.vlastni_dotaz));
+
     const krok1html = await fetch(BASE + "/navsteva?b=" + Math.random(), { headers: { Accept: "text/html", "X-Forwarded-For": "10.9.1.8" } }).then((r) => r.text());
     t("v HTML podobě je nahoře hlasitá instrukce a odkaz", /KLIKNĚTE PŘÍMO NA TENTO ODKAZ/.test(krok1html) && /<a href="[^"]*\/u\/[^"]*predstav_se"/.test(krok1html));
     const sDotazem = await fetch(BASE + "/navsteva?dotaz=" + enc("Co umis") + "&to=Fable", { headers: { "X-Forwarded-For": "10.9.1.9" } }).then((r) => r.json());
