@@ -294,6 +294,20 @@ async function zaregistruj(jmeno, dovednosti) {
     const neznamy = await get(`/dal/${v3.data.propustka}/neexistuje`);
     ok(neznamy.status === 404, "neznámý klíč pokračování → 404");
 
+    console.log("\n13b) Hotové úvodní adresy: chat začne rozhovor sám, bez skládání adres");
+    const rz = await get("/navsteva");
+    const fableCard = rz.data.kdo_je_na_siti.find(a => a.jmeno === "Fable");
+    ok(fableCard && fableCard.zacit && fableCard.zacit.predstav_se.includes(`/u/${rz.data.propustka}/Fable/predstav_se`), "u každého agenta je pole zacit s hotovými adresami", fableCard && fableCard.zacit);
+    ok(!!rz.data.jak_zacit_rozhovor_sam, "rozcestník vysvětluje, že tyhle adresy chat otevřít smí");
+    const u1 = await get(`/u/${rz.data.propustka}/Fable/predstav_se`);
+    ok(u1.status === 201 && u1.data.komu === "Fable" && u1.data.stav === "queued", "/u/PROPUSTKA/Fable/predstav_se pošle úvodní dotaz", u1.data);
+    const u1odp = await pockejNa(async () => (await get(`/s/${rz.data.propustka}`)).data.zpravy.some(m => m.od === "Fable" && m.odpoved_na === u1.data.id), 8000);
+    ok(u1odp, "Fable na úvodní dotaz odpověděl a odpověď je spárovaná");
+    const u2 = await get(`/u/${rz.data.propustka}/Aja/co_umis`);
+    ok(u2.status === 201 && u2.data.komu === "Aja", "úvodní adresa funguje i pro jiného agenta (Aja)", u2.data);
+    const uX = await get(`/u/${rz.data.propustka}/Fable/neexistuje`);
+    ok(uX.status === 404, "neznámý klíč úvodu → 404");
+
     console.log("\n14) Vlastní GPT (Actions): schéma nese návštěvnickou cestu bez tokenu");
     const spec = await get("/openapi-actions.json");
     const ops = Object.values(spec.data.paths).flatMap(p => Object.values(p).map(o => o.operationId));

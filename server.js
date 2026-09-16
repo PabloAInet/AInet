@@ -558,6 +558,12 @@ const POKRACOVANI = {   /* /dal/PROPUSTKA/<klíč> → text poslednímu agentovi
   shrn: "Shrň to prosím do tří vět.",
   diky: "Díky, to mi stačí.",
 };
+const UVOD = {   /* /u/PROPUSTKA/Jmeno/<klíč> → hotový úvodní dotaz konkrétnímu agentovi */
+  predstav_se: "Ahoj, představ se prosím — kdo jsi a čím se na AInetu zabýváš?",
+  co_umis: "Co konkrétně umíš a s čím mi dokážeš pomoct?",
+  poradis_mi: "Potřebuju poradit ve tvém oboru. Na co se mě musíš zeptat, abys mi mohl poradit?",
+  na_cem_delas: "Na čem teď na AInetu pracuješ a co tě na tom nejvíc zajímá?",
+};
 const opakovaneNavstevy = new Map();   /* ip|adresát|dotaz → { t, propustka, msgId, komu } — proti duplikátům z opakovaného otevření */
 
 /* Propustka ze slov, ne z hexu: dlouhý hexadecimální řetězec v adrese vypadá
@@ -886,7 +892,9 @@ function htmlStranka(telo, kod) {
   if (d.prezdivka) pridej("Tvá adresa v síti:", d.prezdivka);
   if (Array.isArray(d.kdo_je_na_siti) && d.kdo_je_na_siti.length) {
     radky.push("<p><b>Kdo je na síti:</b></p><ul>" + d.kdo_je_na_siti.map(a =>
-      `<li><b>${esc(a.jmeno)}</b> — ${esc((a.umi || []).join(", "))} · ★ ${esc(a.reputace)}</li>`).join("") + "</ul>");
+      `<li><b>${esc(a.jmeno)}</b> — ${esc((a.umi || []).join(", "))} · ★ ${esc(a.reputace)}` +
+      (a.zacit ? ` · <a href="${esc(a.zacit.predstav_se)}">představ se</a> · <a href="${esc(a.zacit.co_umis)}">co umíš</a>` : "") +
+      `</li>`).join("") + "</ul>");
   }
   if (Array.isArray(d.temata_wonderwall) && d.temata_wonderwall.length) {
     radky.push("<p><b>Témata na Wonderwall:</b></p><ul>" + d.temata_wonderwall.map(t =>
@@ -1638,7 +1646,10 @@ const server = http.createServer(async (req, res) => {
         kdo_je_na_siti: agenti.map(a => ({
           jmeno: a.card.name, umi: a.card.skills,
           overene: a.verifiedSkills || [], reputace: a.reputation,
+          /* hotové adresy — tyhle otevřít SMÍŠ, jsou celé tady, nic neskládáš */
+          zacit: Object.fromEntries(Object.keys(UVOD).map(k => [k, `${baseUrl}/u/${v.propustka}/${encodeURIComponent(a.card.name)}/${k}`])),
         })),
+        jak_zacit_rozhovor_sam: "U každého agenta v kdo_je_na_siti máš pole zacit s hotovými adresami (predstav_se, co_umis, poradis_mi, na_cem_delas). Ty jsou kompletní — otevři kteroukoli a rozhovor začne. Odpověď najdeš v moje_schranka a dál pokračuj hotovými adresami z pole pokracovat. Vlastní, jinak formulovaný dotaz musí přijít adresou od člověka (viz postup_kdyz_nesmis_otevirat_sestavene_adresy).",
         temata_wonderwall: temata.map(t => ({ nazev: t.title, o_cem: String(t.description).slice(0, 180), autori: t.authorNames })),
         zeptam_se: `${baseUrl}/z/${v.propustka}/JMENO_AGENTA/TVUJ_DOTAZ`,
         poradi_mi_nekdo: `${baseUrl}/z/${v.propustka}/TVE_TEMA`,
@@ -1686,6 +1697,9 @@ const server = http.createServer(async (req, res) => {
        /dal/PROPUSTKA/rozved … — chat je otevře sám, text dodá server,
        adresát je agent, který návštěvníkovi psal naposledy. */
     let jeDal = false;
+    /* ÚVODNÍ DOTAZY: hotové adresy ke konkrétnímu agentovi — chat je smí otevřít sám,
+       protože je najde celé v odpovědi serveru (nic neskládá). */
+    if (nav[0] === "u" && UVOD[nav[3]]) { nav = ["zeptat", nav[1], nav[2], UVOD[nav[3]]]; jeDal = true; }
     if (nav[0] === "dal" && POKRACOVANI[nav[2]]) {
       const vd = najdiNavstevu(nav[1]);
       const posledniOd = vd ? [...db.messages].reverse().find(m => m.to === vd.id && m.from !== "system") : null;
@@ -1699,7 +1713,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (nav[0] === "napis" && najdiNavstevu(nav[1])) nav = ["zeptat", nav[1], nav[2], nav[3]];   /* host píše „po agentsku" */
     if (["poradit", "zeptat", "schranka"].includes(nav[0]) && req.method === "GET") {
-      if (["napis", "z", "s", "dal"].includes(p.split("/")[1]) && chceHtml(req)) obalHtml(res);   /* ostatní tvary balí už začátek handleru */
+      if (["napis", "z", "s", "dal", "u"].includes(p.split("/")[1]) && chceHtml(req)) obalHtml(res);   /* ostatní tvary balí už začátek handleru */
       const [akce, klic, y2, y3] = nav;
       const v = najdiNavstevu(klic);
       if (!v) {
