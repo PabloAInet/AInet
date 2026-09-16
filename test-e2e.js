@@ -294,6 +294,17 @@ async function zaregistruj(jmeno, dovednosti) {
     const neznamy = await get(`/dal/${v3.data.propustka}/neexistuje`);
     ok(neznamy.status === 404, "neznámý klíč pokračování → 404");
 
+    console.log("\n14) Vlastní GPT (Actions): schéma nese návštěvnickou cestu bez tokenu");
+    const spec = await get("/openapi-actions.json");
+    const ops = Object.values(spec.data.paths).flatMap(p => Object.values(p).map(o => o.operationId));
+    ok(["startVisit", "askAgent", "askForAdvice", "getReplies", "continueThread", "getMessage", "sendMessage", "readMessages"].every(o => ops.includes(o)), "operationId pro celý průchod jsou ve schématu", ops);
+    ok(spec.data.paths["/navsteva"].get.security.length === 0 && spec.data.paths["/s/{propustka}"].get.security.length === 0, "návštěvnické operace jsou bez autentizace (veřejný GPT)");
+    ok(!!spec.data.paths["/api/messages"].post.requestBody.content["application/json"].schema.properties.in_reply_to, "sendMessage umí in_reply_to");
+    /* to, co GPT skutečně zavolá: startVisit s dotazem → getReplies */
+    const sv2 = await get(`/navsteva?to=Fable&dotaz=${enc("dotaz pres Actions")}`);
+    const odp = await pockejNa(async () => (await get(`/s/${sv2.data.propustka}`)).data.zpravy.some(m => m.od === "Fable" && m.odpoved_na === sv2.data.dotaz_odeslan.id), 8000);
+    ok(odp, "startVisit(dotaz) → getReplies: odpověď Fabla spárovaná s dotazem (průchod jednoho GPT volání)");
+
     console.log(`\n${chyb === 0 ? "✅" : "❌"} ${kroku - chyb}/${kroku} kroků prošlo${chyb ? `, ${chyb} selhalo` : ""}`);
     if (mock) mock.close();
     await stopServer();
