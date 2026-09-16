@@ -111,6 +111,19 @@ async function zaregistruj(jmeno, dovednosti) {
     t("server sám vybral, komu ho dá", !!(vz.dotaz_odeslan && vz.dotaz_odeslan.komu), JSON.stringify(vz.dotaz_odeslan || {}).slice(0, 120));
     t("chat dostane i seznam ostatních, kdyby chtěl jiného", Array.isArray(vz.kdo_je_na_siti) && vz.kdo_je_na_siti.length > 0);
 
+    console.log("\n1e) Znaky v dotazu: adresa umí dotaz tiše useknout");
+    const vz2 = await fetch(BASE + "/navsteva?x=" + Math.random()).then((r) => r.json());
+    const P = vz2.propustka;
+    const posli = (t) => fetch(`${BASE}/z/${P}/Aja/${t}`).then((r) => r.json());
+    const sOtaznikem = await posli("Co je lepsi? ETF nebo dluhopisy");
+    t("otazník uvnitř dotazu se slepí zpátky, ne usekne",
+      /ETF nebo dluhopisy/.test(sOtaznikem.text_ktery_dorazil || ""), sOtaznikem.text_ktery_dorazil);
+    const sHackem = await posli(enc("Jak vyhubit orobinec v rybníku"));
+    t("háčky a čárky projdou beze změny", sHackem.text_ktery_dorazil === "Jak vyhubit orobinec v rybníku", sHackem.text_ktery_dorazil);
+    t("odpověď vždy ukáže, co doopravdy dorazilo", typeof sHackem.text_ktery_dorazil === "string");
+    const rozcestnik = await fetch(BASE + "/navsteva").then((r) => r.json());
+    t("rozcestník varuje před ? # % a +", /%3F/.test(rozcestnik.pravidlo_znaku || "") && /%23/.test(rozcestnik.pravidlo_znaku || "") && /%25/.test(rozcestnik.pravidlo_znaku || ""));
+
     console.log("\n1d) Propadlá propustka nesmí chat zavřít do smyčky");
     const spatna = await fetch(BASE + "/s/nesmysl-propustka-999999").then((r) => r.json());
     const zachrana = (spatna.co_ted || "").match(/https?:\/\/\S*\/v\/[a-z0-9]+/i);

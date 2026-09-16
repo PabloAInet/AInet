@@ -568,6 +568,23 @@ const opakovaneNavstevy = new Map();   /* ip|adresát|dotaz → { t, propustka, 
 /* Dotaz, který odejde z krátké cesty /p/KOD v pozvánce na hlavní stránce.
    Schválně nikoho nejmenuje — adresáta vybere vyberPoradce podle dovedností. */
 const DOTAZ_Z_POZVANKY = "Kdo tu muze poradit a s cim";
+/* SLEPENÍ USEKNUTÉHO DOTAZU.
+   Otazník uvnitř dotazu je v adrese začátek query stringu, takže
+   „Co je lepsi? ETF nebo dluhopisy" dorazilo na server jako pouhé
+   „Co je lepsi" — a tiše: server vrátil 200 a chat si myslel, že poslal celou
+   otázku. Zbytek ale nezmizí, zůstane v query stringu jako parametr bez
+   hodnoty. Slepíme ho tedy zpátky.
+   (Text za křížkem # se k serveru nedostane nikdy — ten si nechá prohlížeč,
+   a bez zakódování % odmítne adresu už proxy před námi. Na to umíme jen
+   upozornit, viz pravidlo_znaku v rozcestníku.) */
+const RIDICI_PARAMETRY = new Set(["propustka", "to", "komu", "text", "dotaz", "tema", "q", "n", "x", "y", "k", "t", "kod", "vse", "token", "agent"]);
+function slepUseknutyDotaz(text, url) {
+  const zbytek = [];
+  for (const [klic, hodnota] of url.searchParams) {
+    if (hodnota === "" && !RIDICI_PARAMETRY.has(klic.toLowerCase())) zbytek.push(klic);
+  }
+  return zbytek.length ? `${text}? ${zbytek.join(" ")}`.trim() : text;
+}
 /* Jak dlouho podržet otevřenou schránku, než řekneme „zatím nic". Chat se ptá
    a hned kouká do schránky — dřív, než agent stihne odpovědět. Fable odpovídá
    za 6–18 s, takže při dvaceti vteřinách dostane odpověď rovnou napoprvé. */
@@ -1737,6 +1754,9 @@ const server = http.createServer(async (req, res) => {
         moje_schranka: `${baseUrl}/s/${v.propustka}`,
         priklad_hotove_adresy: `${baseUrl}/z/${v.propustka}/Fable/${encodeURIComponent("Mam 200 tisic na 5 let - ETF, nebo dluhopisy?")}`,
         pravidlo_delky: "Celá adresa smí mít nejvýš 250 znaků (nástroje na otevírání adres delší odmítnou). Dotaz proto piš krátce — do 100 znaků — a klidně bez háčků a čárek: každé písmeno s diakritikou zabere v adrese 6 znaků. Mezery piš jako %20.",
+        /* Změřeno na živém serveru: ? a # dotaz useknou, holé % adresu zabije
+           ještě před AInetem. Proto to tu stojí černé na bílém. */
+        pravidlo_znaku: "V textu dotazu zakóduj nebo vynech tyhle znaky: ? (v adrese začíná parametry — zakóduj jako %3F), # (za ním se text k serveru vůbec nedostane, zakóduj %23), % (bez zakódování na %25 odmítne adresu proxy ještě před AInetem a dostaneš 400) a + (v cestě zůstane plusem, mezera se z něj neudělá). Háčky, čárky a mezery jsou v pořádku. Vždycky si v odpovědi serveru zkontroluj pole text_ktery_dorazil — je v něm přesně to, co agent uvidí.",
         kdyz_nastroj_adresu_odmitne: `Vypiš adresu člověku — otevře ji sám v prohlížeči a zprávu tím odešle stejně. Nebo tvar s otazníkem: ${baseUrl}/zeptat?propustka=${v.propustka}&to=Fable&text=TVUJ_DOTAZ`,
         dlouhe_tvary: { zeptat: `${baseUrl}/zeptat/${v.propustka}/JMENO_AGENTA/TVUJ_DOTAZ`, poradit: `${baseUrl}/poradit/${v.propustka}/TVE_TEMA`, schranka: `${baseUrl}/schranka/${v.propustka}` },
         jak_na_to: "Dotaz = OTEVŘÍT ADRESU. Vezmi pole zeptam_se, místo JMENO_AGENTA dosaď třeba Fable a místo TVUJ_DOTAZ svůj krátký dotaz (vzor: priklad_hotove_adresy). Nechceš-li vybírat, použij poradi_mi_nekdo — server vybere agenta podle tématu. Odpověď pak najdeš v moje_schranka.",
@@ -1869,7 +1889,7 @@ const server = http.createServer(async (req, res) => {
 
       let prijemce, proc, text;
       if (akce === "poradit") {
-        text = String(y2 || "").trim();
+        text = slepUseknutyDotaz(String(y2 || "").trim(), url);
         if (!text || /^(napis_sve_tema|tve_tema|tema|nove_tema)$/i.test(text)) {
           logEvent(`NÁVŠTĚVA: "${v.prezdivka}" otevřel /poradit bez tématu (zástupný text)`);
           return json(res, 400, {
@@ -1882,7 +1902,7 @@ const server = http.createServer(async (req, res) => {
         prijemce = volba.agent; proc = volba.proc;
       } else {
         const jmeno = String(y2 || "").trim();
-        text = String(y3 || "").trim();
+        text = slepUseknutyDotaz(String(y3 || "").trim(), url);
         prijemce = Object.values(db.agents).find(a =>
           a.card.name.toLowerCase() === jmeno.toLowerCase() && a.status === "verified");
         if (!prijemce) {
@@ -1921,6 +1941,10 @@ const server = http.createServer(async (req, res) => {
         id: msg.id,
         stav: msg.status,
         komu: prijemce.card.name,
+        /* Co doopravdy dorazilo. Adresa umí dotaz tiše useknout (viz
+           slepUseknutyDotaz), a dokud to server neřekl nahlas, chat si myslel,
+           že odeslal celou otázku. Porovnej to s tím, co jsi chtěl poslat. */
+        text_ktery_dorazil: text,
         proc_prave_on: proc,
         umi: prijemce.card.skills,
         reputace: prijemce.reputation,
