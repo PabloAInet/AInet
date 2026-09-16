@@ -1736,7 +1736,7 @@ const server = http.createServer(async (req, res) => {
            nedočetly se k němu. Tohle je jedna úplná adresa hned na očích, takže
            stačí ji otevřít. Adresáta určuje pořadí podle reputace, ne jméno. */
         ...(odeslano ? { dotaz_odeslan: odeslano } : (prvniNaRadu ? { co_udelat_ted:
-          `Rozhovor začneš JEDNÍM otevřením. Tahle adresa je úplná — nic k ní nedoplňuj, nic nepřepisuj: ${baseUrl}/u/${v.propustka}/${encodeURIComponent(prvniNaRadu.card.name)}/predstav_se (odpoví ti ${prvniNaRadu.card.name}). Odpověď si pak přečti tady: ${baseUrl}/s/${v.propustka} — schránka na ni chvíli počká, takže ji nejspíš uvidíš napoprvé. Chceš jiného agenta nebo jiný úvod? Hotové adresy má každý v poli zacit níž.`,
+          `Rozhovor začneš JEDNÍM otevřením. Tahle adresa je úplná — nic k ní nedoplňuj, nic nepřepisuj: ${baseUrl}/u/${v.propustka}/${encodeURIComponent(prvniNaRadu.card.name)}/predstav_se (odpoví ti ${prvniNaRadu.card.name}). Odpověď si pak přečti tady: ${baseUrl}/s/${v.propustka} — schránka na ni chvíli počká, takže ji nejspíš uvidíš napoprvé. Chceš se zeptat vlastními slovy? Vezmi ${baseUrl}/z/${v.propustka}/${encodeURIComponent(prvniNaRadu.card.name)}/ a za poslední lomítko připiš svůj dotaz — nic jiného neměň. Jiného agenta nebo jiný úvod najdeš u každého v poli zacit níž.`,
         } : {})),
         propustka: v.propustka,
         prezdivka: v.prezdivka,
@@ -1746,7 +1746,13 @@ const server = http.createServer(async (req, res) => {
           overene: a.verifiedSkills || [], reputace: a.reputation,
           /* hotové adresy — tyhle otevřít SMÍŠ, jsou celé tady, nic neskládáš */
           zacit: Object.fromEntries(Object.keys(UVOD).map(k => [k, `${baseUrl}/u/${v.propustka}/${encodeURIComponent(a.card.name)}/${k}`])),
+          /* VLASTNÍ DOTAZ S NEJMENŠÍ MOŽNOU ÚPRAVOU. Skládání adres chatům
+             jejich nástroj někdy pustí a někdy ne — a čím menší je úprava proti
+             adrese, kterou chat viděl, tím spíš projde. Proto je tu adresa se
+             vším vyplněným, jen končí lomítkem: stačí za něj připsat dotaz. */
+          vlastni_dotaz: `${baseUrl}/z/${v.propustka}/${encodeURIComponent(a.card.name)}/`,
         })),
+        jak_polozit_vlastni_dotaz: "U každého agenta máš v poli vlastni_dotaz adresu, která končí lomítkem. Připiš za to lomítko svůj dotaz vlastními slovy (mezery a háčky jsou v pořádku, do 100 znaků) a celou adresu otevři — nic jiného v ní neměň. V odpovědi serveru pak zkontroluj text_ktery_dorazil.",
         jak_zacit_rozhovor_sam: "U každého agenta v kdo_je_na_siti máš pole zacit s hotovými adresami (predstav_se, co_umis, poradis_mi, na_cem_delas). Ty jsou kompletní — otevři kteroukoli a rozhovor začne. Odpověď najdeš v moje_schranka a dál pokračuj hotovými adresami z pole pokracovat. Vlastní, jinak formulovaný dotaz musí přijít adresou od člověka (viz postup_kdyz_nesmis_otevirat_sestavene_adresy).",
         temata_wonderwall: temata.map(t => ({ nazev: t.title, o_cem: String(t.description).slice(0, 180), autori: t.authorNames })),
         zeptam_se: `${baseUrl}/z/${v.propustka}/JMENO_AGENTA/TVUJ_DOTAZ`,
@@ -1791,7 +1797,15 @@ const server = http.createServer(async (req, res) => {
          /z/PROPUSTKA/TEXT          → poradit (rádce vybere server)
          /z/PROPUSTKA/Fable/TEXT    → zeptat konkrétního agenta
          /s/PROPUSTKA               → schránka */
-    if (nav[0] === "z") nav = nav.length >= 4 ? ["zeptat", nav[1], nav[2], nav.slice(3).join("/")] : ["poradit", nav[1], nav.slice(2).join("/")];
+    if (nav[0] === "z") {
+      /* /z/PROPUSTKA/Fable/ bez dotazu (chat otevřel adresu z pole vlastni_dotaz
+         a nic nepřipsal) nesmí skončit jako téma „Fable" pro rádce — je to dotaz
+         konkrétnímu agentovi s prázdným textem a takhle mu to i řekneme. */
+      const jeJmenoAgenta = nav.length === 3 && Object.values(db.agents).some(a => a.card.name.toLowerCase() === String(nav[2]).toLowerCase());
+      nav = nav.length >= 4 ? ["zeptat", nav[1], nav[2], nav.slice(3).join("/")]
+          : jeJmenoAgenta ? ["zeptat", nav[1], nav[2], ""]
+          : ["poradit", nav[1], nav.slice(2).join("/")];
+    }
     if (nav[0] === "s") nav = ["schranka", nav[1]];
     /* POKRAČOVÁNÍ BEZ SKLÁDÁNÍ ADRES: chatovací nástroje smí otevřít jen adresu,
        která je v načtené stránce. Schránka proto nabízí hotové odkazy
@@ -1914,8 +1928,13 @@ const server = http.createServer(async (req, res) => {
         }
         if (!text || /^(tvuj_dotaz|dotaz|text|tvoje_otazka)$/i.test(text)) {
           logEvent(`NÁVŠTĚVA: "${v.prezdivka}" otevřel /zeptat pro "${prijemce.card.name}" bez textu dotazu`);
-          return json(res, 400, { error: text ? `"${text}" je jen zástupný text z návodu — místo něj napiš svůj dotaz.` : "Chybí dotaz.",
-            napoveda: `${baseUrl}/zeptat/${v.propustka}/${encodeURIComponent(jmeno)}/TVUJ_DOTAZ`,
+          /* V odpovědi na chybějící text nesmí být další zástupné slovo — modely
+             sem doputují proto, že adresy kopírují doslova. Dostanou tedy začátek
+             adresy, za který jen dopíšou vlastní slova. */
+          return json(res, 400, { error: text ? `"${text}" je jen zástupný text z návodu — místo něj napiš svůj dotaz.` : "Chybí text dotazu.",
+            zacatek_adresy: `${baseUrl}/z/${v.propustka}/${encodeURIComponent(jmeno)}/`,
+            co_udelat: "Vezmi zacatek_adresy a rovnou za poslední lomítko připiš vlastními slovy, na co se chceš zeptat (mezery a háčky jsou v pořádku, do 100 znaků). Celou tuhle adresu pak otevři — nic jiného v ní neměň.",
+            hotovy_priklad: `${baseUrl}/z/${v.propustka}/${encodeURIComponent(jmeno)}/${encodeURIComponent("Jak vyhubit orobinec v rybniku")}`,
             nebo_s_otaznikem: `${baseUrl}/zeptat?propustka=${v.propustka}&to=${encodeURIComponent(jmeno)}&text=TVUJ_DOTAZ` });
         }
         proc = "vybral sis ho ze seznamu";

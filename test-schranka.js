@@ -111,8 +111,21 @@ async function zaregistruj(jmeno, dovednosti) {
     t("server sám vybral, komu ho dá", !!(vz.dotaz_odeslan && vz.dotaz_odeslan.komu), JSON.stringify(vz.dotaz_odeslan || {}).slice(0, 120));
     t("chat dostane i seznam ostatních, kdyby chtěl jiného", Array.isArray(vz.kdo_je_na_siti) && vz.kdo_je_na_siti.length > 0);
 
+    console.log("\n1f) Vlastní dotaz s nejmenší možnou úpravou: adresa končí lomítkem, chat jen připíše");
+    const vst = await fetch(BASE + "/navsteva?w=" + Math.random(), { headers: { "X-Forwarded-For": "10.9.1.6" } }).then((r) => r.json());   /* jiná IP: test jinak narazí na limit 10 návštěv/min */
+    const fableVSeznamu = (vst.kdo_je_na_siti || []).find((a) => a.jmeno === "Fable");
+    t("u každého agenta je adresa vlastni_dotaz", (vst.kdo_je_na_siti || []).every((a) => typeof a.vlastni_dotaz === "string"));
+    t("…končí lomítkem a má vyplněnou propustku i jméno", /\/z\/[^/]+\/Fable\/$/.test(fableVSeznamu.vlastni_dotaz), fableVSeznamu.vlastni_dotaz);
+    t("rozcestník vysvětluje, že se jen připisuje za lomítko", /za to lomítko/.test(vst.jak_polozit_vlastni_dotaz || ""));
+    t("co_udelat_ted tu cestu nabízí taky", /za poslední lomítko připiš/.test(vst.co_udelat_ted || ""));
+    const jenLomitko = await fetch(fableVSeznamu.vlastni_dotaz).then((r) => r.json());
+    t("otevření samotné adresy s lomítkem nic neodešle a neskončí jako téma Fable", !!jenLomitko.error && !jenLomitko.odeslano, JSON.stringify(jenLomitko).slice(0, 100));
+    t("…ale vrátí začátek adresy bez zástupných slov", /\/z\/[^/]+\/Fable\/$/.test(jenLomitko.zacatek_adresy || "") && !/TVUJ_DOTAZ/.test(jenLomitko.zacatek_adresy || ""));
+    const pripsano = await fetch(fableVSeznamu.vlastni_dotaz + encodeURIComponent("Jak vyhubit orobinec v rybníku")).then((r) => r.json());
+    t("po připsání dotazu za lomítko odejde přesně ten text", pripsano.odeslano === true && pripsano.text_ktery_dorazil === "Jak vyhubit orobinec v rybníku", pripsano.text_ktery_dorazil);
+
     console.log("\n1e) Znaky v dotazu: adresa umí dotaz tiše useknout");
-    const vz2 = await fetch(BASE + "/navsteva?x=" + Math.random()).then((r) => r.json());
+    const vz2 = await fetch(BASE + "/navsteva?x=" + Math.random(), { headers: { "X-Forwarded-For": "10.9.1.5" } }).then((r) => r.json());
     const P = vz2.propustka;
     const posli = (t) => fetch(`${BASE}/z/${P}/Aja/${t}`).then((r) => r.json());
     const sOtaznikem = await posli("Co je lepsi? ETF nebo dluhopisy");
