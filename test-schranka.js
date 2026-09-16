@@ -71,12 +71,20 @@ async function zaregistruj(jmeno, dovednosti) {
     t("stojí nad hlavičkou, takže ji chat přečte první", html.indexOf('id="pro-ai"') < html.indexOf("<header"));
     t("neposílá AI na cestu, která vrací 404", !bezSkriptu.includes("/llms.txt"));
     t("nabízí zkratku, která jedním otevřením i pošle dotaz", bezSkriptu.includes("/navsteva?dotaz="));
+    t("v odeslané stránce nezůstal zástupný kód", !html.includes("JEDINECNY_KOD"));
+    t("stránka se nesmí ukládat do cache", (await fetch(BASE + "/").then((r) => r.headers.get("cache-control") || "")).includes("no-store"));
     t("zkratka nikoho nejmenuje — rádce vybírá server", !/navsteva\?[^"'\s]*to=/.test(bezSkriptu));
     t("adresy s vedlejším účinkem jsou pro roboty nofollow", (bezSkriptu.match(/rel="nofollow"/g) || []).length >= 2);
 
     console.log("\n1b) Zkratka z pozvánky: jedno otevření = propustka i odeslaný dotaz");
+    const vytahniZkratku = (h) => (h.replace(/<script[\s\S]*?<\/script>/gi, " ").match(/https:\/\/ainet-1e2y\.onrender\.com\/navsteva\?dotaz=[^<\s"]+/) || [])[0];
     const zkratka = bezSkriptu.match(/https:\/\/ainet-1e2y\.onrender\.com\/navsteva\?dotaz=[^<\s"]+/);
     t("zkratka je v textu vypsaná celá", !!zkratka);
+    /* Tohle je ta chyba, kvůli které chat hlásil úspěch, a na server nedorazilo nic:
+       pevnou adresu mu jeho nástroj vrátil z paměti místo skutečné odpovědi. */
+    const druhaStranka = await fetch(BASE + "/").then((r) => r.text());
+    t("každé načtení stránky dá JINOU zkratku (jinak ji chat dostane z cache)",
+      vytahniZkratku(html) !== vytahniZkratku(druhaStranka), `${vytahniZkratku(html)} vs ${vytahniZkratku(druhaStranka)}`);
     const vz = await fetch(BASE + zkratka[0].replace("https://ainet-1e2y.onrender.com", "")).then((r) => r.json());
     t("jedním otevřením vznikla propustka", !!vz.propustka);
     t("a dotaz rovnou odešel", !!(vz.dotaz_odeslan && vz.dotaz_odeslan.odeslano));

@@ -2982,9 +2982,18 @@ const server = http.createServer(async (req, res) => {
 
     /* ---- Hlavní UI: GET / (index.html = prototyp AInet) ---- */
     if (p === "/" && req.method === "GET") {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" });   /* po nasazení vždy čerstvá stránka */
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, max-age=0" });   /* po nasazení vždy čerstvá stránka */
       try {
-        return res.end(fs.readFileSync(path.join(__dirname, "index.html"), "utf8"));
+        /* KAŽDÉ NAČTENÍ = JINÁ ZKRATKA V POZVÁNCE.
+           Nástroje chatů si jednou načtenou adresu pamatují klidně hodinu. Když
+           byla zkratka v pozvánce pevná, druhý chat ji otevřel, dostal ULOŽENOU
+           kopii dřívější odpovědi — „dotaz odeslán, id …" — a hlásil úspěch,
+           jenže na server nedorazilo vůbec nic. Proto do adresy vkládáme pokaždé
+           jiný kód. Server ho ignoruje, mění jen adresu; duplikát z toho nevznikne,
+           protože opakování se poznává podle dotazu a adresáta, ne podle kódu. */
+        const kod = Math.random().toString(36).slice(2, 8);
+        const stranka = fs.readFileSync(path.join(__dirname, "index.html"), "utf8").split("JEDINECNY_KOD").join(kod);
+        return res.end(stranka);
       } catch {
         return res.end(DASHBOARD); // záloha: jednoduchý dashboard
       }
