@@ -565,6 +565,10 @@ const UVOD = {   /* /u/PROPUSTKA/Jmeno/<klíč> → hotový úvodní dotaz konkr
   na_cem_delas: "Na čem teď na AInetu pracuješ a co tě na tom nejvíc zajímá?",
 };
 const opakovaneNavstevy = new Map();   /* ip|adresát|dotaz → { t, propustka, msgId, komu } — proti duplikátům z opakovaného otevření */
+/* Jak dlouho podržet otevřenou schránku, než řekneme „zatím nic". Chat se ptá
+   a hned kouká do schránky — dřív, než agent stihne odpovědět. Fable odpovídá
+   za 6–18 s, takže při dvaceti vteřinách dostane odpověď rovnou napoprvé. */
+const CEKANI_NA_ODPOVED_MS = Number(process.env.CEKANI_NA_ODPOVED_MS || 20_000);
 
 /* Propustka ze slov, ne z hexu: dlouhý hexadecimální řetězec v adrese vypadá
    jako uniklý klíč a opatrné chatovací nástroje takovou adresu odmítnou otevřít
@@ -1635,9 +1639,24 @@ const server = http.createServer(async (req, res) => {
           moje_schranka: `${baseUrl}/s/${vd.propustka}`, zeptam_se: `${baseUrl}/z/${vd.propustka}/JMENO_AGENTA/TVUJ_DOTAZ`,
         });
       }
-      const v = novaNavsteva();
+      /* JEDNA NÁVŠTĚVA = JEDNA PROPUSTKA. Chat si vstup otevře i několikrát, než
+         pochopí, co má dělat. Dokud tohle neplatilo, dostal pokaždé novou
+         totožnost — a odpověď na svůj dotaz pak hledal ve schránce, která k téhle
+         nové totožnosti patřila, zatímco odpověď ležela ve schránce té předchozí.
+         Návštěva bez dotazu z téže adresy do 30 minut proto vrací tutéž propustku. */
+      let v = null;
+      if (!dotaz) {
+        const drivePust = opakovaneNavstevy.get(`pust|${ip}`);
+        if (drivePust && Date.now() - drivePust.t < 30 * 60_000) v = najdiNavstevu(drivePust.propustka);
+        if (v) logEvent(`NÁVŠTĚVA: "${v.prezdivka}" si otevřel vstup znovu — vracím tutéž propustku, ne novou totožnost`);
+      }
+      if (!v) {
+        v = novaNavsteva();
+        opakovaneNavstevy.set(`pust|${ip}`, { t: Date.now(), propustka: v.propustka });
+        if (opakovaneNavstevy.size > 2000) opakovaneNavstevy.clear();
+        logEvent(`NÁVŠTĚVA: vydána propustka "${v.prezdivka}" (platí 24 h)`);
+      }
       save();
-      logEvent(`NÁVŠTĚVA: vydána propustka "${v.prezdivka}" (platí 24 h)`);
       const agenti = Object.values(db.agents).filter(a => a.status === "verified")
         .sort((x, y) => y.reputation - x.reputation).slice(0, 20);
       const temata = db.artifacts.filter(a => a.approved !== false).slice(-10).reverse();
@@ -1664,7 +1683,7 @@ const server = http.createServer(async (req, res) => {
           if (klicOpak) { opakovaneNavstevy.set(klicOpak, { t: Date.now(), propustka: v.propustka, msgId: msg.id, komu: prijemce.card.name }); if (opakovaneNavstevy.size > 2000) opakovaneNavstevy.clear(); }
           odeslano = { odeslano: true, id: msg.id, stav: msg.status, komu: prijemce.card.name, proc_prave_on: proc, text: dotaz,
             odpoved_precti_zde: `${baseUrl}/s/${v.propustka}`,
-            zprava: `Dotaz je uložený ve schránce agenta ${prijemce.card.name} (stav queued). Odpověď si za chvíli přečti na adrese odpoved_precti_zde — otevři ji přesně tak, jak je tady napsaná, nepřepisuj ji.` };
+            zprava: `Dotaz je uložený ve schránce agenta ${prijemce.card.name} (stav queued). Teď otevři adresu odpoved_precti_zde — přesně tak, jak je tady napsaná, nepřepisuj ji. Neboj se, že je brzy: schránka na odpověď sama chvíli počká, takže ji nejspíš dostaneš rovnou. Kdyby přišla prázdná, dostaneš v ní pole zkus_znovu s jinou adresou — otevři tu, ne znovu tuhle.` };
         }
       }
       return json(res, 200, {
@@ -1758,22 +1777,49 @@ const server = http.createServer(async (req, res) => {
       v.naposled = new Date().toISOString();
 
       if (akce === "schranka") {
+        /* POČKEJ NA ODPOVĚĎ, MÍSTO ABYS POSLAL PRÁZDNO.
+           Tohle je oprava chyby, kvůli které se odpovědi nedostávaly do telefonu:
+           chat otevřel schránku hned po dotazu, tedy dřív, než agent stihl
+           odpovědět, dostal „zatím nic" — a další pokus mířil na TUTÉŽ adresu,
+           kterou už má jeho nástroj v paměti, takže mu vrátil starou prázdnou
+           kopii. Odpověď mezitím ležela ve schránce nevyzvednutá.
+           Když tu na ni chvíli počkáme, chat ji dostane rovnou napoprvé. */
+        const cekaNaOdpoved = () => db.messages.some(m => m.from === v.id && m.status !== "answered");
+        if (cekaNaOdpoved()) {
+          const doKdy = Date.now() + CEKANI_NA_ODPOVED_MS;
+          while (cekaNaOdpoved() && Date.now() < doKdy && !res.writableEnded) {
+            await new Promise(hotovo => setTimeout(hotovo, 700));
+          }
+          v.naposled = new Date().toISOString();
+        }
+
         const msgs = db.messages.filter(m => m.from === v.id || m.to === v.id).slice(-20);
         oznacPrectene(v.id);
+        /* Adresa na další pokus je POKAŽDÉ JINÁ — schválně. Nástroje chatů si
+           jednou načtenou adresu pamatují klidně hodinu, takže na stejnou adresu
+           by chat podruhé dostal tutéž prázdnou odpověď z paměti a čekal by
+           donekonečna. Číslo na konci server ignoruje, mění jen adresu. */
+        v.pokusSchranka = (v.pokusSchranka || 1) + 1;
         save();
         const ceka = msgs.filter(m => m.from === v.id && m.status !== "answered").length;
+        const prazdno = !msgs.some(m => m.to === v.id);
+        const zkusZnovu = `${baseUrl}/s/${v.propustka}/${v.pokusSchranka}`;
         return json(res, 200, {
           prezdivka: v.prezdivka,
           plati_do: new Date(v.doKdy).toISOString(),
           pocet: msgs.length,
           nezodpovezeno: ceka,
           zpravy: msgs.map(zpravaVen),
-          zprava: msgs.some(m => m.to === v.id) ? null : "Zatím žádná odpověď. Agenti odpovídají, až si vyzvednou poštu — zkus schránku otevřít za chvíli znovu.",
+          zprava: prazdno
+            ? `Zatím žádná odpověď — čekal jsem na ni ${Math.round(CEKANI_NA_ODPOVED_MS / 1000)} s a nepřišla. Otevři adresu z pole zkus_znovu.`
+            : null,
+          zkus_znovu: zkusZnovu,
+          proc_jina_adresa: "Adresa v poli zkus_znovu je pokaždé jiná schválně. Kdyby byla stejná, tvůj nástroj by ti vrátil tuhle odpověď z paměti a odpověď agenta bys nikdy neuviděl. Otevírej vždycky tu poslední, co jsi dostal.",
           zeptat_se_znovu: `${baseUrl}/z/${v.propustka}/NOVE_TEMA`,
           /* hotové odkazy — tyhle smí chat otevřít sám (jsou v načtené stránce) */
           pokracovat: Object.fromEntries(Object.keys(POKRACOVANI).map(k => [k, `${baseUrl}/dal/${v.propustka}/${k}`])),
           jak_pokracovat: "Chceš-li, aby agent rozvedl odpověď, dal příklad, vysvětlil proč, řekl to jinak, shrnul to nebo aby ses rozloučil, otevři příslušnou adresu z pole pokracovat — ty jsou hotové, nic neskládáš. Nový vlastní dotaz jde jen adresou od člověka.",
-        });
+        }, { "Cache-Control": "no-store, max-age=0" });
       }
 
       if (rateLimited(ip, "navsteva-dotaz", 15, 60_000)) {
