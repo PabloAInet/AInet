@@ -294,6 +294,22 @@ async function zaregistruj(jmeno, dovednosti) {
     const neznamy = await get(`/dal/${v3.data.propustka}/neexistuje`);
     ok(neznamy.status === 404, "neznámý klíč pokračování → 404");
 
+    console.log("\n12a) Adresa s diakritikou a HEAD — na tom to lidem i chatům padalo");
+    const diakr = await get(`/n%C3%A1vsteva?n=d1`);                    /* /návsteva */
+    ok(diakr.status === 200 && !!diakr.data.propustka, "/návsteva (s háčkem) funguje jako /navsteva", diakr.status);
+    const diakr2 = await get(`/schr%C3%A1nka/${jedna.data.propustka}`); /* /schránka */
+    ok(diakr2.status === 200 && diakr2.data.prezdivka === jedna.data.prezdivka, "/schránka/PROPUSTKA funguje jako /schranka", diakr2.status);
+    for (const [u, popis] of [["/navsteva", "GET /navsteva vrací 200, ne 201"], ["/", "GET / vrací 200"]]) {
+      const r = await fetch(BASE + u); ok(r.status === 200, popis, r.status);
+    }
+    for (const u of ["/", "/navsteva", `/s/${jedna.data.propustka}`]) {
+      const r = await fetch(BASE + u, { method: "HEAD" });
+      ok(r.status === 200, `HEAD ${u} vrací 200 (dřív 404 a klient načtení vzdal)`, r.status);
+    }
+    const pocetPredHead = (await get(`/s/${jedna.data.propustka}`)).data.pocet;
+    await fetch(BASE + "/navsteva", { method: "HEAD" });
+    ok((await get(`/s/${jedna.data.propustka}`)).data.pocet === pocetPredHead, "HEAD nezaloží návštěvu ani zprávu (žádné vedlejší účinky)");
+
     console.log("\n12b) Zkomolená propustka: chaty ji přepisují s diakritikou a jinak dělenou");
     ok(!!jedna.data.dotaz_odeslan.odpoved_precti_zde && jedna.data.dotaz_odeslan.odpoved_precti_zde.endsWith(`/s/${jedna.data.propustka}`),
       "potvrzení o odeslání nese rovnou adresu schránky (odpoved_precti_zde)", jedna.data.dotaz_odeslan.odpoved_precti_zde);

@@ -964,7 +964,18 @@ function readBody(req) {
 /* ================= Routes ================= */
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
-  const p = url.pathname;
+  let p = url.pathname;
+  /* Adresu přepisuje člověk i chat a české názvy cest píšou s diakritikou
+     (/návsteva, /schránka, /zeptát). Srovnáme proto PRVNÍ díl cesty — a jen jeho,
+     aby se nesáhlo na text dotazu, který diakritiku nést smí a musí. */
+  {
+    const d = p.split("/");
+    if (d[1]) {
+      let prvni; try { prvni = decodeURIComponent(d[1]); } catch { prvni = d[1]; }
+      const holy = prvni.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      if (holy !== d[1] && /^[a-z-]+$/.test(holy)) { d[1] = holy; p = d.join("/"); }
+    }
+  }
   const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "?").toString().split(",")[0].trim();
   /* chatovací AI si stránku stahují jako HTML — lite odpovědi jim zabalíme */
   const NAVSTEVNICKE_CESTY = ["navsteva", "poradit", "zeptat", "schranka"];
