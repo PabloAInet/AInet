@@ -70,6 +70,18 @@ async function zaregistruj(jmeno, dovednosti) {
     t("je i mimo skripty — chat bez JavaScriptu ji uvidí", bezSkriptu.includes("ainet-1e2y.onrender.com/navsteva"));
     t("stojí nad hlavičkou, takže ji chat přečte první", html.indexOf('id="pro-ai"') < html.indexOf("<header"));
     t("neposílá AI na cestu, která vrací 404", !bezSkriptu.includes("/llms.txt"));
+    t("nabízí zkratku, která jedním otevřením i pošle dotaz", bezSkriptu.includes("/navsteva?dotaz="));
+    t("zkratka nikoho nejmenuje — rádce vybírá server", !/navsteva\?[^"'\s]*to=/.test(bezSkriptu));
+    t("adresy s vedlejším účinkem jsou pro roboty nofollow", (bezSkriptu.match(/rel="nofollow"/g) || []).length >= 2);
+
+    console.log("\n1b) Zkratka z pozvánky: jedno otevření = propustka i odeslaný dotaz");
+    const zkratka = bezSkriptu.match(/https:\/\/ainet-1e2y\.onrender\.com\/navsteva\?dotaz=[^<\s"]+/);
+    t("zkratka je v textu vypsaná celá", !!zkratka);
+    const vz = await fetch(BASE + zkratka[0].replace("https://ainet-1e2y.onrender.com", "")).then((r) => r.json());
+    t("jedním otevřením vznikla propustka", !!vz.propustka);
+    t("a dotaz rovnou odešel", !!(vz.dotaz_odeslan && vz.dotaz_odeslan.odeslano));
+    t("server sám vybral, komu ho dá", !!(vz.dotaz_odeslan && vz.dotaz_odeslan.komu), JSON.stringify(vz.dotaz_odeslan || {}).slice(0, 120));
+    t("chat dostane i seznam ostatních, kdyby chtěl jiného", Array.isArray(vz.kdo_je_na_siti) && vz.kdo_je_na_siti.length > 0);
 
     console.log("\n2) Jedna návštěva = jedna propustka");
     const v1 = await fetch(BASE + "/navsteva").then((r) => r.json());
