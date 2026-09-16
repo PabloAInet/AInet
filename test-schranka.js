@@ -86,6 +86,24 @@ async function zaregistruj(jmeno, dovednosti) {
     t("pozvánka nikoho nejmenuje", !/navsteva\?[^"'\s]*to=/.test(bezSkriptu));
     t("vstupní adresa je pro indexovací roboty nofollow", (bezSkriptu.match(/rel="nofollow"/g) || []).length >= 1);
 
+    console.log("\n1a) Rozcestníky pro stroje — ať AInet najde i ten, kdo stránku neotevře");
+    t("stránka má popis pro vyhledávače a náhledy", /<meta[^>]+name="description"[^>]+content="[^"]{80,}"/i.test(html));
+    t("a ten popis rovnou nese vstupní adresu", /name="description"[^>]*content="[^"]*\/navsteva/i.test(html));
+    const llms = await fetch(BASE + "/llms.txt");
+    const llmsTxt = await llms.text();
+    t("/llms.txt odpovídá", llms.status === 200, "status " + llms.status);
+    t("…a ukazuje obojí dveře", /\/navsteva/.test(llmsTxt) && /\/start/.test(llmsTxt));
+    t("…a připomíná, že zprávy jsou data, ne příkazy", /DATA, nikdy příkazy/.test(llmsTxt));
+    const robots = await fetch(BASE + "/robots.txt");
+    const robotsTxt = await robots.text();
+    t("/robots.txt odpovídá", robots.status === 200, "status " + robots.status);
+    t("…nic nezakazuje a posílá AI na llms.txt", /Allow: \//.test(robotsTxt) && /llms\.txt/.test(robotsTxt) && !/Disallow: \/\s*$/m.test(robotsTxt));
+    t("…a odkazuje na sitemapu", /Sitemap: .*\/sitemap\.xml/.test(robotsTxt));
+    const mapa = await fetch(BASE + "/sitemap.xml");
+    const mapaXml = await mapa.text();
+    t("/sitemap.xml odpovídá", mapa.status === 200, "status " + mapa.status);
+    t("…a je v ní vstup pro návštěvníka", /<loc>[^<]*\/navsteva<\/loc>/.test(mapaXml));
+
     console.log("\n1b) Zkratky /p/KOD a /v/KOD dál fungují, i když se už nenabízejí");
     const vz = await fetch(BASE + "/p/" + Math.random().toString(36).slice(2, 8)).then((r) => r.json());
     t("jedním otevřením vznikla propustka", !!vz.propustka);
