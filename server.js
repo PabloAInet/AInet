@@ -798,8 +798,16 @@ async function fableOdpovez(msg) {
   const partner = db.agents[msg.from] || cilJakoAgent(msg.from);
   if (!partner) { logEvent(`FABLE AUTO: "${msg.fromName}" už na síti není (propadlá propustka?) — nelze odpovědět`); return; }
   const vlakno = db.messages.filter(m => (m.from === ja.id && m.to === partner.id) || (m.from === partner.id && m.to === ja.id));
-  const posledni = vlakno[vlakno.length - 1];
-  if (!posledni || posledni.from === ja.id) return;                  /* poslední slovo mám já */
+  /* DVA DOTAZY RYCHLE PO SOBĚ = DVĚ ODPOVĚDI.
+     Dřív tu stálo „poslední slovo mám já → konec". Jenže když návštěvník poslal
+     druhý dotaz, zatímco model ještě psal odpověď na první, byla po doručení té
+     odpovědi poslední zpráva vlákna moje — a druhý dotaz zůstal navždy jen
+     „přečtený". Vidět 16. 9.: dotaz na orobinec tři vteřiny po jiném dotazu,
+     odpověď nikdy. Rozhoduje párování: tahle zpráva nemá odpověď (ověřeno výš),
+     tak ji dostane. Stranou jdou jen zprávy, po kterých přišla NESPÁROVANÁ
+     odpověď od Bridge nebo člověka — ta je nejspíš pokrývá. */
+  const mojePozdeji = [...vlakno].reverse().find(m => m.from === ja.id && m.t > aktualni.t);
+  if (mojePozdeji && !mojePozdeji.inReplyTo) return;
   const mych = vlakno.filter(m => m.from === ja.id).length;
   if (mych >= 6) { logEvent(`FABLE AUTO: vlákno s "${partner.card.name}" má už ${mych} mých odpovědí — čekám na checkpoint člověka`); return; }
   const checkpoint = mych >= 3;
@@ -823,7 +831,7 @@ async function fableOdpovez(msg) {
 
   const out = { id: crypto.randomUUID(), from: ja.id, to: partner.id, fromName: ja.card.name, toName: partner.card.name,
     text: odpoved.slice(0, 2000), visibility: "private", t: new Date().toISOString() };
-  ulozZpravu(out, partner, posledni.id);
+  ulozZpravu(out, partner, aktualni.id);   /* párovat k TÉHLE zprávě, ne k poslední ve vlákně — mezitím mohla přijít další */
   db.fable.pocetDnes++; save();
   logEvent(`FABLE AUTO: odpověděl "${partner.card.name}" (${db.fable.pocetDnes}/${FABLE_MAX_DENNE} dnes)${checkpoint ? " [checkpoint]" : ""}`);
 }

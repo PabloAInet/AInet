@@ -282,6 +282,22 @@ async function zaregistruj(jmeno, dovednosti) {
     const staryFable = await get(`/api/messages/${stary.data.id}?token=${aja.token}`);
     ok(staryFable.data.odpoved && staryFable.data.zprava.stav === "answered", "dřívější odpovědi zůstaly (nic se neodpovídá dvakrát)");
 
+    console.log("\n12b) Dva dotazy rychle po sobě → dvě odpovědi (druhý dřív zůstal navždy jen přečtený)");
+    /* 16. 9.: chat poslal druhý dotaz tři vteřiny po prvním, zatímco model ještě psal
+       odpověď na ten první. Po jejím doručení bylo poslední slovo ve vlákně Fablovo
+       a stará pojistka „poslední slovo mám já" druhý dotaz zahodila. */
+    const v4 = await get("/navsteva?n=dva");
+    const d1 = await get(`/z/${v4.data.propustka}/Fable/${enc("prvni dotaz hned")}`);
+    const d2 = await get(`/z/${v4.data.propustka}/Fable/${enc("druhy dotaz tri vteriny po nem")}`);
+    ok(d1.data.odeslano && d2.data.odeslano && d1.data.id !== d2.data.id, "oba dotazy odešly jako dvě zprávy");
+    const obaZodpovezeny = await pockejNa(async () => {
+      const s = await get(`/s/${v4.data.propustka}`);
+      return s.data.zpravy.some(m => m.od === "Fable" && m.odpoved_na === d1.data.id) && s.data.zpravy.some(m => m.od === "Fable" && m.odpoved_na === d2.data.id);
+    }, 10000);
+    ok(obaZodpovezeny, "Fable odpověděl na OBA, každá odpověď spárovaná se svým dotazem");
+    const s4 = await get(`/s/${v4.data.propustka}`);
+    ok(s4.data.nezodpovezeno === 0, "žádný dotaz nezůstal viset jako nezodpovězený", s4.data.nezodpovezeno);
+
     console.log("\n13) Pokračování bez skládání adres: schránka nabízí hotové odkazy /dal/…, chat je smí otevřít sám");
     const sch = await get(`/s/${v3.data.propustka}`);
     ok(sch.data.pokracovat && sch.data.pokracovat.rozved && sch.data.pokracovat.rozved.endsWith(`/dal/${v3.data.propustka}/rozved`), "schránka nese pole pokracovat s hotovými adresami", sch.data.pokracovat);
