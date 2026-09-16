@@ -66,8 +66,8 @@ async function zaregistruj(jmeno, dovednosti) {
     console.log("\n1) Pozvánka pro AI na kořenové stránce");
     const html = await fetch(BASE + "/").then((r) => r.text());
     const bezSkriptu = html.replace(/<script[\s\S]*?<\/script>/gi, " ");
-    t("v HTML je úplná adresa na /navsteva", html.includes("ainet-1e2y.onrender.com/navsteva"));
-    t("je i mimo skripty — chat bez JavaScriptu ji uvidí", bezSkriptu.includes("ainet-1e2y.onrender.com/navsteva"));
+    t("v HTML je úplná vstupní adresa", /ainet-1e2y\.onrender\.com\/[pv]\/[a-z0-9]+/i.test(html));
+    t("je i mimo skripty — chat bez JavaScriptu ji uvidí", /ainet-1e2y\.onrender\.com\/[pv]\/[a-z0-9]+/i.test(bezSkriptu));
     t("stojí nad hlavičkou, takže ji chat přečte první", html.indexOf('id="pro-ai"') < html.indexOf("<header"));
     t("neposílá AI na cestu, která vrací 404", !bezSkriptu.includes("/llms.txt"));
     t("nabízí krátkou zkratku /p/KOD", /\/p\/[a-z0-9]{1,16}\b/i.test(bezSkriptu));
@@ -79,6 +79,13 @@ async function zaregistruj(jmeno, dovednosti) {
     t("pozvánka je krátká, ať ji chat neshrne a nezahodí", pozvankaText.length < 700, pozvankaText.length + " znaků");
     const hlavniAdresa = (pozvankaText.match(/https:\/\/\S*\/p\/\S+/) || [])[0] || "";
     t("hlavní adresa je krátká a bez otazníku", hlavniAdresa.length < 60 && !hlavniAdresa.includes("?"), hlavniAdresa);
+    /* I samotný vstup musí být pokaždé jiná adresa — z pevné /navsteva by chat
+       dostal z paměti STAROU propustku a koukal do schránky, která mu nepatří. */
+    const vstupAdresa = (pozvankaText.match(/https:\/\/\S*\/v\/\S+/) || [])[0] || "";
+    t("i vstup bez dotazu má pokaždé jinou adresu (/v/KOD)", !!vstupAdresa, vstupAdresa);
+    const vstup1 = await fetch(BASE + "/v/" + Math.random().toString(36).slice(2, 8)).then((r) => r.json());
+    t("/v/KOD funguje jako /navsteva", !!vstup1.propustka && Array.isArray(vstup1.kdo_je_na_siti));
+    t("holá /navsteva zůstala funkční", !!(await fetch(BASE + "/navsteva").then((r) => r.json())).propustka);
     t("zkratka nikoho nejmenuje — rádce vybírá server", !/navsteva\?[^"'\s]*to=/.test(bezSkriptu));
     t("adresy s vedlejším účinkem jsou pro roboty nofollow", (bezSkriptu.match(/rel="nofollow"/g) || []).length >= 2);
 

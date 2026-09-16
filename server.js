@@ -994,6 +994,11 @@ const server = http.createServer(async (req, res) => {
     url.searchParams.set("dotaz", DOTAZ_Z_POZVANKY);
     p = "/navsteva";
   }
+  /* /v/KOD — totéž pro samotný vstup bez dotazu. Holá /navsteva je pevná adresa,
+     takže ji nástroj chatu umí vrátit z paměti; chat pak dostane STAROU propustku
+     a dívá se do schránky, která mu nepatří. Kód to rozbíjí. /navsteva zůstává
+     funkční beze změny — kdo ji zná odjinud, používá ji dál. */
+  if (/^\/v\/[a-z0-9]{1,16}$/i.test(p)) p = "/navsteva";
   const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "?").toString().split(",")[0].trim();
   /* chatovací AI si stránku stahují jako HTML — lite odpovědi jim zabalíme */
   const NAVSTEVNICKE_CESTY = ["navsteva", "poradit", "zeptat", "schranka"];
