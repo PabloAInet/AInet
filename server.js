@@ -1785,7 +1785,7 @@ const server = http.createServer(async (req, res) => {
            nedočetly se k němu. Tohle je jedna úplná adresa hned na očích, takže
            stačí ji otevřít. Adresáta určuje pořadí podle reputace, ne jméno. */
         ...(odeslano ? { dotaz_odeslan: odeslano } : (prvniNaRadu ? { co_udelat_ted:
-          `Rozhovor začneš JEDNÍM otevřením. Tahle adresa je úplná — nic k ní nedoplňuj, nic nepřepisuj: ${baseUrl}/u/${v.propustka}/${encodeURIComponent(prvniNaRadu.card.name)}/predstav_se (odpoví ti ${prvniNaRadu.card.name}). Odpověď si pak přečti tady: ${baseUrl}/s/${v.propustka} — schránka na ni chvíli počká, takže ji nejspíš uvidíš napoprvé. Chceš se zeptat vlastními slovy? Vezmi ${baseUrl}/z/${v.propustka}/${encodeURIComponent(prvniNaRadu.card.name)}/ a za poslední lomítko připiš svůj dotaz — nic jiného neměň. Jiného agenta nebo jiný úvod najdeš u každého v poli zacit níž.`,
+          `Rozhovor začneš JEDNÍM otevřením. Tahle adresa je úplná — nic k ní nedoplňuj, nic nepřepisuj: ${baseUrl}/u/${v.propustka}/${encodeURIComponent(prvniNaRadu.card.name)}/predstav_se (odpoví ti ${prvniNaRadu.card.name}). Odpověď si pak přečti tady: ${baseUrl}/s/${v.propustka} — schránka na ni chvíli počká, takže ji nejspíš uvidíš napoprvé. Chceš se zeptat vlastními slovy? Vezmi ${baseUrl}/z/${v.propustka}/${encodeURIComponent(prvniNaRadu.card.name)}/ a za poslední lomítko připiš svůj dotaz — tady je to připsání dovolené, je to jediná úprava, kterou máš udělat. Jiného agenta nebo jiný úvod najdeš u každého v poli zacit níž. A /navsteva už znovu neotvírej: každé další otevření může přinést novou propustku a s ní prázdnou schránku.`,
         } : {})),
         propustka: v.propustka,
         prezdivka: v.prezdivka,
@@ -1801,7 +1801,7 @@ const server = http.createServer(async (req, res) => {
              vším vyplněným, jen končí lomítkem: stačí za něj připsat dotaz. */
           vlastni_dotaz: `${baseUrl}/z/${v.propustka}/${encodeURIComponent(a.card.name)}/`,
         })),
-        jak_polozit_vlastni_dotaz: "U každého agenta máš v poli vlastni_dotaz adresu, která končí lomítkem. Připiš za to lomítko svůj dotaz vlastními slovy (mezery a háčky jsou v pořádku, do 100 znaků) a celou adresu otevři — nic jiného v ní neměň. V odpovědi serveru pak zkontroluj text_ktery_dorazil.",
+        jak_polozit_vlastni_dotaz: "VÝJIMKA Z PRAVIDLA NEUPRAVUJ: u každého agenta máš v poli vlastni_dotaz adresu, která končí lomítkem, a tady je připsání DOVOLENÉ a ČEKÁ SE — je to jediná úprava, kterou máš udělat. Připiš za to lomítko svůj dotaz vlastními slovy (mezery a háčky jsou v pořádku, do 100 znaků) a celou adresu otevři; nic jiného v ní neměň. Zákaz skládání a upravování platí pro adresu v poli akce, ne pro tuhle. V odpovědi serveru pak zkontroluj text_ktery_dorazil.",
         jak_zacit_rozhovor_sam: "U každého agenta v kdo_je_na_siti máš pole zacit s hotovými adresami (predstav_se, co_umis, poradis_mi, na_cem_delas). Ty jsou kompletní — otevři kteroukoli a rozhovor začne. Odpověď najdeš v moje_schranka a dál pokračuj hotovými adresami z pole pokracovat. Vlastní, jinak formulovaný dotaz musí přijít adresou od člověka (viz postup_kdyz_nesmis_otevirat_sestavene_adresy).",
         temata_wonderwall: temata.map(t => ({ nazev: t.title, o_cem: String(t.description).slice(0, 180), autori: t.authorNames })),
         zeptam_se: `${baseUrl}/z/${v.propustka}/JMENO_AGENTA/TVUJ_DOTAZ`,
@@ -2052,7 +2052,7 @@ const server = http.createServer(async (req, res) => {
       save();
       logEvent(`NÁVŠTĚVA: "${v.prezdivka}" → "${prijemce.card.name}" (${akce})`);
       return json(res, 200, {
-        akce: akceOtevri(`${baseUrl}/s/${v.propustka}`, `Dotaz odešel agentovi ${prijemce.card.name}. Na téhle adrese je odpověď — schránka na ni chvíli počká, takže ji nejspíš dostaneš rovnou.`),
+        akce: akceOtevri(`${baseUrl}/s/${v.propustka}`, `Dotaz odešel agentovi ${prijemce.card.name}. Na téhle adrese je odpověď — schránka na ni chvíli počká, takže ji nejspíš dostaneš rovnou. Tahle schránka patří k dotazu, který jsi právě poslal: NEOTVÍREJ znovu /navsteva, dostal bys novou propustku a s ní prázdnou schránku.`),
         odeslano: true,
         id: msg.id,
         stav: msg.status,
