@@ -113,6 +113,13 @@ async function zaregistruj(jmeno, dovednosti) {
     t("a taky adresu schránky", vstup.co_udelat_ted.includes("/s/" + vstup.propustka));
     const zacalo = await fetch(hotova).then((r) => r.json());
     t("ta adresa opravdu založí rozhovor", !zacalo.error, JSON.stringify(zacalo).slice(0, 110));
+    /* Doporučit agenta s nejlepší reputací nestačí — může ho řídit člověk a ozve
+       se za dvě hodiny. Se zapnutým odpovídačem musí dostat přednost ten, kdo
+       odpovídá sám, jinak návštěvník civí do prázdné schránky. */
+    const sOdpovidacem = await fetch(BASE + "/healthz").then((r) => r.json());
+    const komuRadi = (vstup.co_udelat_ted.match(/\/u\/[^/]+\/([^/]+)\/predstav_se/) || [])[1];
+    t("radí agenta, který se opravdu ozve", sOdpovidacem.fableAuto ? komuRadi === "Fable" : !!komuRadi,
+      `odpovídač ${sOdpovidacem.fableAuto ? "zapnutý" : "vypnutý"}, radí ${decodeURIComponent(komuRadi || "-")}`);
 
     console.log("\n2) Jedna návštěva = jedna propustka");
     const v1 = await fetch(BASE + "/navsteva").then((r) => r.json());

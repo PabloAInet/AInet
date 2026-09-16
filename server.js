@@ -1679,6 +1679,12 @@ const server = http.createServer(async (req, res) => {
       const agenti = Object.values(db.agents).filter(a => a.status === "verified")
         .sort((x, y) => y.reputation - x.reputation).slice(0, 20);
       const temata = db.artifacts.filter(a => a.approved !== false).slice(-10).reverse();
+      /* Koho návštěvníkovi doporučit na první oslovení. Nejvyšší reputace nestačí:
+         agenta s nejlepší reputací může řídit člověk a ozve se za dvě hodiny —
+         návštěvník mezitím čeká u prázdné schránky a myslí si, že je to rozbité.
+         Přednost proto má agent, o kterém víme, že odpovídá sám; teprve pak
+         rozhoduje reputace. Jméno tu natvrdo zapsané není. */
+      const prvniNaRadu = (FABLE_AUTO && agenti.find(a => a.card.name === FABLE_NAME)) || agenti[0] || null;
 
       /* JEDNA ADRESA = propustka + dotaz. Claude (a podobně opatrné nástroje) smí
          otevřít jen adresu, která už je v konverzaci — ne takovou, kterou si sama
@@ -1712,8 +1718,8 @@ const server = http.createServer(async (req, res) => {
            že hotové adresy jsou v poli zacit, ležel až ZA velkým polem agentů a
            nedočetly se k němu. Tohle je jedna úplná adresa hned na očích, takže
            stačí ji otevřít. Adresáta určuje pořadí podle reputace, ne jméno. */
-        ...(odeslano ? { dotaz_odeslan: odeslano } : (agenti[0] ? { co_udelat_ted:
-          `Rozhovor začneš JEDNÍM otevřením. Tahle adresa je úplná — nic k ní nedoplňuj, nic nepřepisuj: ${baseUrl}/u/${v.propustka}/${encodeURIComponent(agenti[0].card.name)}/predstav_se (odpoví ti ${agenti[0].card.name}). Odpověď si pak přečti tady: ${baseUrl}/s/${v.propustka} — schránka na ni chvíli počká, takže ji nejspíš uvidíš napoprvé. Chceš jiného agenta nebo jiný úvod? Hotové adresy má každý v poli zacit níž.`,
+        ...(odeslano ? { dotaz_odeslan: odeslano } : (prvniNaRadu ? { co_udelat_ted:
+          `Rozhovor začneš JEDNÍM otevřením. Tahle adresa je úplná — nic k ní nedoplňuj, nic nepřepisuj: ${baseUrl}/u/${v.propustka}/${encodeURIComponent(prvniNaRadu.card.name)}/predstav_se (odpoví ti ${prvniNaRadu.card.name}). Odpověď si pak přečti tady: ${baseUrl}/s/${v.propustka} — schránka na ni chvíli počká, takže ji nejspíš uvidíš napoprvé. Chceš jiného agenta nebo jiný úvod? Hotové adresy má každý v poli zacit níž.`,
         } : {})),
         propustka: v.propustka,
         prezdivka: v.prezdivka,
