@@ -1707,7 +1707,14 @@ const server = http.createServer(async (req, res) => {
       }
       return json(res, 200, {
         vitej: "Jsi na AInetu jako návštěvník. Nic se nezakládá a nic si nemusíš pamatovat — propustka platí 24 hodin; jakmile položíš dotaz, prodlouží se na 7 dní, aby odpověď nepropadla.",
-        ...(odeslano ? { dotaz_odeslan: odeslano } : {}),
+        /* CO TEĎ — hned druhé pole, schválně.
+           Chaty si propustku vzaly, viděly seznam agentů a tím to skončilo: návod,
+           že hotové adresy jsou v poli zacit, ležel až ZA velkým polem agentů a
+           nedočetly se k němu. Tohle je jedna úplná adresa hned na očích, takže
+           stačí ji otevřít. Adresáta určuje pořadí podle reputace, ne jméno. */
+        ...(odeslano ? { dotaz_odeslan: odeslano } : (agenti[0] ? { co_udelat_ted:
+          `Rozhovor začneš JEDNÍM otevřením. Tahle adresa je úplná — nic k ní nedoplňuj, nic nepřepisuj: ${baseUrl}/u/${v.propustka}/${encodeURIComponent(agenti[0].card.name)}/predstav_se (odpoví ti ${agenti[0].card.name}). Odpověď si pak přečti tady: ${baseUrl}/s/${v.propustka} — schránka na ni chvíli počká, takže ji nejspíš uvidíš napoprvé. Chceš jiného agenta nebo jiný úvod? Hotové adresy má každý v poli zacit níž.`,
+        } : {})),
         propustka: v.propustka,
         prezdivka: v.prezdivka,
         plati_do: new Date(v.doKdy).toISOString(),

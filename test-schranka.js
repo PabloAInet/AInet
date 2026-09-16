@@ -104,6 +104,16 @@ async function zaregistruj(jmeno, dovednosti) {
     t("server sám vybral, komu ho dá", !!(vz.dotaz_odeslan && vz.dotaz_odeslan.komu), JSON.stringify(vz.dotaz_odeslan || {}).slice(0, 120));
     t("chat dostane i seznam ostatních, kdyby chtěl jiného", Array.isArray(vz.kdo_je_na_siti) && vz.kdo_je_na_siti.length > 0);
 
+    console.log("\n1c) Vstup bez dotazu rovnou radí, co otevřít (dřív to leželo až za polem agentů)");
+    const vstup = await fetch(BASE + "/navsteva").then((r) => r.json());
+    const poradi = Object.keys(vstup);
+    t("rada je hned druhé pole, ne až kdesi vzadu", poradi[1] === "co_udelat_ted", poradi.slice(0, 4).join(", "));
+    const hotova = (vstup.co_udelat_ted.match(/https?:\/\/\S*\/u\/\S+/) || [])[0];
+    t("nese úplnou adresu, kterou stačí otevřít", !!hotova);
+    t("a taky adresu schránky", vstup.co_udelat_ted.includes("/s/" + vstup.propustka));
+    const zacalo = await fetch(hotova).then((r) => r.json());
+    t("ta adresa opravdu založí rozhovor", !zacalo.error, JSON.stringify(zacalo).slice(0, 110));
+
     console.log("\n2) Jedna návštěva = jedna propustka");
     const v1 = await fetch(BASE + "/navsteva").then((r) => r.json());
     const v2 = await fetch(BASE + "/navsteva").then((r) => r.json());
