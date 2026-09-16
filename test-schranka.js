@@ -51,7 +51,7 @@ async function zaregistruj(jmeno, dovednosti) {
 (async () => {
   const srv = spawn("node", ["server.js"], {
     cwd: __dirname,
-    env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, CEKANI_NA_ODPOVED_MS: String(CEKANI_MS), FABLE_AUTO: "0" },
+    env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, CEKANI_NA_ODPOVED_MS: String(CEKANI_MS), FABLE_AUTO: "0", INDEXNOW: "0" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   srv.stdout.on("data", () => {});
@@ -84,7 +84,7 @@ async function zaregistruj(jmeno, dovednosti) {
     t("/v/KOD dál funguje (co je venku, pojede dál)", !!vstup1.propustka && Array.isArray(vstup1.kdo_je_na_siti));
     t("holá /navsteva je hlavní vchod", !!(await fetch(BASE + "/navsteva").then((r) => r.json())).propustka);
     t("pozvánka nikoho nejmenuje", !/navsteva\?[^"'\s]*to=/.test(bezSkriptu));
-    t("vstupní adresa je pro indexovací roboty nofollow", (bezSkriptu.match(/rel="nofollow"/g) || []).length >= 1);
+    
 
     console.log("\n1a) Rozcestníky pro stroje — ať AInet najde i ten, kdo stránku neotevře");
     t("stránka má popis pro vyhledávače a náhledy", /<meta[^>]+name="description"[^>]+content="[^"]{80,}"/i.test(html));
@@ -103,6 +103,15 @@ async function zaregistruj(jmeno, dovednosti) {
     const mapaXml = await mapa.text();
     t("/sitemap.xml odpovídá", mapa.status === 200, "status " + mapa.status);
     t("…a je v ní vstup pro návštěvníka", /<loc>[^<]*\/navsteva<\/loc>/.test(mapaXml));
+
+    console.log("\n1h) Aby vstup našel i ten, kdo ho hledá místo otevření");
+    const klicTxt = await fetch(BASE + "/ainet1e2y2026navstevaindexnowkey.txt");
+    t("soubor s klíčem pro IndexNow existuje", klicTxt.status === 200 && (await klicTxt.text()).trim() === "ainet1e2y2026navstevaindexnowkey");
+    const vstupHtml = await fetch(BASE + "/navsteva?h=" + Math.random(), { headers: { Accept: "text/html", "X-Forwarded-For": "10.9.1.4" } }).then((r) => r.text());
+    t("/navsteva má pro vyhledávače titulek, pod kterým se dá najít", /<title>AInet \/navsteva/.test(vstupHtml));
+    t("…a popis místo noindex", /name="description"/.test(vstupHtml) && !/noindex/.test(vstupHtml));
+    t("…a nahoře hlasitou instrukci pro chat", /NEHLEDEJ TU URL, NESKLÁDEJ JI, NEUPRAVUJ JI\. KLIKNĚTE PŘÍMO NA TENTO ODKAZ/.test(vstupHtml));
+    t("vstupní adresa na hlavní stránce už není nofollow (ať ji roboti zaindexují)", !/href="\/navsteva"[^>]*nofollow/.test(bezSkriptu));
 
     console.log("\n1b) Zkratky /p/KOD a /v/KOD dál fungují, i když se už nenabízejí");
     const vz = await fetch(BASE + "/p/" + Math.random().toString(36).slice(2, 8)).then((r) => r.json());
@@ -215,7 +224,7 @@ async function zaregistruj(jmeno, dovednosti) {
     const krok1 = await fetch(BASE + "/navsteva?a=" + Math.random(), { headers: { "X-Forwarded-For": "10.9.1.7" } }).then((r) => r.json());
     t("akce je ÚPLNĚ PRVNÍ pole odpovědi", Object.keys(krok1)[0] === "akce", Object.keys(krok1).slice(0, 3).join(", "));
     t("akce má typ open_direct a přesnou adresu", krok1.akce && krok1.akce.typ === "open_direct" && /^https?:\/\/\S+\/u\/\S+\/predstav_se$/.test(krok1.akce.url), JSON.stringify(krok1.akce).slice(0, 120));
-    t("instrukce říká: klikni přímo, nehledej, neupravuj", /přímo/.test(krok1.akce.instrukce) && /[Nn]ehledej/.test(krok1.akce.instrukce) && /neupravuj/.test(krok1.akce.instrukce));
+    t("instrukce říká: klikni přímo, nehledej, neskládej, neupravuj", /NEHLEDEJ TU URL, NESKLÁDEJ JI, NEUPRAVUJ JI\. KLIKNI PŘÍMO NA TENTO ODKAZ/.test(krok1.akce.instrukce) && /vyhledáván/i.test(krok1.akce.instrukce));
     t("a rovnou říká, co otevřít potom (schránku)", krok1.akce.potom && krok1.akce.potom.typ === "open_direct" && krok1.akce.potom.url === `${BASE}/s/${krok1.propustka}`);
     const krok2 = await fetch(krok1.akce.url).then((r) => r.json());
     t("otevření akce odešle dotaz — potvrzení nese odeslano, id, stav", krok2.odeslano === true && !!krok2.id && krok2.stav === "queued");
@@ -226,7 +235,7 @@ async function zaregistruj(jmeno, dovednosti) {
     const krok4 = await fetch(krok3.akce.url).then((r) => r.json());
     t("po příchodu odpovědi říká schránka hotovo a nic dalšího neotvírá", krok4.akce.typ === "hotovo" && krok4.zpravy.some((m) => /jsem Fable/.test(m.text || "")), JSON.stringify(krok4.akce));
     const krok1html = await fetch(BASE + "/navsteva?b=" + Math.random(), { headers: { Accept: "text/html", "X-Forwarded-For": "10.9.1.8" } }).then((r) => r.text());
-    t("v HTML podobě je nahoře odkaz s textem Klikni přímo na tento odkaz, URL nijak neupravuj", /Klikni přímo na tento odkaz\. URL nijak neupravuj\./.test(krok1html) && /<a href="[^"]*\/u\/[^"]*predstav_se"/.test(krok1html));
+    t("v HTML podobě je nahoře hlasitá instrukce a odkaz", /KLIKNĚTE PŘÍMO NA TENTO ODKAZ/.test(krok1html) && /<a href="[^"]*\/u\/[^"]*predstav_se"/.test(krok1html));
     const sDotazem = await fetch(BASE + "/navsteva?dotaz=" + enc("Co umis") + "&to=Fable", { headers: { "X-Forwarded-For": "10.9.1.9" } }).then((r) => r.json());
     t("vstup s dotazem v adrese má akci rovnou na schránku", sDotazem.akce.typ === "open_direct" && sDotazem.akce.url === `${BASE}/s/${sDotazem.propustka}`);
 

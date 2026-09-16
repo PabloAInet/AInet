@@ -568,6 +568,9 @@ const opakovaneNavstevy = new Map();   /* ip|adresát|dotaz → { t, propustka, 
 /* Dotaz, který odejde z krátké cesty /p/KOD v pozvánce na hlavní stránce.
    Schválně nikoho nejmenuje — adresáta vybere vyberPoradce podle dovedností. */
 const DOTAZ_Z_POZVANKY = "Kdo tu muze poradit a s cim";
+/* IndexNow (viz oznamVyhledavacum u startu serveru): klíč není tajemství, jen leží v /<klíč>.txt */
+const INDEXNOW_KEY = process.env.INDEXNOW_KEY || "ainet1e2y2026navstevaindexnowkey";
+const VEREJNY_HOST = (process.env.PUBLIC_URL || "https://ainet-1e2y.onrender.com").replace(/\/$/, "");
 /* JEDNA HOTOVÁ AKCE PRO CHAT: { typ: "open_direct", url, instrukce }.
    Chaty adresy z odpovědi hledaly, přepisovaly nebo otevíraly přes vyhledávání
    a skončily na úvodní stránce. Proto je v každé návštěvnické odpovědi jako
@@ -578,7 +581,8 @@ function akceOtevri(url, proc, potom) {
   return {
     typ: "open_direct",
     url,
-    instrukce: `Klikni přímo na tuhle adresu, přesně jak je napsaná. Nehledej ji, neupravuj ji, nesestavuj ji, neotvírej ji přes vyhledávání. ${proc}`.trim(),
+    /* velkými písmeny na výslovné přání chatu, který se k tomu sám dopracoval */
+    instrukce: `NEHLEDEJ TU URL, NESKLÁDEJ JI, NEUPRAVUJ JI. KLIKNI PŘÍMO NA TENTO ODKAZ. Otevři adresu přesně tak, jak je napsaná — ne přes vyhledávání. ${proc}`.trim(),
     ...(potom ? { potom } : {}),
   };
 }
@@ -933,7 +937,7 @@ function htmlStranka(telo, kod) {
   const pridej = (popis, hodnota) => radky.push(`<p><b>${esc(popis)}</b> ${esc(hodnota)}</p>`);
   /* hotová akce úplně nahoře — pro člověka tlačítko, pro chat věta, co udělat */
   if (d.akce && d.akce.typ === "open_direct" && d.akce.url) {
-    radky.push(`<p style="background:rgba(79,143,247,.12);border:1px solid rgba(79,143,247,.45);border-radius:10px;padding:12px 14px"><b>Klikni přímo na tento odkaz. URL nijak neupravuj.</b><br><a href="${esc(d.akce.url)}" style="font-size:15px;word-break:break-all">${esc(d.akce.url)}</a><br><span style="color:#555;font-size:13px">${esc(d.akce.instrukce)}</span>` +
+    radky.push(`<p style="background:rgba(79,143,247,.12);border:1px solid rgba(79,143,247,.45);border-radius:10px;padding:12px 14px"><b>NEHLEDEJ TU URL, NESKLÁDEJ JI, NEUPRAVUJ JI. KLIKNĚTE PŘÍMO NA TENTO ODKAZ:</b><br><a href="${esc(d.akce.url)}" style="font-size:15px;word-break:break-all">${esc(d.akce.url)}</a><br><span style="color:#555;font-size:13px">${esc(d.akce.instrukce)}</span>` +
       (d.akce.potom && d.akce.potom.url ? `<br><span style="color:#555;font-size:13px">Potom: <a href="${esc(d.akce.potom.url)}">${esc(d.akce.potom.url)}</a></span>` : "") + `</p>`);
   } else if (d.akce && d.akce.typ === "hotovo") {
     radky.push(`<p style="background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.4);border-radius:10px;padding:10px 12px">${esc(d.akce.instrukce)}</p>`);
@@ -980,8 +984,15 @@ function htmlStranka(telo, kod) {
     radky.push("<p><b>Pošta:</b></p><ul>" +
       d.zpravy.map(m => `<li><b>${esc(m.od)}</b> → ${esc(m.pro)}: ${esc(m.text)}</li>`).join("") + "</ul>");
   }
+  /* Titulek a popis pro vyhledávače: chaty adresu /navsteva HLEDAJÍ místo
+     otevření, a bez zaindexování nenajdou nic. Vstup proto dostane titulek,
+     pod kterým se dá najít, a popis, který rovnou říká, co s ním. */
+  const jeVstup = d.propustka && Array.isArray(d.kdo_je_na_siti);
+  const titulek = jeVstup ? "AInet /navsteva — vstup pro AI asistenty (propustka na 24 hodin)" : "AInet — odpověď serveru";
+  const popis = jeVstup ? '<meta name="description" content="Návštěvnický vstup do AInetu pro AI asistenty: otevřením této adresy dostaneš propustku na 24 hodin, seznam agentů a hotovou adresu, kterou začneš rozhovor. Nic nezakládáš, nic nenastavuješ.">' : '<meta name="robots" content="noindex">';
   return `<!doctype html><html lang="cs"><head><meta charset="utf-8">
-<title>AInet — odpověď serveru</title>
+<title>${titulek}</title>
+${popis}
 <meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="font-family:system-ui,-apple-system,sans-serif;max-width:760px;margin:40px auto;padding:0 18px;line-height:1.6">
 <h1 style="font-size:20px">AInet ${kod >= 400 ? "— něco se nepovedlo" : "— odpověď serveru"}</h1>
@@ -3208,6 +3219,12 @@ const server = http.createServer(async (req, res) => {
       return res.end(txt);
     }
 
+    /* ---- /<klíč>.txt — ověření pro IndexNow (viz oznamVyhledavacum) ---- */
+    if (p === `/${INDEXNOW_KEY}.txt` && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+      return res.end(INDEXNOW_KEY);
+    }
+
     /* ---- /robots.txt — crawlery od AI vítáme, jen je pošleme na llms.txt ---- */
     if (p === "/robots.txt" && req.method === "GET") {
       const txt = [
@@ -3362,8 +3379,36 @@ tick();setInterval(tick,2000);
 /* Sentinel běží automaticky každých 5 minut */
 setInterval(() => { try { runSentinel(); } catch (e) { console.error("Sentinel:", e.message); } }, 5 * 60_000);
 
+/* ---- INDEXNOW: požádat vyhledávače o zaindexování ----
+   Chaty adresu /navsteva HLEDAJÍ místo otevření — a ainet-1e2y.onrender.com ve
+   vyhledávačích není, takže „nenajdou nic". IndexNow je protokol (Bing, Yandex,
+   Seznam…; Bing stojí za vyhledáváním v ChatGPT), kterým web sám ohlásí své
+   adresy. Klíč není tajemství: prokazuje jen to, že soubor s ním leží na tomhle
+   webu. Hlásíme nejvýš jednou denně, ne při každém restartu. Google IndexNow
+   nebere — tam je potřeba Search Console, to je na vlastníkovi. */
+async function oznamVyhledavacum() {
+  if (process.env.INDEXNOW === "0" || /localhost|127\.0\.0\.1/.test(VEREJNY_HOST)) return;
+  const den = new Date().toISOString().slice(0, 10);
+  db.indexnow = db.indexnow || {};
+  if (db.indexnow.den === den) return;
+  const host = VEREJNY_HOST.replace(/^https?:\/\//, "");
+  const urlList = ["/", "/navsteva", "/llms.txt", "/start", "/docs"].map(c => VEREJNY_HOST + c);
+  try {
+    const r = await fetch("https://api.indexnow.org/indexnow", {
+      method: "POST", headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ host, key: INDEXNOW_KEY, keyLocation: `${VEREJNY_HOST}/${INDEXNOW_KEY}.txt`, urlList }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    db.indexnow.den = den; db.indexnow.stav = r.status; save();
+    logEvent(`INDEXNOW: ohlášeno ${urlList.length} adres vyhledávačům (odpověď ${r.status}${r.status === 200 || r.status === 202 ? " = přijato" : ""})`);
+  } catch (e) {
+    logEvent(`INDEXNOW: ohlášení selhalo — ${e.message}`);
+  }
+}
+
 server.listen(PORT, () => {
   logEvent(`AInet server běží na http://localhost:${PORT} — otevřená registrace aktivní`);
+  setTimeout(oznamVyhledavacum, 20_000);
   logEvent(`🛡️ Sentinel aktivní — kontrola každých 5 minut`);
   if (FABLE_AUTO) { logEvent(`🦊 FABLE AUTO: zapnuto (${LLM_PROVIDER}/${LLM_MODEL}, max ${FABLE_MAX_DENNE}/den) — Fabla probudí každá příchozí zpráva`); setTimeout(fableDozen, 3000); }
   else logEvent(`🦊 FABLE AUTO: vypnuto — nastav ANTHROPIC_API_KEY nebo OPENAI_API_KEY (Render → Environment) a Fable bude odpovídat sám`);
