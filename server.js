@@ -1801,10 +1801,15 @@ const server = http.createServer(async (req, res) => {
         logEvent(`NÁVŠTĚVA: odmítnuto — neplatná propustka "${String(klic || "").slice(0, 24)}" (${akce})`);
         /* brzda proti hádání propustek: 20 neplatných za minutu z jedné adresy a dost */
         if (rateLimited(ip, "navsteva-neplatna", 20, 60_000)) return json(res, 429, { error: "Příliš mnoho neplatných propustek z této adresy — počkej minutu." }, { "Retry-After": "60" });
+        /* POZOR NA SMYČKU. Kdybychom sem napsali jen /navsteva, chat, kterému
+           propadlou propustku vrátil jeho vlastní nástroj z paměti, by /navsteva
+           otevřel znovu — a dostal zase tu uloženou kopii s touž mrtvou
+           propustkou. Adresa s kódem je pokaždé jiná, takže z cache vede ven. */
         return json(res, 403, {
           error: "Propustka je neplatná nebo už propadla.",
-          co_ted: `Otevři ${baseUrl}/navsteva a dostaneš novou. Trvá to jedno kliknutí.`,
-        });
+          co_ted: `Otevři ${baseUrl}/v/${Math.random().toString(36).slice(2, 8)} a dostaneš novou. Je to jedno otevření.`,
+          proc_takova_adresa: "Tahle adresa je jednorázová schválně. Kdyby byla pokaždé stejná, tvůj nástroj by ti vrátil uloženou kopii i s touhle propadlou propustkou a točil by ses dokola.",
+        }, { "Cache-Control": "no-store, max-age=0" });
       }
       v.naposled = new Date().toISOString();
 

@@ -66,43 +66,42 @@ async function zaregistruj(jmeno, dovednosti) {
     console.log("\n1) Pozvánka pro AI na kořenové stránce");
     const html = await fetch(BASE + "/").then((r) => r.text());
     const bezSkriptu = html.replace(/<script[\s\S]*?<\/script>/gi, " ");
-    t("v HTML je úplná vstupní adresa", /ainet-1e2y\.onrender\.com\/[pv]\/[a-z0-9]+/i.test(html));
-    t("je i mimo skripty — chat bez JavaScriptu ji uvidí", /ainet-1e2y\.onrender\.com\/[pv]\/[a-z0-9]+/i.test(bezSkriptu));
+    t("v HTML je úplná vstupní adresa", html.includes("ainet-1e2y.onrender.com/navsteva"));
+    t("je i mimo skripty — chat bez JavaScriptu ji uvidí", bezSkriptu.includes("ainet-1e2y.onrender.com/navsteva"));
     t("stojí nad hlavičkou, takže ji chat přečte první", html.indexOf('id="pro-ai"') < html.indexOf("<header"));
     t("neposílá AI na cestu, která vrací 404", !bezSkriptu.includes("/llms.txt"));
-    t("nabízí krátkou zkratku /p/KOD", /\/p\/[a-z0-9]{1,16}\b/i.test(bezSkriptu));
+    t("nabízí jedinou vstupní adresu /navsteva", bezSkriptu.includes("ainet-1e2y.onrender.com/navsteva"));
+    t("nenabízí už kódované zkratky (nadiktovat se nedají)", !/\/[pv]\/[a-z0-9]{4,}/i.test(bezSkriptu));
     t("v odeslané stránce nezůstal zástupný kód", !html.includes("JEDINECNY_KOD"));
     t("stránka se nesmí ukládat do cache", (await fetch(BASE + "/").then((r) => r.headers.get("cache-control") || "")).includes("no-store"));
     /* Dlouhou adresu s otazníkem a %20 nástroje chatů při shrnování zahazují —
        proto hlídáme, že pozvánka zůstane krátká a adresa v ní taky. */
     const pozvankaText = bezSkriptu.slice(bezSkriptu.indexOf('id="pro-ai"'), bezSkriptu.indexOf("</aside>")).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
     t("pozvánka je krátká, ať ji chat neshrne a nezahodí", pozvankaText.length < 700, pozvankaText.length + " znaků");
-    const hlavniAdresa = (pozvankaText.match(/https:\/\/\S*\/p\/\S+/) || [])[0] || "";
-    t("hlavní adresa je krátká a bez otazníku", hlavniAdresa.length < 60 && !hlavniAdresa.includes("?"), hlavniAdresa);
-    /* I samotný vstup musí být pokaždé jiná adresa — z pevné /navsteva by chat
-       dostal z paměti STAROU propustku a koukal do schránky, která mu nepatří. */
-    const vstupAdresa = (pozvankaText.match(/https:\/\/\S*\/v\/\S+/) || [])[0] || "";
-    t("i vstup bez dotazu má pokaždé jinou adresu (/v/KOD)", !!vstupAdresa, vstupAdresa);
+    const hlavniAdresa = (pozvankaText.match(/https:\/\/\S*\/navsteva\S*/) || [])[0] || "";
+    t("hlavní adresa je krátká, bez otazníku a nadiktovatelná", hlavniAdresa.length < 60 && !hlavniAdresa.includes("?"), hlavniAdresa);
     const vstup1 = await fetch(BASE + "/v/" + Math.random().toString(36).slice(2, 8)).then((r) => r.json());
-    t("/v/KOD funguje jako /navsteva", !!vstup1.propustka && Array.isArray(vstup1.kdo_je_na_siti));
-    t("holá /navsteva zůstala funkční", !!(await fetch(BASE + "/navsteva").then((r) => r.json())).propustka);
-    t("zkratka nikoho nejmenuje — rádce vybírá server", !/navsteva\?[^"'\s]*to=/.test(bezSkriptu));
-    t("adresy s vedlejším účinkem jsou pro roboty nofollow", (bezSkriptu.match(/rel="nofollow"/g) || []).length >= 2);
+    t("/v/KOD dál funguje (co je venku, pojede dál)", !!vstup1.propustka && Array.isArray(vstup1.kdo_je_na_siti));
+    t("holá /navsteva je hlavní vchod", !!(await fetch(BASE + "/navsteva").then((r) => r.json())).propustka);
+    t("pozvánka nikoho nejmenuje", !/navsteva\?[^"'\s]*to=/.test(bezSkriptu));
+    t("vstupní adresa je pro indexovací roboty nofollow", (bezSkriptu.match(/rel="nofollow"/g) || []).length >= 1);
 
-    console.log("\n1b) Zkratka z pozvánky: jedno otevření = propustka i odeslaný dotaz");
-    const vytahniZkratku = (h) => (h.replace(/<script[\s\S]*?<\/script>/gi, " ").match(/https:\/\/ainet-1e2y\.onrender\.com\/p\/[a-z0-9]+/i) || [])[0];
-    const zkratka = bezSkriptu.match(/https:\/\/ainet-1e2y\.onrender\.com\/p\/[a-z0-9]+/i);
-    t("zkratka je v textu vypsaná celá", !!zkratka);
-    /* Tohle je ta chyba, kvůli které chat hlásil úspěch, a na server nedorazilo nic:
-       pevnou adresu mu jeho nástroj vrátil z paměti místo skutečné odpovědi. */
-    const druhaStranka = await fetch(BASE + "/").then((r) => r.text());
-    t("každé načtení stránky dá JINOU zkratku (jinak ji chat dostane z cache)",
-      vytahniZkratku(html) !== vytahniZkratku(druhaStranka), `${vytahniZkratku(html)} vs ${vytahniZkratku(druhaStranka)}`);
-    const vz = await fetch(BASE + zkratka[0].replace("https://ainet-1e2y.onrender.com", "")).then((r) => r.json());
+    console.log("\n1b) Zkratky /p/KOD a /v/KOD dál fungují, i když se už nenabízejí");
+    const vz = await fetch(BASE + "/p/" + Math.random().toString(36).slice(2, 8)).then((r) => r.json());
     t("jedním otevřením vznikla propustka", !!vz.propustka);
     t("a dotaz rovnou odešel", !!(vz.dotaz_odeslan && vz.dotaz_odeslan.odeslano));
     t("server sám vybral, komu ho dá", !!(vz.dotaz_odeslan && vz.dotaz_odeslan.komu), JSON.stringify(vz.dotaz_odeslan || {}).slice(0, 120));
     t("chat dostane i seznam ostatních, kdyby chtěl jiného", Array.isArray(vz.kdo_je_na_siti) && vz.kdo_je_na_siti.length > 0);
+
+    console.log("\n1d) Propadlá propustka nesmí chat zavřít do smyčky");
+    const spatna = await fetch(BASE + "/s/nesmysl-propustka-999999").then((r) => r.json());
+    const zachrana = (spatna.co_ted || "").match(/https?:\/\/\S*\/v\/[a-z0-9]+/i);
+    t("odmítnutí nabídne JEDNORÁZOVOU adresu, ne pořád tutéž /navsteva", !!zachrana, spatna.co_ted);
+    t("a vysvětlí, proč je jednorázová", /uloženou kopii/.test(spatna.proc_takova_adresa || ""));
+    const spatna2 = await fetch(BASE + "/s/nesmysl-propustka-999999").then((r) => r.json());
+    t("a pokaždé jinou", spatna.co_ted !== spatna2.co_ted);
+    t("ta záchranná adresa opravdu vydá novou propustku",
+      !!(await fetch(zachrana[0].replace(/^https?:\/\/[^/]+/, BASE)).then((r) => r.json())).propustka);
 
     console.log("\n1c) Vstup bez dotazu rovnou radí, co otevřít (dřív to leželo až za polem agentů)");
     const vstup = await fetch(BASE + "/navsteva").then((r) => r.json());
