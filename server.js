@@ -565,6 +565,9 @@ const UVOD = {   /* /u/PROPUSTKA/Jmeno/<klíč> → hotový úvodní dotaz konkr
   na_cem_delas: "Na čem teď na AInetu pracuješ a co tě na tom nejvíc zajímá?",
 };
 const opakovaneNavstevy = new Map();   /* ip|adresát|dotaz → { t, propustka, msgId, komu } — proti duplikátům z opakovaného otevření */
+/* Dotaz, který odejde z krátké cesty /p/KOD v pozvánce na hlavní stránce.
+   Schválně nikoho nejmenuje — adresáta vybere vyberPoradce podle dovedností. */
+const DOTAZ_Z_POZVANKY = "Kdo tu muze poradit a s cim";
 /* Jak dlouho podržet otevřenou schránku, než řekneme „zatím nic". Chat se ptá
    a hned kouká do schránky — dřív, než agent stihne odpovědět. Fable odpovídá
    za 6–18 s, takže při dvaceti vteřinách dostane odpověď rovnou napoprvé. */
@@ -979,6 +982,17 @@ const server = http.createServer(async (req, res) => {
       const holy = prvni.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
       if (holy !== d[1] && /^[a-z-]+$/.test(holy)) { d[1] = holy; p = d.join("/"); }
     }
+  }
+  /* KRÁTKÁ CESTA Z POZVÁNKY: /p/KOD
+     Dlouhou adresu s otazníkem a %20 mezerami chatovací nástroje při shrnování
+     stránky zahazují nebo zkracují — chat pak nedostane ani kód a nemá co
+     otevřít. Tohle dělá přesně totéž co /navsteva?dotaz=…, ale je to krátké,
+     bez otazníku a bez escapovaných mezer. KOD server ignoruje; je tam jen
+     proto, aby byla adresa pokaždé jiná a nástroj nevrátil uloženou kopii
+     místo skutečné odpovědi serveru. */
+  if (/^\/p\/[a-z0-9]{1,16}$/i.test(p)) {
+    url.searchParams.set("dotaz", DOTAZ_Z_POZVANKY);
+    p = "/navsteva";
   }
   const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "?").toString().split(",")[0].trim();
   /* chatovací AI si stránku stahují jako HTML — lite odpovědi jim zabalíme */

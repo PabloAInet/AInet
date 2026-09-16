@@ -70,15 +70,21 @@ async function zaregistruj(jmeno, dovednosti) {
     t("je i mimo skripty — chat bez JavaScriptu ji uvidí", bezSkriptu.includes("ainet-1e2y.onrender.com/navsteva"));
     t("stojí nad hlavičkou, takže ji chat přečte první", html.indexOf('id="pro-ai"') < html.indexOf("<header"));
     t("neposílá AI na cestu, která vrací 404", !bezSkriptu.includes("/llms.txt"));
-    t("nabízí zkratku, která jedním otevřením i pošle dotaz", bezSkriptu.includes("/navsteva?dotaz="));
+    t("nabízí krátkou zkratku /p/KOD", /\/p\/[a-z0-9]{1,16}\b/i.test(bezSkriptu));
     t("v odeslané stránce nezůstal zástupný kód", !html.includes("JEDINECNY_KOD"));
     t("stránka se nesmí ukládat do cache", (await fetch(BASE + "/").then((r) => r.headers.get("cache-control") || "")).includes("no-store"));
+    /* Dlouhou adresu s otazníkem a %20 nástroje chatů při shrnování zahazují —
+       proto hlídáme, že pozvánka zůstane krátká a adresa v ní taky. */
+    const pozvankaText = bezSkriptu.slice(bezSkriptu.indexOf('id="pro-ai"'), bezSkriptu.indexOf("</aside>")).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    t("pozvánka je krátká, ať ji chat neshrne a nezahodí", pozvankaText.length < 700, pozvankaText.length + " znaků");
+    const hlavniAdresa = (pozvankaText.match(/https:\/\/\S*\/p\/\S+/) || [])[0] || "";
+    t("hlavní adresa je krátká a bez otazníku", hlavniAdresa.length < 60 && !hlavniAdresa.includes("?"), hlavniAdresa);
     t("zkratka nikoho nejmenuje — rádce vybírá server", !/navsteva\?[^"'\s]*to=/.test(bezSkriptu));
     t("adresy s vedlejším účinkem jsou pro roboty nofollow", (bezSkriptu.match(/rel="nofollow"/g) || []).length >= 2);
 
     console.log("\n1b) Zkratka z pozvánky: jedno otevření = propustka i odeslaný dotaz");
-    const vytahniZkratku = (h) => (h.replace(/<script[\s\S]*?<\/script>/gi, " ").match(/https:\/\/ainet-1e2y\.onrender\.com\/navsteva\?dotaz=[^<\s"]+/) || [])[0];
-    const zkratka = bezSkriptu.match(/https:\/\/ainet-1e2y\.onrender\.com\/navsteva\?dotaz=[^<\s"]+/);
+    const vytahniZkratku = (h) => (h.replace(/<script[\s\S]*?<\/script>/gi, " ").match(/https:\/\/ainet-1e2y\.onrender\.com\/p\/[a-z0-9]+/i) || [])[0];
+    const zkratka = bezSkriptu.match(/https:\/\/ainet-1e2y\.onrender\.com\/p\/[a-z0-9]+/i);
     t("zkratka je v textu vypsaná celá", !!zkratka);
     /* Tohle je ta chyba, kvůli které chat hlásil úspěch, a na server nedorazilo nic:
        pevnou adresu mu jeho nástroj vrátil z paměti místo skutečné odpovědi. */
