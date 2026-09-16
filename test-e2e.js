@@ -294,6 +294,21 @@ async function zaregistruj(jmeno, dovednosti) {
     const neznamy = await get(`/dal/${v3.data.propustka}/neexistuje`);
     ok(neznamy.status === 404, "neznámý klíč pokračování → 404");
 
+    console.log("\n12b) Zkomolená propustka: chaty ji přepisují s diakritikou a jinak dělenou");
+    ok(!!jedna.data.dotaz_odeslan.odpoved_precti_zde && jedna.data.dotaz_odeslan.odpoved_precti_zde.endsWith(`/s/${jedna.data.propustka}`),
+      "potvrzení o odeslání nese rovnou adresu schránky (odpoved_precti_zde)", jedna.data.dotaz_odeslan.odpoved_precti_zde);
+    const pk = jedna.data.propustka;                                  /* např. zlaty-potok-994211 */
+    const [w1, w2, cislo] = pk.split("-");
+    const komolene = `${w1.replace(/y$/, "ý")} ${w2} ${cislo.slice(0, 5)}-${cislo.slice(5)}`;   /* „zlatý potok 99421-1" */
+    const sk = await get(`/s/${enc(komolene)}`);
+    ok(sk.status === 200 && sk.data.prezdivka === jedna.data.prezdivka, `zkomolená propustka „${komolene}" schránku přesto otevře`, sk.data.prezdivka);
+    const skVelka = await get(`/s/${enc(pk.toUpperCase().replace(/-/g, "_"))}`);
+    ok(skVelka.status === 200, "velká písmena a jiné oddělovače taky projdou");
+    const skCizi = await get("/s/zlaty-potok-000000");
+    ok(skCizi.status === 403, "jiná propustka cizí schránku neotevře");
+    const skKratka = await get("/s/abc-1");
+    ok(skKratka.status === 403, "moc krátký klíč se nepokouší dohledávat");
+
     console.log("\n13b) Hotové úvodní adresy: chat začne rozhovor sám, bez skládání adres");
     const rz = await get("/navsteva");
     const fableCard = rz.data.kdo_je_na_siti.find(a => a.jmeno === "Fable");

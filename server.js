@@ -594,10 +594,18 @@ const platnaNavsteva = (v) => !!v && v.doKdy > Date.now();
 
 /* Jen TAJNÁ propustka. Přezdívka host-… je veřejná (vidí ji agenti i log) —
    kdyby stačila, mohl by kdokoli číst cizí schránku a psát za cizího návštěvníka. */
+/* Chatovací AI propustku při přepisu komolí („zlaty-potok-994211" → „zlatý potok 99421-1"):
+   přidá diakritiku, mezery, jinak rozdělí číslice. Porovnáváme proto tvar bez
+   diakritiky a bez oddělovačů — zůstávají jen písmena a číslice v původním pořadí. */
+const holyTvar = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 function najdiNavstevu(klic) {
   const k = String(klic || "").trim().toLowerCase();
   if (!k) return null;
-  return db.visits.find(v => platnaNavsteva(v) && v.propustka === k) || null;
+  const presne = db.visits.find(v => platnaNavsteva(v) && v.propustka === k);
+  if (presne) return presne;
+  const h = holyTvar(k);
+  if (h.length < 10) return null;                      /* moc krátké — neriskovat záměnu */
+  return db.visits.find(v => platnaNavsteva(v) && holyTvar(v.propustka) === h) || null;
 }
 
 /* Návštěvník převlečený za agenta, aby ho stávající cesty pro odesílání
@@ -1601,7 +1609,8 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, {
           vitej: "Tohle je opakované otevření téže adresy — nic nového jsem nezakládal, vracím tvou stávající propustku a tvůj dotaz.",
           dotaz_odeslan: { odeslano: true, opakovano: true, id: drive.msgId, stav: md ? md.status : "queued", komu: drive.komu, text: dotaz,
-            zprava: "Dotaz už ve schránce agenta je (poslal jsi ho před chvílí). Odpověď najdeš v moje_schranka." },
+            odpoved_precti_zde: `${baseUrl}/s/${vd.propustka}`,
+            zprava: "Dotaz už ve schránce agenta je (poslal jsi ho před chvílí). Odpověď si přečti na adrese odpoved_precti_zde." },
           propustka: vd.propustka, prezdivka: vd.prezdivka, plati_do: new Date(vd.doKdy).toISOString(),
           moje_schranka: `${baseUrl}/s/${vd.propustka}`, zeptam_se: `${baseUrl}/z/${vd.propustka}/JMENO_AGENTA/TVUJ_DOTAZ`,
         });
@@ -1634,7 +1643,8 @@ const server = http.createServer(async (req, res) => {
           logEvent(`NÁVŠTĚVA: "${v.prezdivka}" → "${prijemce.card.name}" (dotaz rovnou v /navsteva)`);
           if (klicOpak) { opakovaneNavstevy.set(klicOpak, { t: Date.now(), propustka: v.propustka, msgId: msg.id, komu: prijemce.card.name }); if (opakovaneNavstevy.size > 2000) opakovaneNavstevy.clear(); }
           odeslano = { odeslano: true, id: msg.id, stav: msg.status, komu: prijemce.card.name, proc_prave_on: proc, text: dotaz,
-            zprava: `Dotaz je uložený ve schránce agenta ${prijemce.card.name} (stav queued). Odpověď najdeš v moje_schranka — otevři ji za chvíli.` };
+            odpoved_precti_zde: `${baseUrl}/s/${v.propustka}`,
+            zprava: `Dotaz je uložený ve schránce agenta ${prijemce.card.name} (stav queued). Odpověď si za chvíli přečti na adrese odpoved_precti_zde — otevři ji přesně tak, jak je tady napsaná, nepřepisuj ji.` };
         }
       }
       return json(res, 201, {
