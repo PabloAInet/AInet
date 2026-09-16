@@ -169,7 +169,7 @@ async function zaregistruj(jmeno, dovednosti) {
     console.log("\n1c) Vstup bez dotazu rovnou radí, co otevřít (dřív to leželo až za polem agentů)");
     const vstup = await fetch(BASE + "/navsteva").then((r) => r.json());
     const poradi = Object.keys(vstup);
-    t("rada je hned druhé pole, ne až kdesi vzadu", poradi[1] === "co_udelat_ted", poradi.slice(0, 4).join(", "));
+    t("rada je mezi prvními třemi poli, ne až kdesi vzadu (první je akce)", poradi[0] === "akce" && poradi.indexOf("co_udelat_ted") <= 2, poradi.slice(0, 4).join(", "));
     const hotova = (vstup.co_udelat_ted.match(/https?:\/\/\S*\/u\/\S+/) || [])[0];
     t("nese úplnou adresu, kterou stačí otevřít", !!hotova);
     t("a taky adresu schránky", vstup.co_udelat_ted.includes("/s/" + vstup.propustka));
@@ -209,6 +209,26 @@ async function zaregistruj(jmeno, dovednosti) {
     t(`nevyhrkne prázdno hned, ale počká (${CEKANI_MS} ms)`, trvalo >= CEKANI_MS - 200, trvalo + " ms");
     t("po marném čekání to řekne narovinu", /Zatím žádná odpověď/.test(prazdna.zprava || ""));
     t("a dá jinou adresu na další pokus", !!prazdna.zkus_znovu);
+
+    console.log("\n6) Celý průchod jen přes pole akce: chat nic negeneruje, jen otevírá přesně to, co dostane");
+    /* Chat: „AInet musí vrátit jednu hotovou URL a agent ji má prostě přímo otevřít." */
+    const krok1 = await fetch(BASE + "/navsteva?a=" + Math.random(), { headers: { "X-Forwarded-For": "10.9.1.7" } }).then((r) => r.json());
+    t("akce je ÚPLNĚ PRVNÍ pole odpovědi", Object.keys(krok1)[0] === "akce", Object.keys(krok1).slice(0, 3).join(", "));
+    t("akce má typ open_direct a přesnou adresu", krok1.akce && krok1.akce.typ === "open_direct" && /^https?:\/\/\S+\/u\/\S+\/predstav_se$/.test(krok1.akce.url), JSON.stringify(krok1.akce).slice(0, 120));
+    t("instrukce říká: klikni přímo, nehledej, neupravuj", /přímo/.test(krok1.akce.instrukce) && /[Nn]ehledej/.test(krok1.akce.instrukce) && /neupravuj/.test(krok1.akce.instrukce));
+    t("a rovnou říká, co otevřít potom (schránku)", krok1.akce.potom && krok1.akce.potom.typ === "open_direct" && krok1.akce.potom.url === `${BASE}/s/${krok1.propustka}`);
+    const krok2 = await fetch(krok1.akce.url).then((r) => r.json());
+    t("otevření akce odešle dotaz — potvrzení nese odeslano, id, stav", krok2.odeslano === true && !!krok2.id && krok2.stav === "queued");
+    t("potvrzení má jako první pole zase akci: otevři schránku", Object.keys(krok2)[0] === "akce" && krok2.akce.typ === "open_direct" && krok2.akce.url === `${BASE}/s/${krok1.propustka}`);
+    const krok3 = await fetch(krok2.akce.url).then((r) => r.json());
+    t("prázdná schránka radí open_direct na JINOU adresu", krok3.akce.typ === "open_direct" && krok3.akce.url !== krok2.akce.url && /\/s\/[^/]+\/\d+$/.test(krok3.akce.url), krok3.akce.url);
+    await fetch(`${BASE}/napis/${regFable.obnovovaci_kod}/${krok1.prezdivka}/${enc("Ahoj, jsem Fable.")}`).then((r) => r.json());
+    const krok4 = await fetch(krok3.akce.url).then((r) => r.json());
+    t("po příchodu odpovědi říká schránka hotovo a nic dalšího neotvírá", krok4.akce.typ === "hotovo" && krok4.zpravy.some((m) => /jsem Fable/.test(m.text || "")), JSON.stringify(krok4.akce));
+    const krok1html = await fetch(BASE + "/navsteva?b=" + Math.random(), { headers: { Accept: "text/html", "X-Forwarded-For": "10.9.1.8" } }).then((r) => r.text());
+    t("v HTML podobě je nahoře odkaz s textem Klikni přímo na tento odkaz, URL nijak neupravuj", /Klikni přímo na tento odkaz\. URL nijak neupravuj\./.test(krok1html) && /<a href="[^"]*\/u\/[^"]*predstav_se"/.test(krok1html));
+    const sDotazem = await fetch(BASE + "/navsteva?dotaz=" + enc("Co umis") + "&to=Fable", { headers: { "X-Forwarded-For": "10.9.1.9" } }).then((r) => r.json());
+    t("vstup s dotazem v adrese má akci rovnou na schránku", sDotazem.akce.typ === "open_direct" && sDotazem.akce.url === `${BASE}/s/${sDotazem.propustka}`);
 
     console.log("\n5) Když odpověď mezitím přijde, schránka ji vydá hned");
     const zac2 = Date.now();

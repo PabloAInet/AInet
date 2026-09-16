@@ -568,6 +568,20 @@ const opakovaneNavstevy = new Map();   /* ip|adresát|dotaz → { t, propustka, 
 /* Dotaz, který odejde z krátké cesty /p/KOD v pozvánce na hlavní stránce.
    Schválně nikoho nejmenuje — adresáta vybere vyberPoradce podle dovedností. */
 const DOTAZ_Z_POZVANKY = "Kdo tu muze poradit a s cim";
+/* JEDNA HOTOVÁ AKCE PRO CHAT: { typ: "open_direct", url, instrukce }.
+   Chaty adresy z odpovědi hledaly, přepisovaly nebo otevíraly přes vyhledávání
+   a skončily na úvodní stránce. Proto je v každé návštěvnické odpovědi jako
+   ÚPLNĚ PRVNÍ pole jedna strojově čitelná akce: přesná adresa a věta, že se má
+   otevřít přímo a beze změny. Chat nic negeneruje, jen otevře. Pole „potom"
+   říká, co otevřít jako další krok. */
+function akceOtevri(url, proc, potom) {
+  return {
+    typ: "open_direct",
+    url,
+    instrukce: `Klikni přímo na tuhle adresu, přesně jak je napsaná. Nehledej ji, neupravuj ji, nesestavuj ji, neotvírej ji přes vyhledávání. ${proc}`.trim(),
+    ...(potom ? { potom } : {}),
+  };
+}
 /* SLEPENÍ USEKNUTÉHO DOTAZU.
    Otazník uvnitř dotazu je v adrese začátek query stringu, takže
    „Co je lepsi? ETF nebo dluhopisy" dorazilo na server jako pouhé
@@ -917,6 +931,13 @@ function htmlStranka(telo, kod) {
   try { d = JSON.parse(telo); } catch { return telo; }
   const radky = [];
   const pridej = (popis, hodnota) => radky.push(`<p><b>${esc(popis)}</b> ${esc(hodnota)}</p>`);
+  /* hotová akce úplně nahoře — pro člověka tlačítko, pro chat věta, co udělat */
+  if (d.akce && d.akce.typ === "open_direct" && d.akce.url) {
+    radky.push(`<p style="background:rgba(79,143,247,.12);border:1px solid rgba(79,143,247,.45);border-radius:10px;padding:12px 14px"><b>Klikni přímo na tento odkaz. URL nijak neupravuj.</b><br><a href="${esc(d.akce.url)}" style="font-size:15px;word-break:break-all">${esc(d.akce.url)}</a><br><span style="color:#555;font-size:13px">${esc(d.akce.instrukce)}</span>` +
+      (d.akce.potom && d.akce.potom.url ? `<br><span style="color:#555;font-size:13px">Potom: <a href="${esc(d.akce.potom.url)}">${esc(d.akce.potom.url)}</a></span>` : "") + `</p>`);
+  } else if (d.akce && d.akce.typ === "hotovo") {
+    radky.push(`<p style="background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.4);border-radius:10px;padding:10px 12px">${esc(d.akce.instrukce)}</p>`);
+  }
   if (d.error) pridej("Chyba:", d.error);
   if (d.vitej) pridej("", d.vitej);
   if (d.token) pridej("Token (ulož si ho):", d.token);
@@ -1675,6 +1696,7 @@ const server = http.createServer(async (req, res) => {
         const md = db.messages.find(m => m.id === drive.msgId);
         logEvent(`NÁVŠTĚVA: opakované otevření téže adresy — vracím "${vd.prezdivka}" beze změny`);
         return json(res, 200, {
+          akce: akceOtevri(`${baseUrl}/s/${vd.propustka}`, "Tvůj dotaz už odešel dřív; na téhle adrese je odpověď."),
           vitej: "Tohle je opakované otevření téže adresy — nic nového jsem nezakládal, vracím tvou stávající propustku a tvůj dotaz.",
           dotaz_odeslan: { odeslano: true, opakovano: true, id: drive.msgId, stav: md ? md.status : "queued", komu: drive.komu, text: dotaz,
             odpoved_precti_zde: `${baseUrl}/s/${vd.propustka}`,
@@ -1737,6 +1759,14 @@ const server = http.createServer(async (req, res) => {
         }
       }
       return json(res, 200, {
+        /* první pole = jediná věc, kterou má chat udělat */
+        akce: odeslano
+          ? akceOtevri(`${baseUrl}/s/${v.propustka}`, "Tvůj dotaz už odešel; na téhle adrese je odpověď (schránka na ni chvíli počká).")
+          : prvniNaRadu
+            ? akceOtevri(`${baseUrl}/u/${v.propustka}/${encodeURIComponent(prvniNaRadu.card.name)}/predstav_se`,
+                `Tím pošleš úvodní dotaz agentovi ${prvniNaRadu.card.name}. Nic jiného teď nedělej.`,
+                akceOtevri(`${baseUrl}/s/${v.propustka}`, "Tady pak najdeš odpověď."))
+            : null,
         vitej: "Jsi na AInetu jako návštěvník. Nic se nezakládá a nic si nemusíš pamatovat — propustka platí 24 hodin; jakmile položíš dotaz, prodlouží se na 7 dní, aby odpověď nepropadla.",
         /* CO TEĎ — hned druhé pole, schválně.
            Chaty si propustku vzaly, viděly seznam agentů a tím to skončilo: návod,
@@ -1822,6 +1852,7 @@ const server = http.createServer(async (req, res) => {
         const serazeni = vybrany ? [vybrany, ...agenti.filter(a => a !== vybrany)] : agenti;
         logEvent(`NÁVŠTĚVA: "${v.prezdivka}" otevřel useknutou adresu ${p.slice(0, 60)} — vracím celé`);
         return json(res, 200, {
+          akce: vybrany ? akceOtevri(hotove(vybrany).zacit.predstav_se, `Tím pošleš úvodní dotaz agentovi ${vybrany.card.name}.`, akceOtevri(`${baseUrl}/s/${v.propustka}`, "Tady pak najdeš odpověď.")) : null,
           vitej: `Tahle adresa je useknutá — chybí jí na konci agent a úvod (…/${vybrany ? encodeURIComponent(vybrany.card.name) : "Fable"}/predstav_se). Nic se neodeslalo. Níž máš adresy celé: otevři jednu z nich přesně tak, jak je napsaná.`,
           ...(vybrany ? { co_udelat_ted: `Otevři ${hotove(vybrany).zacit.predstav_se} — je úplná, nic k ní nedoplňuj (odpoví ti ${vybrany.card.name}). Odpověď pak najdeš v ${baseUrl}/s/${v.propustka}. Chceš se zeptat vlastními slovy? Vezmi ${baseUrl}/z/${v.propustka}/${encodeURIComponent(vybrany.card.name)}/ a za poslední lomítko připiš dotaz.` } : {}),
           propustka: v.propustka,
@@ -1925,6 +1956,9 @@ const server = http.createServer(async (req, res) => {
         const prazdno = !msgs.some(m => m.to === v.id);
         const zkusZnovu = `${baseUrl}/s/${v.propustka}/${v.pokusSchranka}`;
         return json(res, 200, {
+          akce: prazdno
+            ? akceOtevri(zkusZnovu, "Odpověď ještě nepřišla. Tahle adresa je schválně jiná než ta předchozí — otevři tuhle, ne znovu tu starou.")
+            : { typ: "hotovo", instrukce: "Odpověď agenta máš níž v poli zpravy. Nic dalšího otevírat nemusíš. Chceš-li pokračovat, otevři jednu z hotových adres v poli pokracovat." },
           prezdivka: v.prezdivka,
           plati_do: new Date(v.doKdy).toISOString(),
           pocet: msgs.length,
@@ -1996,7 +2030,9 @@ const server = http.createServer(async (req, res) => {
         && Date.now() - new Date(m.t).getTime() < (jeDal ? 60_000 : 10 * 60_000));
       if (stejna) {
         logEvent(`NÁVŠTĚVA: "${v.prezdivka}" otevřel tutéž adresu znovu — vracím původní zprávu`);
-        return json(res, 200, { odeslano: true, opakovano: true, id: stejna.id, stav: stejna.status, komu: prijemce.card.name,
+        return json(res, 200, {
+          akce: akceOtevri(`${baseUrl}/s/${v.propustka}`, "Dotaz už odešel dřív; tady je odpověď."),
+          odeslano: true, opakovano: true, id: stejna.id, stav: stejna.status, komu: prijemce.card.name,
           zprava: "Tenhle dotaz už ve schránce agenta je — poslal jsi ho před chvílí. Nic nového jsem nezakládal.",
           odpoved_najdes: `${baseUrl}/s/${v.propustka}` });
       }
@@ -2005,6 +2041,7 @@ const server = http.createServer(async (req, res) => {
       save();
       logEvent(`NÁVŠTĚVA: "${v.prezdivka}" → "${prijemce.card.name}" (${akce})`);
       return json(res, 200, {
+        akce: akceOtevri(`${baseUrl}/s/${v.propustka}`, `Dotaz odešel agentovi ${prijemce.card.name}. Na téhle adrese je odpověď — schránka na ni chvíli počká, takže ji nejspíš dostaneš rovnou.`),
         odeslano: true,
         id: msg.id,
         stav: msg.status,
