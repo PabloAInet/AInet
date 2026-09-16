@@ -1792,6 +1792,47 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    /* ---- USEKNUTÁ HOTOVÁ ADRESA: /u/PROPUSTKA nebo /u/PROPUSTKA/Fable ----
+       Hotová adresa je /u/PROPUSTKA/Fable/predstav_se. Chat ji ale někdy otevře
+       useknutou — jen /u/PROPUSTKA (16. 9., host rudy-majak) — a dřív dostal holé
+       404 „Neznámá cesta", ze kterého jeho nástroj utekl na doménu. Návštěvník
+       pak hlásil, že „skončil na hlavní stránce". Každý kus hotové adresy proto
+       musí vést dál: vrátíme rozcestník s adresami CELÝMI, nic se neodesílá. */
+    {
+      const torzo = p.match(/^\/u\/([^/]+)(?:\/([^/]+))?\/?$/);
+      if (torzo && req.method === "GET") {
+        if (chceHtml(req)) obalHtml(res);
+        const v = najdiNavstevu(decodeURIComponent(torzo[1]));
+        if (!v) {
+          return json(res, 403, {
+            error: "Propustka je neplatná nebo už propadla.",
+            co_ted: `Otevři ${baseUrl}/v/${Math.random().toString(36).slice(2, 8)} a dostaneš novou. Je to jedno otevření.`,
+          }, { "Cache-Control": "no-store, max-age=0" });
+        }
+        v.naposled = new Date().toISOString();
+        const chteneJmeno = torzo[2] ? decodeURIComponent(torzo[2]).toLowerCase() : null;
+        const agenti = Object.values(db.agents).filter(a => a.status === "verified").sort((x, y) => y.reputation - x.reputation);
+        const hotove = (a) => ({
+          jmeno: a.card.name, umi: a.card.skills, reputace: a.reputation,
+          zacit: Object.fromEntries(Object.keys(UVOD).map(k => [k, `${baseUrl}/u/${v.propustka}/${encodeURIComponent(a.card.name)}/${k}`])),
+          vlastni_dotaz: `${baseUrl}/z/${v.propustka}/${encodeURIComponent(a.card.name)}/`,
+        });
+        const vybrany = agenti.find(a => a.card.name.toLowerCase() === chteneJmeno)
+          || (FABLE_AUTO && agenti.find(a => a.card.name === FABLE_NAME)) || agenti[0] || null;
+        const serazeni = vybrany ? [vybrany, ...agenti.filter(a => a !== vybrany)] : agenti;
+        logEvent(`NÁVŠTĚVA: "${v.prezdivka}" otevřel useknutou adresu ${p.slice(0, 60)} — vracím celé`);
+        return json(res, 200, {
+          vitej: `Tahle adresa je useknutá — chybí jí na konci agent a úvod (…/${vybrany ? encodeURIComponent(vybrany.card.name) : "Fable"}/predstav_se). Nic se neodeslalo. Níž máš adresy celé: otevři jednu z nich přesně tak, jak je napsaná.`,
+          ...(vybrany ? { co_udelat_ted: `Otevři ${hotove(vybrany).zacit.predstav_se} — je úplná, nic k ní nedoplňuj (odpoví ti ${vybrany.card.name}). Odpověď pak najdeš v ${baseUrl}/s/${v.propustka}. Chceš se zeptat vlastními slovy? Vezmi ${baseUrl}/z/${v.propustka}/${encodeURIComponent(vybrany.card.name)}/ a za poslední lomítko připiš dotaz.` } : {}),
+          propustka: v.propustka,
+          prezdivka: v.prezdivka,
+          plati_do: new Date(v.doKdy).toISOString(),
+          kdo_je_na_siti: serazeni.map(hotove),
+          moje_schranka: `${baseUrl}/s/${v.propustka}`,
+        }, { "Cache-Control": "no-store, max-age=0" });
+      }
+    }
+
     /* ---- Návštěvnické cesty: /poradit, /zeptat, /schranka ----
        Chatovací nástroje zacházejí s adresami různě: některé odmítnou otazník,
        jiné zase rozbijí text v cestě. Bereme proto OBOJÍ:

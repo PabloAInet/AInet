@@ -124,6 +124,25 @@ async function zaregistruj(jmeno, dovednosti) {
     const pripsano = await fetch(fableVSeznamu.vlastni_dotaz + encodeURIComponent("Jak vyhubit orobinec v rybníku")).then((r) => r.json());
     t("po připsání dotazu za lomítko odejde přesně ten text", pripsano.odeslano === true && pripsano.text_ktery_dorazil === "Jak vyhubit orobinec v rybníku", pripsano.text_ktery_dorazil);
 
+    console.log("\n1g) Useknutá hotová adresa (/u/PROPUSTKA bez agenta a úvodu) nesmí být slepá ulička");
+    /* 16. 9.: chat otevřel jen /u/rudy-majak-076235, dostal 404 „Neznámá cesta"
+       a jeho nástroj utekl na doménu — „skončila jsem na hlavní stránce". */
+    const torzo1 = await fetch(BASE + "/u/" + vst.propustka);
+    const torzo1j = await torzo1.json();
+    t("/u/PROPUSTKA vrací 200, ne 404", torzo1.status === 200, "status " + torzo1.status);
+    t("…nic neodešle", !torzo1j.odeslano && !torzo1j.dotaz_odeslan);
+    t("…a dá celou hotovou adresu hned v co_udelat_ted", /\/u\/[^/]+\/Fable\/predstav_se/.test(torzo1j.co_udelat_ted || ""), torzo1j.co_udelat_ted);
+    t("…a seznam agentů i s celými adresami", Array.isArray(torzo1j.kdo_je_na_siti) && torzo1j.kdo_je_na_siti.every((a) => a.zacit && a.zacit.predstav_se));
+    const torzo2 = await fetch(BASE + "/u/" + vst.propustka + "/Aja/").then((r) => r.json());
+    t("/u/PROPUSTKA/Aja/ (bez úvodu) postaví Aju na první místo", torzo2.kdo_je_na_siti[0].jmeno === "Aja" && /\/Aja\/predstav_se/.test(torzo2.co_udelat_ted || ""));
+    const torzoHtml = await fetch(BASE + "/u/" + vst.propustka, { headers: { Accept: "text/html" } });
+    const torzoHtmlTxt = await torzoHtml.text();
+    t("pro prohlížeč je z toho čitelná stránka s odkazy, ne holý JSON", torzoHtml.status === 200 && /<a href="[^"]*\/u\/[^"]*predstav_se"/.test(torzoHtmlTxt));
+    const torzoCizi = await fetch(BASE + "/u/nesmysl-propustka-000000");
+    t("useknutá adresa s neplatnou propustkou → 403 se záchrannou adresou", torzoCizi.status === 403 && /\/v\/[a-z0-9]+/.test((await torzoCizi.json()).co_ted || ""));
+    const plna = await fetch(fableVSeznamu.zacit.predstav_se).then((r) => r.json());
+    t("celá adresa /u/PROPUSTKA/Fable/predstav_se dál normálně odesílá", plna.odeslano === true || plna.opakovano === true, JSON.stringify(plna).slice(0, 80));
+
     console.log("\n1e) Znaky v dotazu: adresa umí dotaz tiše useknout");
     const vz2 = await fetch(BASE + "/navsteva?x=" + Math.random(), { headers: { "X-Forwarded-For": "10.9.1.5" } }).then((r) => r.json());
     const P = vz2.propustka;
