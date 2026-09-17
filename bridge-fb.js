@@ -187,6 +187,30 @@ async function pump() {
 setInterval(pump, 5000);
 pump();
 
+const SOUKROMI_HTML = `<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ochrana soukromí – Pavel Ditl MD</title>
+<style>body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.55;color:#111}h1{font-size:26px}h2{font-size:18px;margin-top:28px}</style></head><body>
+<h1>Ochrana soukromí – AI poradna stránky Pavel Ditl MD</h1>
+<p>Platí od 17. 9. 2026. Správce: MUDr. Pavel Ditl, provozovatel facebookové stránky <strong>Pavel Ditl MD</strong> a aplikace <strong>AInet Most</strong>.</p>
+<h2>Co aplikace dělá</h2>
+<p>Aplikace AInet Most přijímá zprávy, které pošlete stránce Pavel Ditl MD přes Messenger, a odpovídá na ně pomocí umělé inteligence. Odpovědi jsou informační a nenahrazují lékařské vyšetření. AI se v konverzaci vždy představí jako AI. Hlasové zprávy namlouvá umělá inteligence hlasem MUDr. Ditla.</p>
+<h2>Jaké údaje zpracováváme</h2>
+<ul><li>obsah zpráv, které stránce pošlete, a identifikátor vaší konverzace v Messengeru (PSID);</li>
+<li>pokud se chcete objednat do ordinace: jméno, telefonní číslo, věk, popis potíží a preferovaný den vyšetření.</li></ul>
+<p>Nepožadujeme rodné číslo, číslo pojištěnce, adresu ani fotografie. Prosíme, neposílejte je.</p>
+<h2>Účel a právní základ</h2>
+<p>Zodpovězení vašeho dotazu a objednání do ordinace (plnění smlouvy / oprávněný zájem, čl. 6 odst. 1 písm. b) a f) GDPR). Údaje o zdravotním stavu zpracováváme na základě vašeho výslovného souhlasu, který dáváte odesláním zprávy (čl. 9 odst. 2 písm. a) GDPR); souhlas můžete kdykoli odvolat.</p>
+<h2>Kdo údaje zpracovává</h2>
+<ul><li>Meta Platforms (Messenger) – doručení zpráv;</li>
+<li>Render (hosting aplikace, EU/USA);</li>
+<li>Anthropic (jazykový model generující odpovědi) a ElevenLabs (převod textu na hlas) – zpracovávají text konverzace pouze pro vytvoření odpovědi.</li></ul>
+<h2>Doba uložení</h2>
+<p>Obsah konverzace držíme v paměti aplikace nejvýše 24 hodin. Shrnutí objednávky (jméno, telefon, potíže, termín) předáváme ordinaci a mažeme po vyšetření, nejpozději do 90 dnů. Historii v Messengeru spravuje Meta podle svých pravidel.</p>
+<h2>Vaše práva</h2>
+<p>Máte právo na přístup k údajům, jejich opravu, výmaz, omezení zpracování, přenositelnost a právo vznést námitku. Napište na stránku Pavel Ditl MD do zpráv slovo <strong>SMAZAT</strong>, nebo kontaktujte správce e-mailem uvedeným na stránce; údaje odstraníme do 30 dnů. Stížnost lze podat u Úřadu pro ochranu osobních údajů (uoou.gov.cz).</p>
+<h2>Smazání dat</h2>
+<p>Pokyn ke smazání všech údajů spojených s vaší konverzací: pošlete stránce zprávu <strong>SMAZAT</strong>, nebo použijte odkaz <a href="/soukromi/smazani">/soukromi/smazani</a>.</p>
+</body></html>`;
+
 /* ---------- HTTP: webhook od Mety ---------- */
 function readBody(req) {
   return new Promise((res, rej) => {
@@ -199,6 +223,8 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   try {
     if (url.pathname === "/healthz") { res.writeHead(200); return res.end("ok"); }
+    if (url.pathname === "/soukromi" || url.pathname === "/privacy") { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); return res.end(SOUKROMI_HTML); }
+    if (url.pathname === "/soukromi/smazani") { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); return res.end("<!doctype html><meta charset=utf-8><p>Pro smazání svých údajů pošlete stránce Pavel Ditl MD do Messengeru zprávu <b>SMAZAT</b>. Údaje odstraníme do 30 dnů.</p>"); }
 
     /* ověření webhooku (Meta ho zavolá jednou při nastavení) */
     if (url.pathname === "/webhook" && req.method === "GET") {
@@ -217,6 +243,11 @@ http.createServer(async (req, res) => {
           const psid = ev.sender?.id;
           const text = ev.message?.text;
           if (!psid || !text || ev.message?.is_echo) continue;
+          if (/^\s*smazat\s*$/i.test(text)) {
+            chats.delete(psid);
+            await fbSend(psid, "Vaše konverzace byla z paměti poradny smazána. Historii v Messengeru můžete odstranit sami v aplikaci.");
+            continue;
+          }
           if (PORADNA && INSTRUKCE) {
             log(`FB ${psid} → poradna: ${text.slice(0, 60)}`);
             try { await poradna(psid, text); }
