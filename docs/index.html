@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MUDr. Pavel Ditl – chirurg · AI poradna</title>
+<meta name="description" content="MUDr. Pavel Ditl, chirurg FN Bulovka. Laparoskopie, křečové žíly, hemoroidy, pilonidální sinus – i laserem. AI poradna v Messengeru, objednání do ordinace.">
+<meta property="og:title" content="MUDr. Pavel Ditl – chirurg · AI poradna">
+<meta property="og:description" content="Zdravotní dotaz nebo objednání do ordinace přes AI, kterou jsem vytrénoval. Bulovka Po 12–15, Neratovice Čt 16–18.">
+<meta property="og:type" content="website">
+<style>
+:root{--navy:#0d2742;--navy2:#18385e;--teal:#5ec8b2;--white:#f5f8fa;--grey:#b0c4d6;--warn:#aa5032}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--navy);color:var(--white);line-height:1.5}
+a{color:var(--teal)}
+.wrap{max-width:960px;margin:0 auto;padding:0 20px}
+header{display:flex;justify-content:space-between;align-items:center;padding:22px 0;border-bottom:2px solid var(--teal)}
+header .brand{font-weight:800;font-size:22px;color:var(--white);text-decoration:none}
+header .tag{color:#ff3b30;font-weight:800;font-size:22px;letter-spacing:.02em}
+nav{display:flex;gap:18px;font-size:14px}
+nav a{color:var(--grey);text-decoration:none}
+nav a:hover{color:var(--white)}
+.banner{margin:0 -20px;background:var(--navy) url(hero-navy.jpg) center right/cover no-repeat;min-height:420px;display:flex;align-items:flex-end}
+.banner .in{padding:60px 20px 34px;max-width:560px}
+.banner h1{font-size:40px;line-height:1.12;margin:0 0 12px;text-shadow:0 2px 12px rgba(0,0,0,.5)}
+.banner p{font-size:18px;color:var(--white);margin:0 0 22px;text-shadow:0 1px 8px rgba(0,0,0,.6)}
+.hero{padding:34px 0 36px;display:grid;grid-template-columns:1.4fr 1fr;gap:36px;align-items:center}
+.hero p{font-size:17px;color:var(--grey);margin:0}
+.btn{display:inline-block;background:var(--teal);color:var(--navy);font-weight:800;padding:14px 24px;border-radius:12px;text-decoration:none;font-size:17px}
+.btn.sec{background:transparent;color:var(--teal);border:2px solid var(--teal);margin-left:10px}
+.card{background:var(--navy2);border-radius:18px;padding:22px 24px}
+.card h3{margin:0 0 10px;font-size:18px}
+.hours{list-style:none;padding:0;margin:0}
+.hours li{padding:10px 0;border-top:1px solid rgba(255,255,255,.08)}
+.hours li:first-child{border-top:0}
+.hours b{display:block;color:var(--teal)}
+h2{font-size:28px;margin:0 0 6px}
+.lead{color:var(--grey);margin:0 0 22px}
+section{padding:40px 0;border-top:1px solid rgba(255,255,255,.08)}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.tile{display:block;background:var(--navy2);border-radius:16px;padding:20px;text-decoration:none;color:var(--white);border-left:8px solid var(--teal);transition:transform .15s}
+.tile:hover{transform:translateY(-3px)}
+.tile b{display:block;font-size:19px;margin-bottom:4px}
+.tile span{color:var(--grey);font-size:14px}
+.tile.soon{border-left-color:var(--warn);opacity:.85}
+.tile.soon i{display:inline-block;background:var(--warn);color:#fff;font-style:normal;font-size:12px;font-weight:700;padding:2px 10px;border-radius:12px;margin-left:6px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.list{margin:0;padding-left:20px;color:var(--grey)}
+.list li{margin:6px 0}
+.price{display:flex;justify-content:space-between;padding:12px 0;border-top:1px solid rgba(255,255,255,.08)}
+.price:first-child{border-top:0}
+.price span:last-child{color:var(--teal);font-weight:700;white-space:nowrap}
+.social a{display:inline-flex;align-items:center;gap:8px;margin-right:18px;text-decoration:none;font-weight:700}
+.social svg{width:22px;height:22px;fill:var(--teal)}
+footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid rgba(255,255,255,.08)}
+.alert{background:rgba(170,80,50,.18);border:1px solid var(--warn);border-radius:12px;padding:12px 16px;margin-top:18px;font-size:15px}
+@media (max-width:760px){.hero{grid-template-columns:1fr;padding-top:26px}.banner{min-height:360px;background-position:70% center}.banner h1{font-size:30px}.banner .in{padding-top:40px}.tiles{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}nav{display:none}.btn.sec{margin:10px 0 0}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <a class="brand" href="#">MUDr. Pavel Ditl <span class="tag">AI PORADNA</span></a>
+  <nav><a href="#poradna">Poradna</a><a href="#ordinace">Ordinace</a><a href="#omne">O mně</a><a href="#cenik">Ceník</a></nav>
+</header>
+
+<div class="banner">
+  <div class="in">
+    <h1>Chirurg, který odpovídá i v noci.<br>Tedy – jeho AI.</h1>
+    <p>Chirurg FN Bulovka. Laparoskopie, křečové žíly, hemoroidy, pilonidální sinus – i laserem.</p>
+    <a class="btn" href="https://m.me/1329907923537973?ref=poradna">Napsat do poradny</a>
+    <a class="btn sec" href="https://m.me/1329907923537973?ref=ordinace">Objednat se</a>
+  </div>
+</div>
+
+<div class="hero">
+  <div>
+    <p>Na zdravotní dotazy tu za mě odpovídá umělá inteligence, kterou jsem vytrénoval: textem i mým hlasem, do minuty. Ptá se tak, jak bych se ptal já, a když je potřeba, rovnou vás objedná do ordinace.</p>
+  </div>
+  <div class="card">
+    <h3>Ordinační hodiny</h3>
+    <ul class="hours">
+      <li><b>Pondělí 12:00–15:00</b>FN Bulovka, pavilon 5 – chirurgie<br><small>Budínova 2, Praha 8</small></li>
+      <li><b>Čtvrtek 16:00–18:00</b>Nemocnice Neratovice<br><small>Alšova 462, Neratovice</small></li>
+    </ul>
+  </div>
+</div>
+
+<section id="poradna">
+  <h2>S čím přicházíte?</h2>
+  <p class="lead">Klikněte – otevře se Messenger a odpoví AI, kterou trénoval MUDr. Ditl. Zvládne to i z mobilu.</p>
+  <div class="tiles">
+    <a class="tile" href="https://m.me/1329907923537973?ref=poradna"><b>🩺 Poradna</b><span>Mám zdravotní dotaz – žíly, hemoroidy, kýla, hojení ran…</span></a>
+    <a class="tile" href="https://m.me/1329907923537973?ref=ordinace"><b>📅 Ordinace</b><span>Chci se objednat: pondělí Bulovka, čtvrtek Neratovice</span></a>
+    <a class="tile" href="https://m.me/1329907923537973?ref=operace"><b>🔪 Operace</b><span>Co mě čeká – příprava, laser místo skalpelu, návrat do práce</span></a>
+    <a class="tile" href="https://m.me/1329907923537973?ref=metlicky"><b>✨ Metličky</b><span>Metličkové žilky – laser zvenku nebo pěnová sklerotizace</span></a>
+    <a class="tile" href="https://m.me/1329907923537973?ref=faq"><b>❓ Časté dotazy</b><span>Kdy k lékaři, bolí sono, co si vzít s sebou</span></a>
+    <span class="tile soon"><b>💊 Medikace <i>PŘIPRAVUJEME</i></b><span>Dáme vědět, až to spustíme.</span></span>
+  </div>
+  <div class="alert">Odpovědi AI jsou informační a nenahrazují vyšetření. Při akutních potížích volejte <b>155</b>.</div>
+</section>
+
+<section id="ordinace">
+  <h2>Co v ordinaci řeším</h2>
+  <p class="lead">Objednat přes AI se dá na těchto pět oblastí. S sebou kartu pojištěnce, starší zprávy a sono žil, pokud máte.</p>
+  <div class="grid2">
+    <div class="card"><h3>Laparoskopické operace</h3><p class="lead" style="margin:0">Kýly, žlučník a další nitrobřišní výkony – malé řezy, rychlejší návrat domů.</p></div>
+    <div class="card"><h3>Křečové žíly (varixy)</h3><p class="lead" style="margin:0">Klasicky i laserem zevnitř žíly – bez řezů v třísle, obvykle ambulantně.</p></div>
+    <div class="card"><h3>Hemoroidy</h3><p class="lead" style="margin:0">Od konzervativní léčby přes Longovu metodu (staplerová hemoroidopexe) po laserový zákrok, který méně bolí a rychleji se hojí.</p></div>
+    <div class="card"><h3>Pilonidální sinus</h3><p class="lead" style="margin:0">Laserové ošetření místo velké rány – menší jizva, dřív zpět do práce.</p></div>
+    <div class="card"><h3>Metličkové žilky</h3><p class="lead" style="margin:0">Transdermální laser na nejjemnější žilky, pěnová sklerotizace na širší. 1–3 sezení, kosmetický zákrok.</p></div>
+    <div class="card"><h3>Kdy nečekat</h3><p class="lead" style="margin:0">Náhle oteklá nebo bolestivá noha, silné krvácení, horečka s otokem – volejte 155 nebo jeďte na pohotovost.</p></div>
+  </div>
+</section>
+
+<section id="omne">
+  <h2>O mně</h2>
+  <p class="lead">MUDr. Pavel Ditl, chirurg ve Fakultní nemocnici Bulovka. Vedle klasické a laparoskopické chirurgie se věnuji miniinvazivní léčbě křečových žil, hemoroidů a pilonidálního sinu laserem. Operuji také na soukromé jednodenní chirurgii ORTOMED v Neratovicích. Tuhle stránku i poradnu na Facebooku řídí AI, kterou jsem sám vytrénoval – ptá se tak, jak bych se ptal já, a na konci rozhovoru řekne, jestli to vypadá na operaci, konzervativní léčbu nebo léky. Rozhodnutí je vždy na lékaři při vyšetření.</p>
+  <ul class="list">
+    <li>Odpovědi do minuty, textem i hlasem.</li>
+    <li>Objednání potvrdí ordinace do 2 pracovních dnů.</li>
+    <li>Nikdy po vás nechceme rodné číslo – to se řeší až v ordinaci.</li>
+  </ul>
+</section>
+
+<section id="cenik">
+  <h2>Ceník a on-line konzultace</h2>
+  <p class="lead">Péče v ordinaci (Bulovka, Neratovice) je hrazená z veřejného pojištění. Připravujeme placené služby navíc – ceník doplníme, až bude hotový.</p>
+  <div class="card">
+    <div class="price"><span>AI poradna v Messengeru</span><span>zdarma</span></div>
+    <div class="price"><span>Objednání do ordinace</span><span>zdarma</span></div>
+    <div class="price"><span>On-line konzultace s lékařem (do 15 min)</span><span>připravujeme</span></div>
+    <div class="price"><span>Ošetření metličkových žilek – laser / sklerotizace</span><span>cena při vyšetření</span></div>
+    <div class="price"><span>Medikace na dálku (eRecept)</span><span>připravujeme</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>Sledujte mě</h2>
+  <p class="social">
+    <a href="https://www.facebook.com/profile.php?id=61594350389956"><svg viewBox="0 0 24 24"><path d="M13.5 22v-8h2.7l.4-3.2h-3.1V8.8c0-.9.3-1.6 1.6-1.6h1.7V4.4c-.3 0-1.3-.1-2.5-.1-2.5 0-4.1 1.5-4.1 4.2v2.3H7.4V14h2.8v8h3.3z"/></svg>Facebook – Pavel Ditl MD.</a>
+    <a href="https://www.instagram.com/"><svg viewBox="0 0 24 24"><path d="M12 7.3a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4zm0 7.7a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm6-8a1.1 1.1 0 1 1-2.2 0 1.1 1.1 0 0 1 2.2 0zM21 8.6c-.1-1.5-.4-2.8-1.5-3.9S17 3.3 15.5 3.2c-1.5-.1-5.5-.1-7 0-1.5.1-2.8.4-3.9 1.5S3.3 7.1 3.2 8.6c-.1 1.5-.1 5.5 0 7 .1 1.5.4 2.8 1.5 3.9s2.4 1.4 3.9 1.5c1.5.1 5.5.1 7 0 1.5-.1 2.8-.4 3.9-1.5s1.4-2.4 1.5-3.9c.1-1.5.1-5.5 0-7zm-2 8.5c-.3.8-.9 1.4-1.7 1.7-1.2.5-4 .4-5.3.4s-4.1.1-5.3-.4c-.8-.3-1.4-.9-1.7-1.7-.5-1.2-.4-4-.4-5.3s-.1-4.1.4-5.3c.3-.8.9-1.4 1.7-1.7 1.2-.5 4-.4 5.3-.4s4.1-.1 5.3.4c.8.3 1.4.9 1.7 1.7.5 1.2.4 4 .4 5.3s.1 4.1-.4 5.3z"/></svg>Instagram</a>
+    <a href="https://m.me/1329907923537973"><svg viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6.1 2 11.3c0 2.9 1.4 5.5 3.7 7.2V22l3.4-1.9c.9.3 1.9.4 2.9.4 5.5 0 10-4.1 10-9.3S17.5 2 12 2zm1 12.5l-2.6-2.7-5 2.7 5.5-5.8 2.6 2.7 4.9-2.7-5.4 5.8z"/></svg>Messenger</a>
+  </p>
+</section>
+
+<footer>
+  MUDr. Pavel Ditl · Odpovědi AI jsou informační a nenahrazují vyšetření lékařem. · <a href="https://fb-most.onrender.com/soukromi">Ochrana soukromí</a>
+</footer>
+</div>
+</body>
+</html>
