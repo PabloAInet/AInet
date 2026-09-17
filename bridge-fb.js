@@ -101,6 +101,20 @@ async function fbSendAudio(psid, mp3) {
   const r = await fetch(`https://graph.facebook.com/v21.0/me/messages?access_token=${encodeURIComponent(PAGE_ACCESS_TOKEN)}`, { method: "POST", body: fd });
   if (!r.ok) throw new Error(`FB audio ${r.status}: ${(await r.text()).slice(0, 200)}`);
 }
+/* stav kreditu ElevenLabs – do logu při startu a každých 6 h, varování pod 15 % */
+async function elevenStav() {
+  if (!VOICE_ON) return null;
+  const r = await fetch("https://api.elevenlabs.io/v1/user/subscription", { headers: { "xi-api-key": ELEVENLABS_API_KEY } });
+  if (!r.ok) throw new Error(`subscription ${r.status}`);
+  const j = await r.json();
+  const used = j.character_count || 0, limit = j.character_limit || 0, zbyva = limit - used;
+  const reset = j.next_character_count_reset_unix ? new Date(j.next_character_count_reset_unix * 1000).toISOString().slice(0, 10) : "?";
+  const msg = `ElevenLabs kredit: zbývá ${zbyva} z ${limit} znaků (${Math.round(100 * zbyva / Math.max(limit, 1))} %), tarif ${j.tier}, obnova ${reset}`;
+  log(zbyva < 0.15 * limit ? `⚠️ ${msg}` : msg);
+  return { used, limit, zbyva, tier: j.tier, reset };
+}
+if (VOICE_ON) { setTimeout(() => elevenStav().catch(e => log(`kredit: ${e.message}`)), 5000); setInterval(() => elevenStav().catch(e => log(`kredit: ${e.message}`)), 6 * 3600 * 1000); }
+
 /* text jde vždy; hlasovka je bonus – když selže, nic se neděje */
 async function sendVoiceIfShort(psid, text) {
   if (!VOICE_ON) return;
@@ -315,6 +329,12 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   try {
     if (url.pathname === "/healthz") { res.writeHead(200); return res.end("ok"); }
+    if (url.pathname === "/stav" && req.method === "GET") {
+      if (url.searchParams.get("key") !== VERIFY_TOKEN) { res.writeHead(403); return res.end("forbidden"); }
+      const el = await elevenStav().catch(e => ({ error: e.message }));
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      return res.end(JSON.stringify({ rezim: PORADNA && INSTRUKCE ? "poradna" : "fable", hlasovky: VOICE_ON, model: MODEL, konverzaci_v_pameti: chats.size, elevenlabs: el }));
+    }
     if (url.pathname === "/setup-messenger" && req.method === "GET") {
       if (url.searchParams.get("key") !== VERIFY_TOKEN) { res.writeHead(403); return res.end("forbidden"); }
       const out = await setupMessengerProfile();
