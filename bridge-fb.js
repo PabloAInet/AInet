@@ -190,29 +190,44 @@ async function startTopic(psid, key) {
 }
 
 /* Nastavení Messenger profilu (ice breakers + menu): GET /setup-messenger?key=VERIFY_TOKEN */
+async function fbSendQuickReplies(psid, text, items) {
+  const r = await fetch(`https://graph.facebook.com/v21.0/me/messages?access_token=${encodeURIComponent(PAGE_ACCESS_TOKEN)}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recipient: { id: psid }, messaging_type: "RESPONSE", message: { text, quick_replies: items.map(([title, payload]) => ({ content_type: "text", title: title.slice(0, 20), payload })) } }),
+  });
+  if (!r.ok) throw new Error(`FB quick replies ${r.status}: ${(await r.text()).slice(0, 200)}`);
+}
+/* nabídka témat jako rychlé odpovědi (po kliknutí na „Další témata“ v menu) */
+async function sendTopicMenu(psid) {
+  await fbSendQuickReplies(psid, "S čím vám můžu pomoct?", [
+    ["🩺 Poradna", "TOPIC_PORADNA"], ["📅 Ordinace", "TOPIC_ORDINACE"], ["🔪 Operace", "TOPIC_OPERACE"], ["❓ Časté dotazy", "TOPIC_FAQ"], ["💊 Medikace 🚧", "TOPIC_MEDIKACE"],
+  ]);
+  log(`menu témat → FB ${psid}`);
+}
+
 async function setupMessengerProfile() {
-  const body = {
-    get_started: { payload: "TOPIC_PORADNA" },
-    greeting: [{ locale: "default", text: "Dobrý den! Jsem AI asistent, kterého trénoval MUDr. Pavel Ditl. Vyberte, s čím přicházíte, nebo rovnou napište." }],
-    ice_breakers: [{ locale: "default", call_to_actions: [
+  const parts = {
+    get_started: { get_started: { payload: "TOPIC_MENU" } },
+    greeting: { greeting: [{ locale: "default", text: "Dobrý den! Jsem AI asistent, kterého trénoval MUDr. Pavel Ditl. Vyberte, s čím přicházíte, nebo rovnou napište." }] },
+    ice_breakers: { ice_breakers: [{ locale: "default", call_to_actions: [
       { question: TEMATA.poradna.title,  payload: "TOPIC_PORADNA" },
       { question: TEMATA.ordinace.title, payload: "TOPIC_ORDINACE" },
       { question: TEMATA.operace.title,  payload: "TOPIC_OPERACE" },
       { question: TEMATA.faq.title,      payload: "TOPIC_FAQ" },
-    ] }],
-    persistent_menu: [{ locale: "default", composer_input_disabled: false, call_to_actions: [
-      { type: "postback", title: "🩺 Poradna",  payload: "TOPIC_PORADNA" },
-      { type: "postback", title: "📅 Ordinace", payload: "TOPIC_ORDINACE" },
-      { type: "nested", title: "Více…", call_to_actions: [
-        { type: "postback", title: "🔪 Operace",      payload: "TOPIC_OPERACE" },
-        { type: "postback", title: "❓ Časté dotazy", payload: "TOPIC_FAQ" },
-        { type: "postback", title: "💊 Medikace (připravujeme)", payload: "TOPIC_MEDIKACE" },
-      ] },
-    ] }],
+    ] }] },
+    persistent_menu: { persistent_menu: [{ locale: "default", composer_input_disabled: false, call_to_actions: [
+      { type: "postback", title: "🩺 Poradna",     payload: "TOPIC_PORADNA" },
+      { type: "postback", title: "📅 Ordinace",    payload: "TOPIC_ORDINACE" },
+      { type: "postback", title: "☰ Další témata", payload: "TOPIC_MENU" },
+    ] }] },
   };
-  const r = await fetch(`https://graph.facebook.com/v21.0/me/messenger_profile?access_token=${encodeURIComponent(PAGE_ACCESS_TOKEN)}`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  return { status: r.status, body: await r.text() };
+  const out = {};
+  for (const [k, body] of Object.entries(parts)) {
+    const r = await fetch(`https://graph.facebook.com/v21.0/me/messenger_profile?access_token=${encodeURIComponent(PAGE_ACCESS_TOKEN)}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    out[k] = `${r.status} ${(await r.text()).slice(0, 100)}`;
+  }
+  return { status: 200, body: JSON.stringify(out) };
 }
 
 /* ---------- Doručování odpovědí z AInetu ---------- */
@@ -245,7 +260,7 @@ async function pump() {
 setInterval(pump, 5000);
 pump();
 if (process.env.SETUP_MESSENGER_ON_BOOT !== "0" && PAGE_ACCESS_TOKEN) {
-  setTimeout(async () => { try { const r = await setupMessengerProfile(); log(`messenger profil: ${r.status} ${r.body.slice(0, 120)}`); } catch (e) { log(`messenger profil: ${e.message}`); } }, 3000);
+  setTimeout(async () => { try { const r = await setupMessengerProfile(); log(`messenger profil: ${r.body.slice(0, 300)}`); } catch (e) { log(`messenger profil: ${e.message}`); } }, 3000);
 }
 
 const SOUKROMI_HTML = `<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ochrana soukromí – Pavel Ditl MD</title>
@@ -326,7 +341,8 @@ http.createServer(async (req, res) => {
           const psid = ev.sender?.id;
           if (!psid) continue;
           /* kliknutí na okno (ice breaker / menu / Get started) nebo m.me?ref=tema */
-          const payload = ev.postback?.payload || "";
+          const payload = ev.postback?.payload || ev.message?.quick_reply?.payload || "";
+          if (payload === "TOPIC_MENU") { try { await sendTopicMenu(psid); } catch (e) { log(`menu: ${e.message}`); } continue; }
           const ref = (ev.referral?.ref || ev.postback?.referral?.ref || "").toLowerCase();
           const hit = TOPIC_RE.exec(payload);
           const key = hit ? hit[1].toLowerCase() : (ref && TEMATA[ref] ? ref : null);
