@@ -87,7 +87,7 @@ async function ttsMp3(text) {
   const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(ELEVENLABS_VOICE_ID)}?output_format=mp3_44100_64`, {
     method: "POST",
     headers: { "xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.5, similarity_boost: 0.8, style: 0 } }),
+    body: JSON.stringify({ text, model_id: "eleven_multilingual_v2", voice_settings: { stability: Number(process.env.VOICE_STABILITY || 0.45), similarity_boost: Number(process.env.VOICE_SIMILARITY || 0.85), style: Number(process.env.VOICE_STYLE || 0.35), use_speaker_boost: true } }),
   });
   if (!r.ok) throw new Error(`TTS ${r.status}: ${(await r.text()).slice(0, 200)}`);
   return Buffer.from(await r.arrayBuffer());
@@ -127,7 +127,10 @@ async function askModel(psid, text) {
   const now = Date.now();
   let c = chats.get(psid);
   if (!c || now - c.t > CHAT_TTL) c = { turns: [], t: now };
-  c.turns.push({ role: "user", content: text });
+  c.n = (c.n || 0) + 1;                       // kolo rozhovoru (odpovědi AI od začátku tématu)
+  const KOLA = Number(process.env.MAX_KOLA || 4);
+  const hint = c.n < KOLA ? `[kolo ${c.n}/${KOLA}]` : c.n === KOLA ? `[kolo ${KOLA}/${KOLA} – uzavři: závěr + objednání nebo rada]` : `[po uzávěru – odpověz stručně, nabídni objednání nebo nové téma]`;
+  c.turns.push({ role: "user", content: `${text}\n\n${hint}` });
   if (c.turns.length > CHAT_MAX) c.turns = c.turns.slice(-CHAT_MAX);
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -143,7 +146,13 @@ async function askModel(psid, text) {
 }
 
 /* Odpověď pacientovi + objednávka Pavlovi (přes Fabla na AInetu) */
+const HARD_CAP = Number(process.env.MAX_ZPRAV || 10);
 async function poradna(psid, text) {
+  const c0 = chats.get(psid);
+  if (c0 && (c0.n || 0) >= HARD_CAP && Date.now() - c0.t < CHAT_TTL) {
+    const msg = "Tady bych to pro dnešek uzavřel – víc už zvládne jen vyšetření. Napište „objednat“ a domluvíme termín, nebo se ozvěte zítra s novým dotazem. Při akutních potížích volejte 155.";
+    await fbSend(psid, msg); log(`limit zpráv → FB ${psid}`); return;
+  }
   await fbTyping(psid);
   const full = await askModel(psid, text);
   const hit = OBJ.exec(full);
@@ -172,7 +181,7 @@ const TOPIC_RE = /^TOPIC_([A-Z]+)$/;
 async function startTopic(psid, key) {
   const t = TEMATA[key]; if (!t) return false;
   const now = Date.now();
-  const c = { turns: [{ role: "user", content: `Pacient zvolil téma: ${t.title.replace(/^\S+\s/, "")}.` }, { role: "assistant", content: t.opener }], t: now };
+  const c = { turns: [{ role: "user", content: `Pacient zvolil téma: ${t.title.replace(/^\S+\s/, "")}.` }, { role: "assistant", content: t.opener }], t: now, n: 1 };
   chats.set(psid, c);
   await fbSend(psid, t.opener);
   await sendVoiceIfShort(psid, t.opener);
@@ -235,6 +244,9 @@ async function pump() {
 }
 setInterval(pump, 5000);
 pump();
+if (process.env.SETUP_MESSENGER_ON_BOOT !== "0" && PAGE_ACCESS_TOKEN) {
+  setTimeout(async () => { try { const r = await setupMessengerProfile(); log(`messenger profil: ${r.status} ${r.body.slice(0, 120)}`); } catch (e) { log(`messenger profil: ${e.message}`); } }, 3000);
+}
 
 const SOUKROMI_HTML = `<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ochrana soukromí – Pavel Ditl MD</title>
 <style>body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.55;color:#111}h1{font-size:26px}h2{font-size:18px;margin-top:28px}</style></head><body>
