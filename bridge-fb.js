@@ -78,7 +78,12 @@ async function fbSend(psid, text) {
 }
 
 /* ---------- Hlasovka: ElevenLabs TTS → Messenger audio ---------- */
+/* výslovnost pro hlasovku: co model píše ↔ co má zaznít */
+const VYSLOVNOST = [[/\bDitl/g, "Dytl"], [/\bDitla\b/g, "Dytla"], [/\bDitlem\b/g, "Dytlem"], [/\bDitlovi\b/g, "Dytlovi"], [/MUDr\.\s*/g, "doktor "], [/\bFN Bulovka\b/g, "Fakultní nemocnice Bulovka"], [/\b155\b/g, "sto padesát pět"]];
+const proHlas = (t) => VYSLOVNOST.reduce((x, [re, to]) => x.replace(re, to), t);
+
 async function ttsMp3(text) {
+  text = proHlas(text);
   const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(ELEVENLABS_VOICE_ID)}?output_format=mp3_44100_64`, {
     method: "POST",
     headers: { "xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json" },
