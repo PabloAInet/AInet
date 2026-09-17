@@ -188,7 +188,8 @@ const TEMATA = {
   ordinace: { title: "📅 Ordinace – chci se objednat", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Objednám vás na křečové žíly, hemoroidy, pilonidální sinus nebo laparoskopickou operaci. S čím přicházíte?" },
   operace:  { title: "🔪 Operace – co mě čeká", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Rád vysvětlím, jak operace probíhá, jak se připravit a jak dlouho trvá návrat do práce – včetně laserové metody. Které operace se to týká?" },
   faq:      { title: "❓ Časté dotazy", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Nejčastěji se lidé ptají: Kdy k lékaři s hemoroidy? Bolí sono žil? Jak dlouho se hojí laser? Co si vzít do ordinace? Napište svou otázku, nebo některou z těchto." },
-  medikace: { title: "💊 Medikace (připravujeme)", opener: "🚧 Medikaci na dálku zatím připravujeme – brzy půjde požádat MUDr. Ditla o eRecept s QR kódem. Zatím mi můžete napsat, jaký lék a proč potřebujete; předám to k posouzení. Jsem AI, nic sám nepředepisuji." },
+  metlicky: { title: "✨ Metličky – laser / sklerotizace", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Metličkové žilky ošetřujeme laserem zvenku nebo pěnovou sklerotizací, bez řezu. Kde je máte a jak dlouho – a vadí jen vzhled, nebo i pálí?" },
+  medikace: { title: "💊 Medikace (připravujeme)", opener: "🚧 Medikaci připravujeme. Zatím není k dispozici – ozveme se na této stránce, až ji spustíme. S ostatním vám rád pomůžu: napište, co vás trápí." },
 };
 const TOPIC_RE = /^TOPIC_([A-Z]+)$/;
 
@@ -214,7 +215,7 @@ async function fbSendQuickReplies(psid, text, items) {
 /* nabídka témat jako rychlé odpovědi (po kliknutí na „Další témata“ v menu) */
 async function sendTopicMenu(psid) {
   await fbSendQuickReplies(psid, "S čím vám můžu pomoct?", [
-    ["🩺 Poradna", "TOPIC_PORADNA"], ["📅 Ordinace", "TOPIC_ORDINACE"], ["🔪 Operace", "TOPIC_OPERACE"], ["❓ Časté dotazy", "TOPIC_FAQ"], ["💊 Medikace 🚧", "TOPIC_MEDIKACE"],
+    ["🩺 Poradna", "TOPIC_PORADNA"], ["📅 Ordinace", "TOPIC_ORDINACE"], ["🔪 Operace", "TOPIC_OPERACE"], ["✨ Metličky", "TOPIC_METLICKY"], ["❓ Časté dotazy", "TOPIC_FAQ"], ["💊 Medikace 🚧", "TOPIC_MEDIKACE"],
   ]);
   log(`menu témat → FB ${psid}`);
 }
@@ -311,8 +312,9 @@ small{display:block;color:#aabed2;margin-top:24px}@media(max-width:520px){.g{gri
 <a class="t" href="${MME}?ref=poradna"><b>🩺 Poradna</b><span>Mám zdravotní dotaz – žíly, hemoroidy, kýla, hojení…</span></a>
 <a class="t" href="${MME}?ref=ordinace"><b>📅 Ordinace</b><span>Chci se objednat: pondělí Bulovka, čtvrtek Neratovice</span></a>
 <a class="t" href="${MME}?ref=operace"><b>🔪 Operace</b><span>Co mě čeká, příprava, laser, návrat do práce</span></a>
+<a class="t" href="${MME}?ref=metlicky"><b>✨ Metličky</b><span>Metličkové žilky – laser zvenku nebo pěnová sklerotizace</span></a>
 <a class="t" href="${MME}?ref=faq"><b>❓ Časté dotazy</b><span>Kdy k lékaři, bolí sono, co si vzít s sebou</span></a>
-<a class="t uc" href="${MME}?ref=medikace"><b>💊 Medikace</b><span>🚧 Připravujeme – eRecept s QR kódem</span></a>
+<a class="t uc" href="${MME}?ref=medikace"><b>💊 Medikace</b><span>🚧 Připravujeme</span></a>
 </div>
 <small>Jsem AI – odpovědi jsou informační a nenahrazují vyšetření. Při akutních potížích volejte 155. · <a href="/soukromi" style="color:#58c4b4">Ochrana soukromí</a></small>
 </main></body></html>`;
