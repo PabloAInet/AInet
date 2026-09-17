@@ -20,7 +20,7 @@
  *   PORT               – Render ho dodá sám
  *   ELEVENLABS_API_KEY – (volitelné) klíč ElevenLabs; s ELEVENLABS_VOICE_ID posílá odpovědi i jako hlasovku
  *   ELEVENLABS_VOICE_ID– (volitelné) ID klonu hlasu "Pavel – ambulance"
- *   VOICE_MAX_CHARS    – výchozí 600; delší odpovědi jdou jen textem
+ *   VOICE_MAX_CHARS    – výchozí 1200 (~75 s řeči); delší odpovědi jdou jen textem
  *   ANTHROPIC_API_KEY  – (volitelné) režim PORADNA: most odpovídá pacientům sám podle fb-instrukce.js
  *                        (rychlejší, s pamětí konverzace); objednávky posílá Fablovi na AInet.
  *                        Bez klíče běží původní režim: vše přeposílá Fablovi.
@@ -39,7 +39,7 @@ const AINET = (process.env.AINET_BASE || "https://ainet-1e2y.onrender.com").repl
 const FABLE = process.env.FABLE_NAME || "Fable";
 const { PAGE_ACCESS_TOKEN, VERIFY_TOKEN, AINET_TOKEN, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID } = process.env;
 const VOICE_ON = !!(ELEVENLABS_API_KEY && ELEVENLABS_VOICE_ID);
-const VOICE_MAX = Number(process.env.VOICE_MAX_CHARS || 600);
+const VOICE_MAX = Number(process.env.VOICE_MAX_CHARS || 1200);
 const { ANTHROPIC_API_KEY } = process.env;
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
 const PORADNA = !!ANTHROPIC_API_KEY;
@@ -103,7 +103,8 @@ async function fbSendAudio(psid, mp3) {
 }
 /* text jde vždy; hlasovka je bonus – když selže, nic se neděje */
 async function sendVoiceIfShort(psid, text) {
-  if (!VOICE_ON || text.length > VOICE_MAX) return;
+  if (!VOICE_ON) return;
+  if (text.length > VOICE_MAX) { log(`hlasovka přeskočena: ${text.length} zn. > ${VOICE_MAX}`); return; }
   try { await fbSendAudio(psid, await ttsMp3(text)); log(`hlasovka → FB ${psid} (${text.length} zn.)`); }
   catch (e) { log(`hlasovka: ${e.message}`); }
 }
@@ -155,6 +156,54 @@ async function poradna(psid, text) {
     log(`objednávka: ${hit[1].trim().split("\n").slice(0, 2).join(" | ")}`);
     try { await ainetSend(`[OBJEDNANI] ${souhrn}`); } catch (e) { log(`objednávka → AInet: ${e.message}`); }
   }
+}
+
+
+/* ---------- Okna (témata): ice breakers + menu v Messengeru + m.me?ref= ---------- */
+const TEMATA = {
+  poradna:  { title: "🩺 Poradna – mám zdravotní dotaz", opener: "Dobrý den, jsem AI asistent, kterého trénoval MUDr. Pavel Ditl. Napište mi, co vás trápí – zeptám se na pár věcí a poradím, co dál. Při akutních potížích volejte 155." },
+  ordinace: { title: "📅 Ordinace – chci se objednat", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Objednám vás na křečové žíly, hemoroidy, pilonidální sinus nebo laparoskopickou operaci. S čím přicházíte?" },
+  operace:  { title: "🔪 Operace – co mě čeká", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Rád vysvětlím, jak operace probíhá, jak se připravit a jak dlouho trvá návrat do práce – včetně laserové metody. Které operace se to týká?" },
+  faq:      { title: "❓ Časté dotazy", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Nejčastěji se lidé ptají: Kdy k lékaři s hemoroidy? Bolí sono žil? Jak dlouho se hojí laser? Co si vzít do ordinace? Napište svou otázku, nebo některou z těchto." },
+  medikace: { title: "💊 Medikace (připravujeme)", opener: "🚧 Medikaci na dálku zatím připravujeme – brzy půjde požádat MUDr. Ditla o eRecept s QR kódem. Zatím mi můžete napsat, jaký lék a proč potřebujete; předám to k posouzení. Jsem AI, nic sám nepředepisuji." },
+};
+const TOPIC_RE = /^TOPIC_([A-Z]+)$/;
+
+async function startTopic(psid, key) {
+  const t = TEMATA[key]; if (!t) return false;
+  const now = Date.now();
+  const c = { turns: [{ role: "user", content: `Pacient zvolil téma: ${t.title.replace(/^\S+\s/, "")}.` }, { role: "assistant", content: t.opener }], t: now };
+  chats.set(psid, c);
+  await fbSend(psid, t.opener);
+  await sendVoiceIfShort(psid, t.opener);
+  log(`téma ${key} → FB ${psid}`);
+  return true;
+}
+
+/* Nastavení Messenger profilu (ice breakers + menu): GET /setup-messenger?key=VERIFY_TOKEN */
+async function setupMessengerProfile() {
+  const body = {
+    get_started: { payload: "TOPIC_PORADNA" },
+    greeting: [{ locale: "default", text: "Dobrý den! Jsem AI asistent, kterého trénoval MUDr. Pavel Ditl. Vyberte, s čím přicházíte, nebo rovnou napište." }],
+    ice_breakers: [{ locale: "default", call_to_actions: [
+      { question: TEMATA.poradna.title,  payload: "TOPIC_PORADNA" },
+      { question: TEMATA.ordinace.title, payload: "TOPIC_ORDINACE" },
+      { question: TEMATA.operace.title,  payload: "TOPIC_OPERACE" },
+      { question: TEMATA.faq.title,      payload: "TOPIC_FAQ" },
+    ] }],
+    persistent_menu: [{ locale: "default", composer_input_disabled: false, call_to_actions: [
+      { type: "postback", title: "🩺 Poradna",  payload: "TOPIC_PORADNA" },
+      { type: "postback", title: "📅 Ordinace", payload: "TOPIC_ORDINACE" },
+      { type: "nested", title: "Více…", call_to_actions: [
+        { type: "postback", title: "🔪 Operace",      payload: "TOPIC_OPERACE" },
+        { type: "postback", title: "❓ Časté dotazy", payload: "TOPIC_FAQ" },
+        { type: "postback", title: "💊 Medikace (připravujeme)", payload: "TOPIC_MEDIKACE" },
+      ] },
+    ] }],
+  };
+  const r = await fetch(`https://graph.facebook.com/v21.0/me/messenger_profile?access_token=${encodeURIComponent(PAGE_ACCESS_TOKEN)}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return { status: r.status, body: await r.text() };
 }
 
 /* ---------- Doručování odpovědí z AInetu ---------- */
@@ -211,6 +260,22 @@ const SOUKROMI_HTML = `<!doctype html><html lang="cs"><head><meta charset="utf-8
 <p>Pokyn ke smazání všech údajů spojených s vaší konverzací: pošlete stránce zprávu <strong>SMAZAT</strong>, nebo použijte odkaz <a href="/soukromi/smazani">/soukromi/smazani</a>.</p>
 </body></html>`;
 
+const MME = "https://m.me/1329907923537973";
+const ROZCESTNIK_HTML = `<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pavel Ditl MD – AI poradna</title>
+<style>body{margin:0;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:#0e2a47;color:#f5f7fa}main{max-width:720px;margin:0 auto;padding:32px 20px}h1{font-size:26px;margin:0 0 6px}p.l{color:#aabed2;margin:0 0 24px}
+.g{display:grid;grid-template-columns:1fr 1fr;gap:14px}a.t{display:block;background:#163a60;border-left:8px solid #58c4b4;border-radius:14px;padding:18px;color:#f5f7fa;text-decoration:none}a.t b{display:block;font-size:20px;margin-bottom:6px}a.t span{color:#aabed2;font-size:14px}a.t.uc{opacity:.6;border-left-color:#aabed2}
+small{display:block;color:#aabed2;margin-top:24px}@media(max-width:520px){.g{grid-template-columns:1fr}}</style></head><body><main>
+<h1>Pavel Ditl MD · AI poradna</h1><p class="l">Vyberte, s čím přicházíte. Otevře se Messenger a odpoví AI, kterou trénoval MUDr. Ditl.</p>
+<div class="g">
+<a class="t" href="${MME}?ref=poradna"><b>🩺 Poradna</b><span>Mám zdravotní dotaz – žíly, hemoroidy, kýla, hojení…</span></a>
+<a class="t" href="${MME}?ref=ordinace"><b>📅 Ordinace</b><span>Chci se objednat: pondělí Bulovka, čtvrtek Neratovice</span></a>
+<a class="t" href="${MME}?ref=operace"><b>🔪 Operace</b><span>Co mě čeká, příprava, laser, návrat do práce</span></a>
+<a class="t" href="${MME}?ref=faq"><b>❓ Časté dotazy</b><span>Kdy k lékaři, bolí sono, co si vzít s sebou</span></a>
+<a class="t uc" href="${MME}?ref=medikace"><b>💊 Medikace</b><span>🚧 Připravujeme – eRecept s QR kódem</span></a>
+</div>
+<small>Jsem AI – odpovědi jsou informační a nenahrazují vyšetření. Při akutních potížích volejte 155. · <a href="/soukromi" style="color:#58c4b4">Ochrana soukromí</a></small>
+</main></body></html>`;
+
 /* ---------- HTTP: webhook od Mety ---------- */
 function readBody(req) {
   return new Promise((res, rej) => {
@@ -223,6 +288,12 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   try {
     if (url.pathname === "/healthz") { res.writeHead(200); return res.end("ok"); }
+    if (url.pathname === "/setup-messenger" && req.method === "GET") {
+      if (url.searchParams.get("key") !== VERIFY_TOKEN) { res.writeHead(403); return res.end("forbidden"); }
+      const out = await setupMessengerProfile();
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" }); return res.end(JSON.stringify(out));
+    }
+    if (url.pathname === "/" || url.pathname === "/rozcestnik") { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); return res.end(ROZCESTNIK_HTML); }
     if (url.pathname === "/soukromi" || url.pathname === "/privacy") { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); return res.end(SOUKROMI_HTML); }
     if (url.pathname === "/soukromi/smazani") { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); return res.end("<!doctype html><meta charset=utf-8><p>Pro smazání svých údajů pošlete stránce Pavel Ditl MD do Messengeru zprávu <b>SMAZAT</b>. Údaje odstraníme do 30 dnů.</p>"); }
 
@@ -241,8 +312,18 @@ http.createServer(async (req, res) => {
       for (const entry of body.entry || []) {
         for (const ev of entry.messaging || []) {
           const psid = ev.sender?.id;
+          if (!psid) continue;
+          /* kliknutí na okno (ice breaker / menu / Get started) nebo m.me?ref=tema */
+          const payload = ev.postback?.payload || "";
+          const ref = (ev.referral?.ref || ev.postback?.referral?.ref || "").toLowerCase();
+          const hit = TOPIC_RE.exec(payload);
+          const key = hit ? hit[1].toLowerCase() : (ref && TEMATA[ref] ? ref : null);
+          if (key) {
+            try { await startTopic(psid, key); } catch (e) { log(`téma: ${e.message}`); }
+            continue;
+          }
           const text = ev.message?.text;
-          if (!psid || !text || ev.message?.is_echo) continue;
+          if (!text || ev.message?.is_echo) continue;
           if (/^\s*smazat\s*$/i.test(text)) {
             chats.delete(psid);
             await fbSend(psid, "Vaše konverzace byla z paměti poradny smazána. Historii v Messengeru můžete odstranit sami v aplikaci.");
