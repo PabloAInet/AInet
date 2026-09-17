@@ -18,6 +18,9 @@
  *   AINET_BASE         – výchozí https://ainet-1e2y.onrender.com
  *   FABLE_NAME         – výchozí "Fable"
  *   PORT               – Render ho dodá sám
+ *   ELEVENLABS_API_KEY – (volitelné) klíč ElevenLabs; s ELEVENLABS_VOICE_ID posílá odpovědi i jako hlasovku
+ *   ELEVENLABS_VOICE_ID– (volitelné) ID klonu hlasu "Pavel – ambulance"
+ *   VOICE_MAX_CHARS    – výchozí 600; delší odpovědi jdou jen textem
  *
  * Registrace mostu na AInetu (jednorázově, stačí prohlížeč):
  *   1) GET  AINET_BASE/api/lite/register?name=FB-Most&owner=Pavel%20Ditl&skills=messaging
@@ -30,7 +33,9 @@ const http = require("http");
 const PORT = process.env.PORT || 4790;
 const AINET = (process.env.AINET_BASE || "https://ainet-1e2y.onrender.com").replace(/\/$/, "");
 const FABLE = process.env.FABLE_NAME || "Fable";
-const { PAGE_ACCESS_TOKEN, VERIFY_TOKEN, AINET_TOKEN } = process.env;
+const { PAGE_ACCESS_TOKEN, VERIFY_TOKEN, AINET_TOKEN, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID } = process.env;
+const VOICE_ON = !!(ELEVENLABS_API_KEY && ELEVENLABS_VOICE_ID);
+const VOICE_MAX = Number(process.env.VOICE_MAX_CHARS || 600);
 
 for (const k of ["PAGE_ACCESS_TOKEN", "VERIFY_TOKEN", "AINET_TOKEN"]) {
   if (!process.env[k]) console.warn(`[most] chybí env ${k}`);
@@ -63,6 +68,32 @@ async function fbSend(psid, text) {
   if (!r.ok) throw new Error(`FB send ${r.status}: ${await r.text()}`);
 }
 
+/* ---------- Hlasovka: ElevenLabs TTS → Messenger audio ---------- */
+async function ttsMp3(text) {
+  const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(ELEVENLABS_VOICE_ID)}?output_format=mp3_44100_64`, {
+    method: "POST",
+    headers: { "xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ text, model_id: "eleven_multilingual_v2", voice_settings: { stability: 0.5, similarity_boost: 0.8, style: 0 } }),
+  });
+  if (!r.ok) throw new Error(`TTS ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  return Buffer.from(await r.arrayBuffer());
+}
+async function fbSendAudio(psid, mp3) {
+  const fd = new FormData();
+  fd.append("recipient", JSON.stringify({ id: psid }));
+  fd.append("messaging_type", "RESPONSE");
+  fd.append("message", JSON.stringify({ attachment: { type: "audio", payload: { is_reusable: false } } }));
+  fd.append("filedata", new Blob([mp3], { type: "audio/mpeg" }), "odpoved.mp3");
+  const r = await fetch(`https://graph.facebook.com/v21.0/me/messages?access_token=${encodeURIComponent(PAGE_ACCESS_TOKEN)}`, { method: "POST", body: fd });
+  if (!r.ok) throw new Error(`FB audio ${r.status}: ${(await r.text()).slice(0, 200)}`);
+}
+/* text jde vždy; hlasovka je bonus – když selže, nic se neděje */
+async function sendVoiceIfShort(psid, text) {
+  if (!VOICE_ON || text.length > VOICE_MAX) return;
+  try { await fbSendAudio(psid, await ttsMp3(text)); log(`hlasovka → FB ${psid} (${text.length} zn.)`); }
+  catch (e) { log(`hlasovka: ${e.message}`); }
+}
+
 /* ---------- Doručování odpovědí z AInetu ---------- */
 const seen = new Set();               // id zpráv, které už šly do Messengeru
 let primed = false;                   // první průchod jen načte historii, nic neposílá
@@ -84,6 +115,7 @@ async function pump() {
       if (!reply) continue;
       await fbSend(psid, reply);
       log(`Fable → FB ${psid}: ${reply.slice(0, 60)}`);
+      await sendVoiceIfShort(psid, reply);
     }
     primed = true;
     if (seen.size > 5000) seen.clear();
@@ -137,7 +169,9 @@ http.createServer(async (req, res) => {
       if (!psid || !text.trim()) { res.writeHead(400); return res.end("psid a text jsou povinné"); }
       await fbSend(psid, text.trim());
       log(`reply → FB ${psid}: ${text.slice(0, 60)}`);
-      res.writeHead(200, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ ok: true }));
+      res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true }));
+      await sendVoiceIfShort(psid, text.trim());
+      return;
     }
 
     res.writeHead(404); res.end("not found");
@@ -145,4 +179,4 @@ http.createServer(async (req, res) => {
     log(`http: ${e.message}`);
     if (!res.headersSent) { res.writeHead(500); res.end(); }
   }
-}).listen(PORT, () => log(`most běží na :${PORT} — webhook /webhook, AInet ${AINET}, cíl ${FABLE}`));
+}).listen(PORT, () => log(`most běží na :${PORT} — webhook /webhook, AInet ${AINET}, cíl ${FABLE}, hlasovky ${VOICE_ON ? "zapnuté" : "vypnuté"}`));
