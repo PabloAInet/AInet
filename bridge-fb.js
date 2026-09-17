@@ -21,6 +21,10 @@
  *   ELEVENLABS_API_KEY – (volitelné) klíč ElevenLabs; s ELEVENLABS_VOICE_ID posílá odpovědi i jako hlasovku
  *   ELEVENLABS_VOICE_ID– (volitelné) ID klonu hlasu "Pavel – ambulance"
  *   VOICE_MAX_CHARS    – výchozí 600; delší odpovědi jdou jen textem
+ *   ANTHROPIC_API_KEY  – (volitelné) režim PORADNA: most odpovídá pacientům sám podle fb-instrukce.js
+ *                        (rychlejší, s pamětí konverzace); objednávky posílá Fablovi na AInet.
+ *                        Bez klíče běží původní režim: vše přeposílá Fablovi.
+ *   ANTHROPIC_MODEL    – výchozí claude-sonnet-4-5
  *
  * Registrace mostu na AInetu (jednorázově, stačí prohlížeč):
  *   1) GET  AINET_BASE/api/lite/register?name=FB-Most&owner=Pavel%20Ditl&skills=messaging
@@ -36,6 +40,11 @@ const FABLE = process.env.FABLE_NAME || "Fable";
 const { PAGE_ACCESS_TOKEN, VERIFY_TOKEN, AINET_TOKEN, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID } = process.env;
 const VOICE_ON = !!(ELEVENLABS_API_KEY && ELEVENLABS_VOICE_ID);
 const VOICE_MAX = Number(process.env.VOICE_MAX_CHARS || 600);
+const { ANTHROPIC_API_KEY } = process.env;
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
+const PORADNA = !!ANTHROPIC_API_KEY;
+let INSTRUKCE = "";
+if (PORADNA) { try { INSTRUKCE = require("./fb-instrukce.js"); } catch (e) { console.warn("[most] fb-instrukce.js chybí, režim poradna vypnut"); } }
 
 for (const k of ["PAGE_ACCESS_TOKEN", "VERIFY_TOKEN", "AINET_TOKEN"]) {
   if (!process.env[k]) console.warn(`[most] chybí env ${k}`);
@@ -92,6 +101,55 @@ async function sendVoiceIfShort(psid, text) {
   if (!VOICE_ON || text.length > VOICE_MAX) return;
   try { await fbSendAudio(psid, await ttsMp3(text)); log(`hlasovka → FB ${psid} (${text.length} zn.)`); }
   catch (e) { log(`hlasovka: ${e.message}`); }
+}
+
+/* ---------- Režim PORADNA: model odpovídá sám, s pamětí konverzace ---------- */
+const chats = new Map();                       // psid → { turns: [{role, content}], t }
+const CHAT_TTL = 24 * 3600 * 1000, CHAT_MAX = 24;
+const OBJ = /\[\[OBJEDNANI\]\]([\s\S]*?)\[\[\/OBJEDNANI\]\]/;
+
+async function fbTyping(psid) {
+  try {
+    await fetch(`https://graph.facebook.com/v21.0/me/messages?access_token=${encodeURIComponent(PAGE_ACCESS_TOKEN)}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recipient: { id: psid }, sender_action: "typing_on" }),
+    });
+  } catch {}
+}
+
+async function askModel(psid, text) {
+  const now = Date.now();
+  let c = chats.get(psid);
+  if (!c || now - c.t > CHAT_TTL) c = { turns: [], t: now };
+  c.turns.push({ role: "user", content: text });
+  if (c.turns.length > CHAT_MAX) c.turns = c.turns.slice(-CHAT_MAX);
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model: MODEL, max_tokens: 700, system: INSTRUKCE, messages: c.turns }),
+  });
+  if (!r.ok) throw new Error(`model ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const data = await r.json();
+  const full = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+  c.turns.push({ role: "assistant", content: full });
+  c.t = now; chats.set(psid, c);
+  return full;
+}
+
+/* Odpověď pacientovi + objednávka Pavlovi (přes Fabla na AInetu) */
+async function poradna(psid, text) {
+  await fbTyping(psid);
+  const full = await askModel(psid, text);
+  const hit = OBJ.exec(full);
+  const reply = full.replace(OBJ, "").trim() || "Rozumím. Můžete mi to prosím napsat ještě jednou?";
+  await fbSend(psid, reply);
+  log(`poradna → FB ${psid}: ${reply.slice(0, 60)}`);
+  await sendVoiceIfShort(psid, reply);
+  if (hit) {
+    const souhrn = `OBJEDNÁNÍ z Messengeru (psid ${psid}, ${new Date().toISOString().slice(0, 16)})\n${hit[1].trim()}`;
+    log(`objednávka: ${hit[1].trim().split("\n").slice(0, 2).join(" | ")}`);
+    try { await ainetSend(`[OBJEDNANI] ${souhrn}`); } catch (e) { log(`objednávka → AInet: ${e.message}`); }
+  }
 }
 
 /* ---------- Doručování odpovědí z AInetu ---------- */
@@ -154,6 +212,12 @@ http.createServer(async (req, res) => {
           const psid = ev.sender?.id;
           const text = ev.message?.text;
           if (!psid || !text || ev.message?.is_echo) continue;
+          if (PORADNA && INSTRUKCE) {
+            log(`FB ${psid} → poradna: ${text.slice(0, 60)}`);
+            try { await poradna(psid, text); }
+            catch (e) { log(`poradna: ${e.message}`); await fbSend(psid, "Omlouvám se, teď nemůžu odpovědět. Zkuste to prosím za chvíli; při akutních potížích volejte 155."); }
+            continue;
+          }
           log(`FB ${psid} → Fable: ${text.slice(0, 60)}`);
           try { await ainetSend(`[FB:${psid}] ${text}`); }
           catch (e) { log(`ainetSend: ${e.message}`); await fbSend(psid, "Fable je teď mimo síť, zkus to za chvíli."); }
@@ -179,4 +243,4 @@ http.createServer(async (req, res) => {
     log(`http: ${e.message}`);
     if (!res.headersSent) { res.writeHead(500); res.end(); }
   }
-}).listen(PORT, () => log(`most běží na :${PORT} — webhook /webhook, AInet ${AINET}, cíl ${FABLE}, hlasovky ${VOICE_ON ? "zapnuté" : "vypnuté"}`));
+}).listen(PORT, () => log(`most běží na :${PORT} — webhook /webhook, AInet ${AINET}, cíl ${FABLE}, hlasovky ${VOICE_ON ? "zapnuté" : "vypnuté"}, režim ${PORADNA && INSTRUKCE ? "poradna (model " + MODEL + ")" : "přeposílání Fablovi"}`));
