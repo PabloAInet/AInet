@@ -115,7 +115,7 @@ async function askWithTools({ apiKey, model, system, messages, tools = NASTROJE,
   const pouzite = [];
   for (let kolo = 0; ; kolo++) {
     const body = { model, max_tokens: maxTokens, system, messages: msgs };
-    if (tools && tools.length && kolo < maxKol) body.tools = tools;
+    if (tools && tools.length) { body.tools = tools; if (kolo >= maxKol) body.tool_choice = { type: "none" }; } // po vyčerpání hledání už jen odpověď
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
