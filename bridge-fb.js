@@ -430,6 +430,9 @@ http.createServer(async (req, res) => {
           }
           const text = ev.message?.text;
           if (!text || ev.message?.is_echo) continue;
+          /* Pavel: „přihlásit“ → jednorázový odkaz do soukromé sekce */
+          const prikaz = pavel.messengerPrikaz(psid, text);
+          if (prikaz) { await fbSend(psid, prikaz); log(`přihlašovací odkaz → FB ${psid}`); continue; }
           if (/^\s*smazat\s*$/i.test(text)) {
             chats.delete(psid);
             await fbSend(psid, "Vaše konverzace byla z paměti poradny smazána. Historii v Messengeru můžete odstranit sami v aplikaci.");
