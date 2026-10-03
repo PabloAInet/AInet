@@ -13,7 +13,7 @@ const lit = require("./literatura.js");
 const HESLO = process.env.PAVEL_HESLO || "";
 const { ANTHROPIC_API_KEY } = process.env;
 const MODEL = process.env.PAVEL_MODEL || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
-const SESE_H = Number(process.env.PAVEL_SESE_H || 12);
+const SESE_H = Number(process.env.PAVEL_SESE_H || 24 * 90); // přihlášení vydrží 90 dní od poslední návštěvy
 const PAVEL_PSID = process.env.PAVEL_PSID || "28903446015930142"; // Pavlův Messenger (PSID u stránky Pavel Ditl MD)
 const BASE = (process.env.PUBLIC_URL || "https://fb-most.onrender.com").replace(/\/$/, "");
 const log = (m) => console.log(`[pavel] ${new Date().toISOString()} ${m}`);
@@ -179,6 +179,7 @@ async function handle(req, res, url) {
   if (p === "/pavel/odhlasit") { res.writeHead(303, { Location: "/pavel", "Set-Cookie": "pd=; Path=/pavel; Max-Age=0; HttpOnly; Secure; SameSite=Lax" }); res.end(); return true; }
 
   if (!prihlasen(req)) { posli(res, 200, stranka("Přihlášení", loginHtml())); return true; }
+  res.setHeader("Set-Cookie", sessionCookie()); // klouzavé prodloužení: kdo sekci používá, zůstává přihlášený
 
   if (p === "/pavel" && req.method === "GET") {
     const rezim = ["lekar", "prispevek", "novinky"].includes(url.searchParams.get("rezim")) ? url.searchParams.get("rezim") : "lekar";
