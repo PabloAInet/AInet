@@ -43,6 +43,9 @@ const VOICE_MAX = Number(process.env.VOICE_MAX_CHARS || 1200);
 const { ANTHROPIC_API_KEY } = process.env;
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
 const PORADNA = !!ANTHROPIC_API_KEY;
+const lit = require("./literatura.js");   // PubMed (Europe PMC) + ClinicalTrials.gov
+const pavel = require("./pavel.js");      // soukromá sekce /pavel
+const LIT_PORADNA = process.env.LITERATURA_PORADNA !== "0";
 /* placená poradna: ZDARMA_SMYCEK otázek zdarma, pak platební odkaz (vypnuto, dokud není PLATBA_URL) */
 const PLATBA_URL = process.env.PLATBA_URL || "";          // např. Stripe Payment Link https://buy.stripe.com/...
 const CENA = process.env.CENA || "";                      // text ceny pro pacienta, např. "290 Kč"
@@ -155,14 +158,11 @@ async function askModel(psid, text) {
   const posledniZdarma = PAYWALL && !jeZaplaceno(psid) && !c.objednavani && c.q === ZDARMA;
   c.turns.push({ role: "user", content: `${text}\n\n${posledniZdarma ? "[poslední bezplatná odpověď – shrň, co zatím víš, řekni předběžný závěr a nabídni objednání; neptej se dál]" : hint}` });
   if (c.turns.length > CHAT_MAX) c.turns = c.turns.slice(-CHAT_MAX);
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: MODEL, max_tokens: 700, system: INSTRUKCE, messages: c.turns }),
+  const { text: full } = await lit.askWithTools({
+    apiKey: ANTHROPIC_API_KEY, model: MODEL, maxTokens: 700, maxKol: 1, log, messages: c.turns,
+    system: INSTRUKCE + (LIT_PORADNA ? lit.PORADNA_DODATEK : ""),
+    tools: LIT_PORADNA ? lit.NASTROJE.filter(t => t.name === "hledej_literaturu") : [],
   });
-  if (!r.ok) throw new Error(`model ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const data = await r.json();
-  const full = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
   c.turns.push({ role: "assistant", content: full });
   c.t = now; chats.set(psid, c);
   return full;
@@ -391,7 +391,7 @@ http.createServer(async (req, res) => {
       if (url.searchParams.get("key") !== VERIFY_TOKEN) { res.writeHead(403); return res.end("forbidden"); }
       const el = await elevenStav().catch(e => ({ error: e.message }));
       res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-      return res.end(JSON.stringify({ rezim: PORADNA && INSTRUKCE ? "poradna" : "fable", hlasovky: VOICE_ON, model: MODEL, konverzaci_v_pameti: chats.size, paywall: PAYWALL, zdarma_smycek: ZDARMA, zaplacenych: [...zaplaceno.values()].filter(t => t > Date.now()).length, elevenlabs: el }));
+      return res.end(JSON.stringify({ rezim: PORADNA && INSTRUKCE ? "poradna" : "fable", hlasovky: VOICE_ON, model: MODEL, konverzaci_v_pameti: chats.size, paywall: PAYWALL, literatura_poradna: LIT_PORADNA, zdarma_smycek: ZDARMA, zaplacenych: [...zaplaceno.values()].filter(t => t > Date.now()).length, elevenlabs: el }));
     }
     if (url.pathname === "/setup-messenger" && req.method === "GET") {
       if (url.searchParams.get("key") !== VERIFY_TOKEN) { res.writeHead(403); return res.end("forbidden"); }
@@ -468,6 +468,9 @@ http.createServer(async (req, res) => {
       odemknout(id, Number(url.searchParams.get("hodin") || PLATBA_PLATNOST_H));
       res.writeHead(200, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ ok: true, id }));
     }
+
+    /* soukromá sekce MUDr. Ditla: literatura, příspěvky, novinky (později operační program) */
+    if (url.pathname === "/pavel" || url.pathname.startsWith("/pavel/")) { await pavel.handle(req, res, url); return; }
 
     /* ruční/agentní odpověď bez AInetu: GET /reply?key=VERIFY_TOKEN&psid=...&text=... */
     if (url.pathname === "/reply" && req.method === "GET") {
