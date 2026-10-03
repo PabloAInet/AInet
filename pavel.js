@@ -163,16 +163,18 @@ async function handle(req, res, url) {
     spatnyPokus(ip); log(`špatné heslo ${ip}`);
     posli(res, 401, stranka("Přihlášení", loginHtml("Špatné heslo."))); return true;
   }
-  if (p === "/pavel/odkaz" && req.method === "GET") {
-    const t = url.searchParams.get("t") || "";
+  if (p === "/pavel/odkaz") {
+    /* GET odkaz jen zobrazí (Facebook si odkazy ze zpráv sám stahuje kvůli náhledu), token spotřebuje až POST */
+    const t = (req.method === "POST" ? (await readForm(req)).get("t") : url.searchParams.get("t")) || "";
     const exp = odkazy.get(t);
-    if (exp && exp > Date.now()) {
-      odkazy.delete(t);
-      log(`přihlášení odkazem z Messengeru ${ipOf(req)}`);
-      posli(res, 200, stranka("Přihlášeno", `<meta http-equiv="refresh" content="0;url=/pavel"><p>Přihlášeno, pokračuj <a href="/pavel">sem</a>.</p>`), { "Set-Cookie": sessionCookie() });
+    if (!exp || exp < Date.now()) { posli(res, 401, stranka("Přihlášení", loginHtml("Odkaz už neplatí. Napiš stránce v Messengeru znovu „přihlásit“."))); return true; }
+    if (req.method !== "POST") {
+      posli(res, 200, stranka("Přihlášení", `<h1>Soukromá sekce</h1><div class="card"><form method="post" action="/pavel/odkaz" id="f"><input type="hidden" name="t" value="${esc(t)}"><p>Přihlašuji…</p><button>Přihlásit se</button></form></div><script>document.getElementById("f").submit()</script>`));
       return true;
     }
-    posli(res, 401, stranka("Přihlášení", loginHtml("Odkaz už neplatí. Napiš stránce v Messengeru znovu „přihlásit“."))); return true;
+    odkazy.delete(t);
+    log(`přihlášení odkazem z Messengeru ${ipOf(req)}`);
+    res.writeHead(303, { Location: "/pavel", "Set-Cookie": sessionCookie(), "Cache-Control": "no-store" }); res.end(); return true;
   }
   if (p === "/pavel/odhlasit") { res.writeHead(303, { Location: "/pavel", "Set-Cookie": "pd=; Path=/pavel; Max-Age=0; HttpOnly; Secure; SameSite=Lax" }); res.end(); return true; }
 
