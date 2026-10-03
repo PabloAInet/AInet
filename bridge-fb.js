@@ -43,6 +43,13 @@ const VOICE_MAX = Number(process.env.VOICE_MAX_CHARS || 1200);
 const { ANTHROPIC_API_KEY } = process.env;
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
 const PORADNA = !!ANTHROPIC_API_KEY;
+/* placená poradna: ZDARMA_SMYCEK otázek zdarma, pak platební odkaz (vypnuto, dokud není PLATBA_URL) */
+const PLATBA_URL = process.env.PLATBA_URL || "";          // např. Stripe Payment Link https://buy.stripe.com/...
+const CENA = process.env.CENA || "";                      // text ceny pro pacienta, např. "290 Kč"
+const ZDARMA = Number(process.env.ZDARMA_SMYCEK || 3);
+const PLATBA_PLATNOST_H = Number(process.env.PLATBA_PLATNOST_H || 24);
+const { STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET } = process.env;
+const PAYWALL = !!PLATBA_URL;
 let INSTRUKCE = "";
 if (PORADNA) { try { INSTRUKCE = require("./fb-instrukce.js"); } catch (e) { console.warn("[most] fb-instrukce.js chybí, režim poradna vypnut"); } }
 
@@ -142,9 +149,11 @@ async function askModel(psid, text) {
   let c = chats.get(psid);
   if (!c || now - c.t > CHAT_TTL) c = { turns: [], t: now };
   c.n = (c.n || 0) + 1;                       // kolo rozhovoru (odpovědi AI od začátku tématu)
-  const KOLA = Number(process.env.MAX_KOLA || 4);
+  c.q = (c.q || 0) + 1; if (OBJEDNAT.test(text)) c.objednavani = true; // otázky pacienta (pro placení)
+  const KOLA = Number(process.env.MAX_KOLA || 4) * (jeZaplaceno(psid) ? 2 : 1);
   const hint = c.n < KOLA ? `[kolo ${c.n}/${KOLA}]` : c.n === KOLA ? `[kolo ${KOLA}/${KOLA} – uzavři: závěr + objednání nebo rada]` : `[po uzávěru – odpověz stručně, nabídni objednání nebo nové téma]`;
-  c.turns.push({ role: "user", content: `${text}\n\n${hint}` });
+  const posledniZdarma = PAYWALL && !jeZaplaceno(psid) && !c.objednavani && c.q === ZDARMA;
+  c.turns.push({ role: "user", content: `${text}\n\n${posledniZdarma ? "[poslední bezplatná odpověď – shrň, co zatím víš, řekni předběžný závěr a nabídni objednání; neptej se dál]" : hint}` });
   if (c.turns.length > CHAT_MAX) c.turns = c.turns.slice(-CHAT_MAX);
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -159,14 +168,56 @@ async function askModel(psid, text) {
   return full;
 }
 
+/* ---------- Placená poradna ---------- */
+const zaplaceno = new Map(); // id (psid nebo tel…) → platí do (ms)
+const jeZaplaceno = (id) => (zaplaceno.get(String(id)) || 0) > Date.now();
+function odemknout(id, hodin = PLATBA_PLATNOST_H) { zaplaceno.set(String(id), Date.now() + hodin * 3600e3); log(`platba ✓ ${id} na ${Math.round(hodin)} h`); }
+const platebniOdkaz = (id) => PLATBA_URL + (PLATBA_URL.includes("?") ? "&" : "?") + "client_reference_id=" + encodeURIComponent(id);
+const CERVENE = /(dušn|nemůžu dýchat|nemohu dýchat|bolest na hrudi|tlak na hrudi|černá stolice|černou stolici|silné krvácení|silně krvácí|hodně krve|bezvědom|omdlel|zmaten|náhle otekl|zmodral|horečk)/i;
+const OBJEDNAT = /objedn|termín|ordinac/i;
+function paywallText(psid) {
+  return `Tři odpovědi poradny jsou zdarma${CENA ? `, pokračování konzultace stojí ${CENA}` : ""}. Zaplatíte tady: ${platebniOdkaz(psid)}\n` +
+    "Po zaplacení mi sem napište, na čem jsme skončili, a pokračujeme. Objednání do ordinace je zdarma – stačí napsat „objednat“. Při akutních potížích volejte 155.";
+}
+/* po restartu obnoví zaplacené z posledních plateb ve Stripe (paměť se na Renderu při uspání maže) */
+async function stripeObnov() {
+  if (!STRIPE_SECRET_KEY) return;
+  const od = Math.floor(Date.now() / 1000) - PLATBA_PLATNOST_H * 3600;
+  const r = await fetch(`https://api.stripe.com/v1/checkout/sessions?limit=100&status=complete&created[gte]=${od}`, { headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}` } });
+  if (!r.ok) throw new Error(`stripe ${r.status}: ${(await r.text()).slice(0, 150)}`);
+  for (const s of (await r.json()).data || []) {
+    const zbyva = (s.created * 1000 + PLATBA_PLATNOST_H * 3600e3 - Date.now()) / 3600e3;
+    if (s.client_reference_id && s.payment_status === "paid" && zbyva > 0) odemknout(s.client_reference_id, zbyva);
+  }
+}
+if (PAYWALL && STRIPE_SECRET_KEY) setTimeout(() => stripeObnov().catch(e => log(`stripe obnova: ${e.message}`)), 4000);
+function stripePodpisOk(raw, hlavicka) {
+  if (!STRIPE_WEBHOOK_SECRET || !hlavicka) return false;
+  const p = {}; for (const kv of String(hlavicka).split(",")) { const i = kv.indexOf("="); const k = kv.slice(0, i), v = kv.slice(i + 1); if (k === "t" || (k === "v1" && !p.v1)) p[k] = v; }
+  if (!p.t || !p.v1 || Math.abs(Date.now() / 1000 - Number(p.t)) > 600) return false;
+  const h = require("crypto").createHmac("sha256", STRIPE_WEBHOOK_SECRET).update(`${p.t}.${raw}`).digest("hex");
+  return h.length === p.v1.length && require("crypto").timingSafeEqual(Buffer.from(h), Buffer.from(p.v1));
+}
+/* vrací true, když zprávu vyřídil paywall (model se nevolá) */
+async function paywallKontrola(psid, text) {
+  if (!PAYWALL || jeZaplaceno(psid)) return false;
+  if (CERVENE.test(text)) { await fbSend(psid, "To zní vážně – volejte prosím hned 155 nebo jeďte na pohotovost. Na odpověď z chatu nečekejte."); log(`červený praporek → FB ${psid}`); return true; }
+  const c = chats.get(psid);
+  const q = c && Date.now() - c.t < CHAT_TTL ? (c.q || 0) : 0;
+  if (q < ZDARMA || OBJEDNAT.test(text) || (c && c.objednavani)) return false;
+  await fbSend(psid, paywallText(psid)); log(`paywall → FB ${psid}`);
+  return true;
+}
+
 /* Odpověď pacientovi + objednávka Pavlovi (přes Fabla na AInetu) */
 const HARD_CAP = Number(process.env.MAX_ZPRAV || 10);
 async function poradna(psid, text) {
   const c0 = chats.get(psid);
-  if (c0 && (c0.n || 0) >= HARD_CAP && Date.now() - c0.t < CHAT_TTL) {
+  if (c0 && (c0.n || 0) >= (jeZaplaceno(psid) ? HARD_CAP * 3 : HARD_CAP) && Date.now() - c0.t < CHAT_TTL) {
     const msg = "Tady bych to pro dnešek uzavřel – víc už zvládne jen vyšetření. Napište „objednat“ a domluvíme termín, nebo se ozvěte zítra s novým dotazem. Při akutních potížích volejte 155.";
     await fbSend(psid, msg); log(`limit zpráv → FB ${psid}`); return;
   }
+  if (await paywallKontrola(psid, text)) return;
   await fbTyping(psid);
   const full = await askModel(psid, text);
   const hit = OBJ.exec(full);
@@ -196,7 +247,7 @@ const TOPIC_RE = /^TOPIC_([A-Z]+)$/;
 async function startTopic(psid, key) {
   const t = TEMATA[key]; if (!t) return false;
   const now = Date.now();
-  const c = { turns: [{ role: "user", content: `Pacient zvolil téma: ${t.title.replace(/^\S+\s/, "")}.` }, { role: "assistant", content: t.opener }], t: now, n: 1 };
+  const c = { turns: [{ role: "user", content: `Pacient zvolil téma: ${t.title.replace(/^\S+\s/, "")}.` }, { role: "assistant", content: t.opener }], t: now, n: 1, q: 0, tema: key, objednavani: key === "ordinace" };
   chats.set(psid, c);
   await fbSend(psid, t.opener);
   await sendVoiceIfShort(psid, t.opener);
@@ -293,6 +344,7 @@ const SOUKROMI_HTML = `<!doctype html><html lang="cs"><head><meta charset="utf-8
 <h2>Kdo údaje zpracovává</h2>
 <ul><li>Meta Platforms (Messenger) – doručení zpráv;</li>
 <li>Render (hosting aplikace, EU/USA);</li>
+<li>Stripe (platby za placenou konzultaci) – zpracovává platební údaje, my vidíme jen potvrzení platby;</li>
 <li>Anthropic (jazykový model generující odpovědi) a ElevenLabs (převod textu na hlas) – zpracovávají text konverzace pouze pro vytvoření odpovědi.</li></ul>
 <h2>Doba uložení</h2>
 <p>Obsah konverzace držíme v paměti aplikace nejvýše 24 hodin. Shrnutí objednávky (jméno, telefon, potíže, termín) předáváme ordinaci a mažeme po vyšetření, nejpozději do 90 dnů. Historii v Messengeru spravuje Meta podle svých pravidel.</p>
@@ -319,6 +371,10 @@ small{display:block;color:#aabed2;margin-top:24px}@media(max-width:520px){.g{gri
 <small>Jsem AI – odpovědi jsou informační a nenahrazují vyšetření. Při akutních potížích volejte 155. · <a href="/soukromi" style="color:#58c4b4">Ochrana soukromí</a></small>
 </main></body></html>`;
 
+function readRaw(req) {
+  return new Promise((res) => { let d = ""; req.on("data", c => { d += c; if (d.length > 1e6) req.destroy(); }); req.on("end", () => res(d)); });
+}
+
 /* ---------- HTTP: webhook od Mety ---------- */
 function readBody(req) {
   return new Promise((res, rej) => {
@@ -335,7 +391,7 @@ http.createServer(async (req, res) => {
       if (url.searchParams.get("key") !== VERIFY_TOKEN) { res.writeHead(403); return res.end("forbidden"); }
       const el = await elevenStav().catch(e => ({ error: e.message }));
       res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-      return res.end(JSON.stringify({ rezim: PORADNA && INSTRUKCE ? "poradna" : "fable", hlasovky: VOICE_ON, model: MODEL, konverzaci_v_pameti: chats.size, elevenlabs: el }));
+      return res.end(JSON.stringify({ rezim: PORADNA && INSTRUKCE ? "poradna" : "fable", hlasovky: VOICE_ON, model: MODEL, konverzaci_v_pameti: chats.size, paywall: PAYWALL, zdarma_smycek: ZDARMA, zaplacenych: [...zaplaceno.values()].filter(t => t > Date.now()).length, elevenlabs: el }));
     }
     if (url.pathname === "/setup-messenger" && req.method === "GET") {
       if (url.searchParams.get("key") !== VERIFY_TOKEN) { res.writeHead(403); return res.end("forbidden"); }
@@ -391,6 +447,26 @@ http.createServer(async (req, res) => {
         }
       }
       return;
+    }
+
+    /* platba: Stripe webhook (checkout.session.completed) → odemkne konverzaci */
+    if (url.pathname === "/platba/stripe" && req.method === "POST") {
+      const raw = await readRaw(req);
+      if (!stripePodpisOk(raw, req.headers["stripe-signature"])) { res.writeHead(400); return res.end("bad signature"); }
+      res.writeHead(200); res.end("ok");
+      const s = JSON.parse(raw).data?.object || {};
+      if (s.object === "checkout.session" && s.client_reference_id && s.payment_status === "paid") {
+        odemknout(s.client_reference_id);
+        if (/^\d+$/.test(s.client_reference_id)) { try { await fbSend(s.client_reference_id, "Děkuji, platba prošla. Napište, na čem jsme skončili, a pokračujeme."); } catch (e) { log(`po platbě: ${e.message}`); } }
+      }
+      return;
+    }
+    /* ruční odemknutí (např. platba převodem): GET /platba/odemknout?key=VERIFY_TOKEN&id=PSID&hodin=24 */
+    if (url.pathname === "/platba/odemknout" && req.method === "GET") {
+      if (url.searchParams.get("key") !== VERIFY_TOKEN) { res.writeHead(403); return res.end("forbidden"); }
+      const id = url.searchParams.get("id"); if (!id) { res.writeHead(400); return res.end("chybí id"); }
+      odemknout(id, Number(url.searchParams.get("hodin") || PLATBA_PLATNOST_H));
+      res.writeHead(200, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ ok: true, id }));
     }
 
     /* ruční/agentní odpověď bez AInetu: GET /reply?key=VERIFY_TOKEN&psid=...&text=... */
