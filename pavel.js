@@ -14,6 +14,8 @@ const HESLO = process.env.PAVEL_HESLO || "";
 const { ANTHROPIC_API_KEY } = process.env;
 const MODEL = process.env.PAVEL_MODEL || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
 const SESE_H = Number(process.env.PAVEL_SESE_H || 12);
+const PAVEL_PSID = process.env.PAVEL_PSID || "28903446015930142"; // Pavlův Messenger (PSID u stránky Pavel Ditl MD)
+const BASE = (process.env.PUBLIC_URL || "https://fb-most.onrender.com").replace(/\/$/, "");
 const log = (m) => console.log(`[pavel] ${new Date().toISOString()} ${m}`);
 
 /* témata pro Novinky (lze přepsat env PAVEL_TEMATA, oddělovač |) */
@@ -41,6 +43,17 @@ const pokusy = new Map(); // ip → { n, t }
 const ipOf = (req) => String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim();
 function zablokovano(ip) { const p = pokusy.get(ip); return p && p.n >= 5 && Date.now() - p.t < 15 * 60e3; }
 function spatnyPokus(ip) { const p = pokusy.get(ip); const now = Date.now(); pokusy.set(ip, p && now - p.t < 15 * 60e3 ? { n: p.n + 1, t: p.t } : { n: 1, t: now }); }
+function sessionCookie() { const exp = Date.now() + SESE_H * 3600e3; return `pd=${exp}.${sign(exp)}; Path=/pavel; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESE_H * 3600}`; }
+
+/* přihlášení bez hesla: Pavel napíše stránce v Messengeru „přihlásit“ a dostane jednorázový odkaz (10 min) */
+const odkazy = new Map(); // token → platí do
+function messengerPrikaz(psid, text) {
+  if (!HESLO || String(psid) !== PAVEL_PSID || !/^\s*(přihlásit|prihlasit|login|pavel)\s*[.!]?\s*$/i.test(text || "")) return null;
+  for (const [t, exp] of odkazy) if (exp < Date.now()) odkazy.delete(t);
+  const t = crypto.randomBytes(24).toString("base64url");
+  odkazy.set(t, Date.now() + 10 * 60e3);
+  return `Přihlašovací odkaz do soukromé sekce (platí 10 minut, jen jednou):\n${BASE}/pavel/odkaz?t=${t}`;
+}
 
 function readForm(req) {
   return new Promise((res) => { let d = ""; req.on("data", (c) => { d += c; if (d.length > 2e5) req.destroy(); }); req.on("end", () => res(new URLSearchParams(d))); });
@@ -143,15 +156,25 @@ async function handle(req, res, url) {
     if (zablokovano(ip)) { posli(res, 429, stranka("Přihlášení", `<h1>Příliš mnoho pokusů</h1><p class="sub">Zkus to za 15 minut.</p>`)); return true; }
     const f = await readForm(req);
     if (crypto.timingSafeEqual(sha(f.get("heslo") || ""), sha(HESLO))) {
-      const exp = Date.now() + SESE_H * 3600e3;
       log(`přihlášení OK ${ip}`);
-      res.writeHead(303, { Location: "/pavel", "Set-Cookie": `pd=${exp}.${sign(exp)}; Path=/pavel; HttpOnly; Secure; SameSite=Strict; Max-Age=${SESE_H * 3600}`, "Cache-Control": "no-store" });
+      res.writeHead(303, { Location: "/pavel", "Set-Cookie": sessionCookie(), "Cache-Control": "no-store" });
       res.end(); return true;
     }
     spatnyPokus(ip); log(`špatné heslo ${ip}`);
     posli(res, 401, stranka("Přihlášení", loginHtml("Špatné heslo."))); return true;
   }
-  if (p === "/pavel/odhlasit") { res.writeHead(303, { Location: "/pavel", "Set-Cookie": "pd=; Path=/pavel; Max-Age=0; HttpOnly; Secure; SameSite=Strict" }); res.end(); return true; }
+  if (p === "/pavel/odkaz" && req.method === "GET") {
+    const t = url.searchParams.get("t") || "";
+    const exp = odkazy.get(t);
+    if (exp && exp > Date.now()) {
+      odkazy.delete(t);
+      log(`přihlášení odkazem z Messengeru ${ipOf(req)}`);
+      posli(res, 200, stranka("Přihlášeno", `<meta http-equiv="refresh" content="0;url=/pavel"><p>Přihlášeno, pokračuj <a href="/pavel">sem</a>.</p>`), { "Set-Cookie": sessionCookie() });
+      return true;
+    }
+    posli(res, 401, stranka("Přihlášení", loginHtml("Odkaz už neplatí. Napiš stránce v Messengeru znovu „přihlásit“."))); return true;
+  }
+  if (p === "/pavel/odhlasit") { res.writeHead(303, { Location: "/pavel", "Set-Cookie": "pd=; Path=/pavel; Max-Age=0; HttpOnly; Secure; SameSite=Lax" }); res.end(); return true; }
 
   if (!prihlasen(req)) { posli(res, 200, stranka("Přihlášení", loginHtml())); return true; }
 
@@ -176,7 +199,8 @@ async function handle(req, res, url) {
 }
 function loginHtml(chyba = "") {
   return `<h1>Soukromá sekce</h1><p class="sub">MUDr. Pavel Ditl</p><div class="card"><form method="post" action="/pavel/login">
-<label>Heslo</label><input type="password" name="heslo" autocomplete="current-password" autofocus>${chyba ? `<p style="color:#ff8a7a">${esc(chyba)}</p>` : ""}<button>Přihlásit</button></form></div>`;
+<label>Heslo</label><input type="password" name="heslo" autocomplete="current-password" autofocus>${chyba ? `<p style="color:#ff8a7a">${esc(chyba)}</p>` : ""}<button>Přihlásit</button></form></div>
+<div class="card"><b>Bez hesla:</b> napiš stránce Pavel Ditl MD v Messengeru slovo <b>přihlásit</b> – přijde ti odkaz, který tě rovnou přihlásí.</div>`;
 }
 
-module.exports = { handle, md, TEMATA, novinkyData };
+module.exports = { handle, md, TEMATA, novinkyData, messengerPrikaz };
