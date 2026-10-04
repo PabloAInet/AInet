@@ -382,6 +382,7 @@ const SOUKROMI_HTML = `<!doctype html><html lang="cs"><head><meta charset="utf-8
 <h2>Jaké údaje zpracováváme</h2>
 <ul><li>obsah zpráv, které stránce pošlete, a identifikátor vaší konverzace v Messengeru (PSID);</li>
 <li>u chatu na webu obsah zpráv a náhodný identifikátor konverzace uložený ve vašem prohlížeči;</li>
+<li>u hovoru s AI (na webu nebo po telefonu) přepis a zvuk hovoru – zpracovává je ElevenLabs a slouží jen k odpovědi a objednání;</li>
 <li>pokud se chcete objednat do ordinace: jméno, telefonní číslo, věk, popis potíží a preferovaný den vyšetření.</li></ul>
 <p>Nepožadujeme rodné číslo, číslo pojištěnce, adresu ani fotografie. Prosíme, neposílejte je.</p>
 <h2>Účel a právní základ</h2>
@@ -547,6 +548,23 @@ http.createServer(async (req, res) => {
       try { out = { prispevek: await posledniPrispevek() }; }
       catch (e) { log(`posledni: ${e.message}`); st = 502; out = { prispevek: null, chyba: e.message.slice(0, 200) }; }
       res.writeHead(st, st === 200 ? h : { ...h, "Cache-Control": "no-store" }); return res.end(JSON.stringify(out));
+    }
+
+    /* hlasový asistent (ElevenLabs, web i telefon): POST /hlas/objednani { jmeno, telefon, den, potiz, … } → objednávka Pavlovi */
+    if (url.pathname === "/hlas/objednani" && req.method === "POST") {
+      const json = (st, o) => { res.writeHead(st, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(o)); };
+      const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim();
+      if (webPrilisRychle("hlas_" + ip)) return json(429, { ok: false, chyba: "příliš mnoho požadavků" });
+      let b; try { b = await readBody(req); } catch { return json(400, { ok: false, chyba: "špatný JSON" }); }
+      const t = (k) => String((b && b[k]) || "").replace(/[\r\n]+/g, " ").slice(0, 300).trim();
+      if (!t("jmeno") || t("telefon").replace(/\D/g, "").length < 9) return json(400, { ok: false, chyba: "chybí jméno nebo telefonní číslo – zeptej se na ně a zkus to znovu" });
+      const souhrn = [`OBJEDNÁNÍ z hlasového hovoru (${new Date().toISOString().slice(0, 16)})`, `Jméno: ${t("jmeno")}`, `Telefon: ${t("telefon")}`,
+        `Věk: ${t("vek") || "?"}`, `Diagnóza: ${t("diagnoza") || "?"}`, `Hlavní potíž: ${t("potiz") || "?"}`, `Trvání: ${t("trvani") || "?"}`,
+        `Varovné příznaky: ${t("varovne") || "žádné"}`, `Preferovaný den: ${t("den") || "?"}`, `Poznámka: ${t("poznamka") || "-"}`].join("\n");
+      try { await ainetSend(`[OBJEDNANI] ${souhrn}`); }
+      catch (e) { log(`objednávka z hovoru → AInet: ${e.message}`); return json(502, { ok: false, chyba: "objednávku se nepodařilo předat – požádej volajícího, ať napíše do chatu na webu nebo zavolá znovu" }); }
+      log(`objednávka z hovoru: ${t("jmeno")}, ${t("den")}`);
+      return json(200, { ok: true, zprava: "Objednávka je předaná ordinaci. Termín potvrdí do dvou pracovních dnů zprávou nebo SMS." });
     }
 
     /* ruční/agentní odpověď bez AInetu: GET /reply?key=VERIFY_TOKEN&psid=...&text=... */
