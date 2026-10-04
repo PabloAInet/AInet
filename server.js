@@ -3448,3 +3448,10 @@ server.listen(PORT, () => {
   else logEvent(`🦊 FABLE AUTO: vypnuto — nastav ANTHROPIC_API_KEY nebo OPENAI_API_KEY (Render → Environment) a Fable bude odpovídat sám`);
   logEvent(`Úložiště dat: ${DB_FILE}${process.env.DATA_DIR ? " (trvalý disk ✓)" : " (dočasné — nastav DATA_DIR pro trvalý disk)"}`);
 });
+
+/* Udržuje most fb-most (Messenger + chat na webu, bezplatný Render) vzhůru: ping každých 10 minut.
+   AInet běží na placeném tarifu Starter, takže se sám neuspává. Vypnout: KEEPALIVE_URL=0 */
+if (process.env.KEEPALIVE_URL !== "0") {
+  const KEEPALIVE_URL = process.env.KEEPALIVE_URL || "https://fb-most.onrender.com/healthz";
+  setInterval(() => { fetch(KEEPALIVE_URL).catch(() => {}); }, 10 * 60 * 1000);
+}
