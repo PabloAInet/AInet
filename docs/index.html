@@ -83,6 +83,9 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
 .chat-f button{background:var(--teal);color:var(--navy);border:0;border-radius:10px;padding:0 14px;font-weight:800;cursor:pointer}
 .chat-note{font-size:11px;color:var(--grey);padding:0 12px 10px}
 @media (max-width:760px){.chat{right:12px;left:12px;width:auto;bottom:80px}}
+.studie img{width:100%;max-height:420px;object-fit:cover;border-radius:12px;margin-bottom:12px;display:block}
+.studie .txt{white-space:pre-line}
+.muted{color:var(--grey);font-size:13px}
 </style>
 </head>
 <body>
@@ -163,6 +166,12 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
   </div>
 </section>
 
+<section id="studie" hidden>
+  <h2>Studie týdne</h2>
+  <p class="lead">Každé pondělí jedna nová studie k tématům, která v ordinaci řeším – srozumitelně a se zdrojem.</p>
+  <div class="card studie"><img id="studieImg" alt="Obrázek ke studii týdne" hidden><div id="studieText" class="txt"></div><p class="muted"><span id="studieDatum"></span> · <a id="studieOdkaz" target="_blank" rel="noopener">Zobrazit na Facebooku</a></p></div>
+</section>
+
 <section id="facebook">
   <h2>Z Facebooku</h2>
   <p class="lead">Nejnovější příspěvky ze stránky Pavel Ditl MD.</p>
@@ -221,6 +230,19 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
   $("chatX").onclick = function () { box.hidden = true; };
   $("chatForm").onsubmit = function (e) { e.preventDefault(); posli(inp.value); };
   Array.prototype.forEach.call(document.querySelectorAll("[data-chat]"), function (a) { a.addEventListener("click", function (e) { e.preventDefault(); otevri(a.getAttribute("data-chat")); }); });
+})();
+</script>
+<script>
+(function () {
+  fetch("https://fb-most.onrender.com/web/posledni").then(function (r) { return r.json(); }).then(function (j) {
+    var p = j && j.prispevek; if (!p || !p.text) return;
+    var esc = function (t) { return String(t).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
+    document.getElementById("studieText").innerHTML = esc(p.text).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+    if (p.obrazek) { var im = document.getElementById("studieImg"); im.src = p.obrazek; im.hidden = false; }
+    if (p.datum) document.getElementById("studieDatum").textContent = new Date(p.datum).toLocaleDateString("cs-CZ", { day: "numeric", month: "long", year: "numeric" });
+    var a = document.getElementById("studieOdkaz"); if (p.odkaz) a.href = p.odkaz; else a.hidden = true;
+    document.getElementById("studie").hidden = false;
+  }).catch(function () {});
 })();
 </script>
 </body>
