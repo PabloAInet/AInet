@@ -233,6 +233,36 @@ async function poradna(psid, text) {
 }
 
 
+/* ---------- Chat na webu (stejná poradna jako Messenger) ---------- */
+const WEB_ORIGINS = (process.env.WEB_ORIGINS || "https://pabloainet.github.io").split(",").map(s => s.trim()).filter(Boolean);
+const webLimit = new Map(); // ip → { n, t }
+function webPrilisRychle(ip) {
+  const now = Date.now(), w = webLimit.get(ip);
+  if (!w || now - w.t > 10 * 60e3) { webLimit.set(ip, { n: 1, t: now }); return false; }
+  w.n++; return w.n > 30;
+}
+async function poradnaWeb(id, text) {
+  const key = "web_" + id;
+  if (/^\s*smazat\s*$/i.test(text)) { chats.delete(key); return { odpoved: "Vaše konverzace byla z paměti poradny smazána." }; }
+  const c0 = chats.get(key);
+  if (c0 && (c0.n || 0) >= (jeZaplaceno(key) ? HARD_CAP * 3 : HARD_CAP) && Date.now() - c0.t < CHAT_TTL)
+    return { odpoved: "Tady bych to pro dnešek uzavřel – víc už zvládne jen vyšetření. Napište „objednat“ a domluvíme termín, nebo se ozvěte zítra s novým dotazem. Při akutních potížích volejte 155." };
+  if (PAYWALL && !jeZaplaceno(key)) {
+    if (CERVENE.test(text)) return { odpoved: "To zní vážně – volejte prosím hned 155 nebo jeďte na pohotovost. Na odpověď z chatu nečekejte." };
+    const q = c0 && Date.now() - c0.t < CHAT_TTL ? (c0.q || 0) : 0;
+    if (q >= ZDARMA && !OBJEDNAT.test(text) && !(c0 && c0.objednavani)) return { odpoved: paywallText(key), platba: platebniOdkaz(key) };
+  }
+  const full = await askModel(key, text);
+  const hit = OBJ.exec(full);
+  const odpoved = full.replace(OBJ, "").trim() || "Rozumím. Můžete mi to prosím napsat ještě jednou?";
+  log(`web ${key} ← ${text.slice(0, 40)} → ${odpoved.slice(0, 50)}`);
+  if (hit) {
+    const souhrn = `OBJEDNÁNÍ z webu (${key}, ${new Date().toISOString().slice(0, 16)})\n${hit[1].trim()}`;
+    try { await ainetSend(`[OBJEDNANI] ${souhrn}`); } catch (e) { log(`objednávka z webu → AInet: ${e.message}`); }
+  }
+  return { odpoved };
+}
+
 /* ---------- Okna (témata): ice breakers + menu v Messengeru + m.me?ref= ---------- */
 const TEMATA = {
   poradna:  { title: "🩺 Poradna – mám zdravotní dotaz", opener: "Dobrý den, jsem AI asistent, kterého trénoval MUDr. Pavel Ditl. Napište mi, co vás trápí – zeptám se na pár věcí a poradím, co dál. Při akutních potížích volejte 155." },
@@ -337,6 +367,7 @@ const SOUKROMI_HTML = `<!doctype html><html lang="cs"><head><meta charset="utf-8
 <p>Aplikace AInet Most přijímá zprávy, které pošlete stránce Pavel Ditl MD přes Messenger, a odpovídá na ně pomocí umělé inteligence. Odpovědi jsou informační a nenahrazují lékařské vyšetření. AI se v konverzaci vždy představí jako AI. Hlasové zprávy namlouvá umělá inteligence hlasem MUDr. Ditla.</p>
 <h2>Jaké údaje zpracováváme</h2>
 <ul><li>obsah zpráv, které stránce pošlete, a identifikátor vaší konverzace v Messengeru (PSID);</li>
+<li>u chatu na webu obsah zpráv a náhodný identifikátor konverzace uložený ve vašem prohlížeči;</li>
 <li>pokud se chcete objednat do ordinace: jméno, telefonní číslo, věk, popis potíží a preferovaný den vyšetření.</li></ul>
 <p>Nepožadujeme rodné číslo, číslo pojištěnce, adresu ani fotografie. Prosíme, neposílejte je.</p>
 <h2>Účel a právní základ</h2>
@@ -474,6 +505,24 @@ http.createServer(async (req, res) => {
 
     /* soukromá sekce MUDr. Ditla: literatura, příspěvky, novinky (později operační program) */
     if (url.pathname === "/pavel" || url.pathname.startsWith("/pavel/")) { await pavel.handle(req, res, url); return; }
+
+    /* chat na webu: POST /web/chat { id, text } → { odpoved } */
+    if (url.pathname === "/web/chat") {
+      const origin = req.headers.origin || "";
+      const cors = { "Access-Control-Allow-Origin": WEB_ORIGINS.includes(origin) ? origin : WEB_ORIGINS[0], "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Max-Age": "86400", "Vary": "Origin" };
+      if (req.method === "OPTIONS") { res.writeHead(204, cors); return res.end(); }
+      const json = (st, o) => { res.writeHead(st, { ...cors, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(o)); };
+      if (req.method !== "POST") return json(405, { chyba: "jen POST" });
+      if (!PORADNA || !INSTRUKCE) return json(503, { odpoved: "Poradna je teď mimo provoz. Napište nám prosím do Messengeru; při akutních potížích volejte 155." });
+      const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim();
+      if (webPrilisRychle(ip)) return json(429, { odpoved: "Píšete moc rychle za sebou, chvilku počkejte. Při akutních potížích volejte 155." });
+      let body; try { body = await readBody(req); } catch { return json(400, { chyba: "špatný JSON" }); }
+      const id = String(body.id || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40);
+      const text = String(body.text || "").slice(0, 1500).trim();
+      if (id.length < 8 || !text) return json(400, { chyba: "chybí id nebo text" });
+      try { return json(200, await poradnaWeb(id, text)); }
+      catch (e) { log(`web chat: ${e.message}`); return json(500, { odpoved: "Omlouvám se, teď nemůžu odpovědět. Zkuste to prosím za chvíli; při akutních potížích volejte 155." }); }
+    }
 
     /* ruční/agentní odpověď bez AInetu: GET /reply?key=VERIFY_TOKEN&psid=...&text=... */
     if (url.pathname === "/reply" && req.method === "GET") {
