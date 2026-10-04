@@ -8,6 +8,13 @@
 <meta property="og:title" content="MUDr. Pavel Ditl – chirurg · AI poradna">
 <meta property="og:description" content="Zdravotní dotaz nebo objednání do ordinace přes AI, kterou jsem vytrénoval. Bulovka Po 12–15, Neratovice Čt 16–18.">
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://pabloainet.github.io/AInet/">
+<meta property="og:image" content="https://pabloainet.github.io/AInet/hero-navy.jpg">
+<meta property="og:image:alt" content="MUDr. Pavel Ditl – chirurg, AI poradna">
+<meta property="og:locale" content="cs_CZ">
+<meta property="og:site_name" content="MUDr. Pavel Ditl">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://pabloainet.github.io/AInet/">
 <style>
 :root{--navy:#0d2742;--navy2:#18385e;--teal:#5ec8b2;--white:#f5f8fa;--grey:#b0c4d6;--warn:#aa5032}
 *{box-sizing:border-box}
@@ -56,13 +63,33 @@ section{padding:40px 0;border-top:1px solid rgba(255,255,255,.08)}
 footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid rgba(255,255,255,.08)}
 .alert{background:rgba(170,80,50,.18);border:1px solid var(--warn);border-radius:12px;padding:12px 16px;margin-top:18px;font-size:15px}
 @media (max-width:760px){.hero{grid-template-columns:1fr;padding-top:26px}.banner{min-height:360px;background-position:70% center}.banner h1{font-size:30px}.banner .in{padding-top:40px}.tiles{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}nav{display:none}.btn.sec{margin:10px 0 0}}
+.fbwrap{display:flex;justify-content:center}
+.fbwrap iframe{border:none;overflow:hidden;max-width:100%;border-radius:14px;background:#fff}
+.chatbtn{position:fixed;right:18px;bottom:18px;z-index:50;background:var(--teal);color:var(--navy);border:0;border-radius:28px;padding:14px 20px;font-weight:800;font-size:16px;box-shadow:0 6px 20px rgba(0,0,0,.35);cursor:pointer}
+.chat{position:fixed;right:18px;bottom:84px;z-index:50;width:min(380px,calc(100vw - 24px));height:min(560px,calc(100vh - 110px));background:var(--navy2);border-radius:18px;box-shadow:0 10px 40px rgba(0,0,0,.5);display:flex;flex-direction:column;overflow:hidden}
+.chat[hidden]{display:none}
+.chat-h{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--navy);border-bottom:2px solid var(--teal)}
+.chat-h button{background:none;border:0;color:var(--grey);font-size:26px;cursor:pointer;line-height:1}
+.chat-log{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
+.msg{max-width:85%;padding:9px 12px;border-radius:14px;font-size:15px;line-height:1.4;overflow-wrap:anywhere}
+.msg.ai{background:var(--navy);align-self:flex-start;border-bottom-left-radius:4px}
+.msg.ja{background:var(--teal);color:var(--navy);align-self:flex-end;border-bottom-right-radius:4px}
+.msg.cek{opacity:.7;font-style:italic}
+.msg a{color:var(--teal)}
+.chat-quick{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 8px}
+.chat-quick button{background:transparent;border:1px solid var(--teal);color:var(--teal);border-radius:16px;padding:6px 10px;font-size:13px;cursor:pointer}
+.chat-f{display:flex;gap:8px;padding:10px 12px;border-top:1px solid rgba(255,255,255,.08)}
+.chat-f input{flex:1;min-width:0;background:var(--navy);color:var(--white);border:1px solid #2c4f78;border-radius:10px;padding:10px;font:inherit;font-size:16px}
+.chat-f button{background:var(--teal);color:var(--navy);border:0;border-radius:10px;padding:0 14px;font-weight:800;cursor:pointer}
+.chat-note{font-size:11px;color:var(--grey);padding:0 12px 10px}
+@media (max-width:760px){.chat{right:12px;left:12px;width:auto;bottom:80px}}
 </style>
 </head>
 <body>
 <div class="wrap">
 <header>
   <a class="brand" href="#">MUDr. Pavel Ditl <span class="tag">AI PORADNA</span></a>
-  <nav><a href="#poradna">Poradna</a><a href="#ordinace">Ordinace</a><a href="#omne">O mně</a><a href="#cenik">Ceník</a></nav>
+  <nav><a href="#poradna">Poradna</a><a href="#ordinace">Ordinace</a><a href="#omne">O mně</a><a href="#cenik">Ceník</a><a href="#facebook">Facebook</a></nav>
 </header>
 
 <div class="banner">
@@ -89,7 +116,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
 
 <section id="poradna">
   <h2>S čím přicházíte?</h2>
-  <p class="lead">Klikněte – otevře se Messenger a odpoví AI, kterou trénoval MUDr. Ditl. Zvládne to i z mobilu.</p>
+  <p class="lead">Klikněte – otevře se Messenger a odpoví AI, kterou trénoval MUDr. Ditl. Zvládne to i z mobilu. Nemáte Facebook? <a href="#" data-chat="">Napište přímo tady na webu.</a></p>
   <div class="tiles">
     <a class="tile" href="https://m.me/1329907923537973?ref=poradna"><b>🩺 Poradna</b><span>Mám zdravotní dotaz – žíly, hemoroidy, kýla, hojení ran…</span></a>
     <a class="tile" href="https://m.me/1329907923537973?ref=ordinace"><b>📅 Ordinace</b><span>Chci se objednat: pondělí Bulovka, čtvrtek Neratovice</span></a>
@@ -136,6 +163,12 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
   </div>
 </section>
 
+<section id="facebook">
+  <h2>Z Facebooku</h2>
+  <p class="lead">Nejnovější příspěvky ze stránky Pavel Ditl MD.</p>
+  <div class="fbwrap"><iframe src="https://www.facebook.com/plugins/page.php?href=https%3A%2F%2Fwww.facebook.com%2Fprofile.php%3Fid%3D61594350389956&tabs=timeline&width=500&height=650&small_header=true&adapt_container_width=true&hide_cover=false&show_facepile=false&locale=cs_CZ" width="500" height="650" scrolling="no" frameborder="0" allowfullscreen="true" allow="encrypted-media" loading="lazy" title="Příspěvky ze stránky Pavel Ditl MD na Facebooku"></iframe></div>
+</section>
+
 <section>
   <h2>Sledujte mě</h2>
   <p class="social">
@@ -148,5 +181,47 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
   MUDr. Pavel Ditl · Odpovědi AI jsou informační a nenahrazují vyšetření lékařem. · <a href="https://fb-most.onrender.com/soukromi">Ochrana soukromí</a>
 </footer>
 </div>
+<button id="chatBtn" class="chatbtn" type="button" aria-label="Otevřít chat s AI poradnou">💬 Zeptat se AI</button>
+<div id="chat" class="chat" hidden role="dialog" aria-label="Chat s AI poradnou">
+  <div class="chat-h"><b>AI poradna MUDr. Ditla</b><button id="chatX" type="button" aria-label="Zavřít">×</button></div>
+  <div id="chatLog" class="chat-log" aria-live="polite"></div>
+  <div id="chatQuick" class="chat-quick"></div>
+  <form id="chatForm" class="chat-f"><input id="chatIn" autocomplete="off" maxlength="1500" placeholder="Napište, co vás trápí…" aria-label="Vaše zpráva"><button>Odeslat</button></form>
+  <div class="chat-note">Jsem AI – odpovědi jsou informační a nenahrazují vyšetření. Při akutních potížích volejte 155. Odesláním souhlasíte se zpracováním podle <a href="https://fb-most.onrender.com/soukromi" target="_blank" rel="noopener">Ochrany soukromí</a>.</div>
+</div>
+<script>
+(function () {
+  var API = "https://fb-most.onrender.com/web/chat";
+  var id = null; try { id = localStorage.getItem("pd_chat_id"); } catch (e) {}
+  if (!id) { id = "w" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); try { localStorage.setItem("pd_chat_id", id); } catch (e) {} }
+  var $ = function (x) { return document.getElementById(x); };
+  var log = $("chatLog"), box = $("chat"), inp = $("chatIn"), quick = $("chatQuick"), busy = false, opened = false;
+  function esc(t) { return String(t).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function linky(t) { return esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>').replace(/\n/g, "<br>"); }
+  function add(kdo, t) { var d = document.createElement("div"); d.className = "msg " + kdo; d.innerHTML = linky(t); log.appendChild(d); log.scrollTop = log.scrollHeight; return d; }
+  var TEMATA = [["🩺 Zdravotní dotaz", "Dobrý den, mám zdravotní dotaz."], ["📅 Objednat se", "Chci se objednat do ordinace."], ["🔪 Operace", "Co mě čeká u operace a jak se připravit?"], ["✨ Metličky", "Mám metličkové žilky, co s nimi?"]];
+  function nabidka() { quick.innerHTML = ""; TEMATA.forEach(function (r) { var b = document.createElement("button"); b.type = "button"; b.textContent = r[0]; b.onclick = function () { posli(r[1]); }; quick.appendChild(b); }); }
+  function otevri(t) {
+    box.hidden = false;
+    if (!opened) { opened = true; add("ai", "Dobrý den, jsem AI asistent, kterého trénoval MUDr. Pavel Ditl. Napište, co vás trápí, nebo vyberte téma. Při akutních potížích volejte 155."); nabidka(); }
+    if (t) posli(t); else inp.focus();
+  }
+  function posli(t) {
+    t = (t || "").trim(); if (!t || busy) return;
+    busy = true; quick.innerHTML = ""; add("ja", t); inp.value = "";
+    var cek = add("ai cek", "Píšu…");
+    var pomalu = setTimeout(function () { cek.textContent = "Probouzím poradnu, chvilku to potrvá…"; }, 6000);
+    fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: id, text: t }) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { cek.remove(); add("ai", j.odpoved || "Omlouvám se, teď nemůžu odpovědět."); })
+      .catch(function () { cek.remove(); add("ai", "Spojení se nepodařilo. Zkuste to za chvíli, nebo napište do Messengeru. Při akutních potížích volejte 155."); })
+      .then(function () { clearTimeout(pomalu); busy = false; inp.focus(); });
+  }
+  $("chatBtn").onclick = function () { if (box.hidden) otevri(); else box.hidden = true; };
+  $("chatX").onclick = function () { box.hidden = true; };
+  $("chatForm").onsubmit = function (e) { e.preventDefault(); posli(inp.value); };
+  Array.prototype.forEach.call(document.querySelectorAll("[data-chat]"), function (a) { a.addEventListener("click", function (e) { e.preventDefault(); otevri(a.getAttribute("data-chat")); }); });
+})();
+</script>
 </body>
 </html>
