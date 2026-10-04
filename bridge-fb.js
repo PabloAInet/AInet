@@ -263,6 +263,20 @@ async function poradnaWeb(id, text) {
   return { odpoved };
 }
 
+/* ---------- Poslední „Studie týdne“ z FB stránky (zrcadlení na web) ---------- */
+const POSLEDNI_TAG = process.env.POSLEDNI_TAG || "#StudieTýdne";
+let posledniCache = { t: 0, data: null };
+async function posledniPrispevek() {
+  if (Date.now() - posledniCache.t < 30 * 60e3) return posledniCache.data;
+  const r = await fetch(`https://graph.facebook.com/v21.0/me/posts?fields=message,full_picture,permalink_url,created_time&limit=25&access_token=${encodeURIComponent(PAGE_ACCESS_TOKEN)}`);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) throw new Error(j.error?.message || `Graph ${r.status}`);
+  const p = (j.data || []).find(x => (x.message || "").includes(POSLEDNI_TAG));
+  const data = p ? { text: p.message, obrazek: p.full_picture || null, odkaz: p.permalink_url || null, datum: p.created_time || null } : null;
+  posledniCache = { t: Date.now(), data };
+  return data;
+}
+
 /* ---------- Okna (témata): ice breakers + menu v Messengeru + m.me?ref= ---------- */
 const TEMATA = {
   poradna:  { title: "🩺 Poradna – mám zdravotní dotaz", opener: "Dobrý den, jsem AI asistent, kterého trénoval MUDr. Pavel Ditl. Napište mi, co vás trápí – zeptám se na pár věcí a poradím, co dál. Při akutních potížích volejte 155." },
@@ -522,6 +536,17 @@ http.createServer(async (req, res) => {
       if (id.length < 8 || !text) return json(400, { chyba: "chybí id nebo text" });
       try { return json(200, await poradnaWeb(id, text)); }
       catch (e) { log(`web chat: ${e.message}`); return json(500, { odpoved: "Omlouvám se, teď nemůžu odpovědět. Zkuste to prosím za chvíli; při akutních potížích volejte 155." }); }
+    }
+
+    /* web: GET /web/posledni → { prispevek } (poslední příspěvek s #StudieTýdne, cache 30 min) */
+    if (url.pathname === "/web/posledni" && (req.method === "GET" || req.method === "OPTIONS")) {
+      const origin = req.headers.origin || "";
+      const h = { "Access-Control-Allow-Origin": WEB_ORIGINS.includes(origin) ? origin : WEB_ORIGINS[0], "Vary": "Origin", "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=600" };
+      if (req.method === "OPTIONS") { res.writeHead(204, h); return res.end(); }
+      let out, st = 200;
+      try { out = { prispevek: await posledniPrispevek() }; }
+      catch (e) { log(`posledni: ${e.message}`); st = 502; out = { prispevek: null, chyba: e.message.slice(0, 200) }; }
+      res.writeHead(st, st === 200 ? h : { ...h, "Cache-Control": "no-store" }); return res.end(JSON.stringify(out));
     }
 
     /* ruční/agentní odpověď bez AInetu: GET /reply?key=VERIFY_TOKEN&psid=...&text=... */
