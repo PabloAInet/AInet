@@ -264,7 +264,8 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
     <button id="callGo" class="callgo" type="button">Zahájit hovor</button>
     <div id="callStav" class="callstav" aria-live="polite"></div>
     <h4>Telefonní linka</h4>
-    <p>Připravujeme. Zatím volejte přes internet výše nebo napište do chatu.</p>
+    <button id="callTel" class="callgo" type="button" style="background:transparent;border:2px solid var(--teal);color:var(--teal)">📞 +420 XXX XXX XXX</button>
+    <div id="callTelInfo" class="callstav" hidden>🚧 Under construction – telefonní linku právě zřizujeme. Zatím použijte hovor přes internet výše nebo napište do chatu.</div>
     <p class="chat-note" style="padding:8px 0 0">Jsem AI – odpovědi jsou informační a nenahrazují vyšetření. Při akutních potížích volejte 155. Hovor zpracovává ElevenLabs podle <a href="https://fb-most.onrender.com/soukromi" target="_blank" rel="noopener">Ochrany soukromí</a>.</p>
   </div>
 </div>
@@ -292,6 +293,9 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
       .catch(function (e) { go.disabled = false; bezi = false; tlacitko(); nastav(e && e.name === "NotAllowedError" ? "Bez povolení mikrofonu hovor nejde. Povolte ho v prohlížeči, nebo napište do chatu." : "Hovor se nepodařilo spustit. Zkuste to za chvíli, nebo napište do chatu."); });
   };
 })();
+</script>
+<script>
+document.getElementById("callTel").onclick = function () { var i = document.getElementById("callTelInfo"); i.hidden = !i.hidden; };
 </script>
 </body>
 </html>
