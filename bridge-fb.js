@@ -21,6 +21,10 @@
  *   ELEVENLABS_API_KEY – (volitelné) klíč ElevenLabs; s ELEVENLABS_VOICE_ID posílá odpovědi i jako hlasovku
  *   ELEVENLABS_VOICE_ID– (volitelné) ID klonu hlasu "Pavel – ambulance"
  *   VOICE_MAX_CHARS    – výchozí 1200 (~75 s řeči); delší odpovědi jdou jen textem
+ *   HLASOVKY           – "1" zapne hlasovky v Messengeru (výchozí vypnuto – hlas patří do hovoru)
+ *   HLAS_PLACENY_AGENT – ID placeného hlasového agenta ElevenLabs (PubMed, delší odpovědi); token vydá /hlas/token jen po zaplacení
+ *   HOVOR_ZDARMA       – kolik otázek má hovor na webu zdarma (výchozí stejně jako ZDARMA_SMYCEK)
+ *   LIMIT_ZDARMA       – "0" vypne limit bezplatných odpovědí, když ještě není PLATBA_URL
  *   ANTHROPIC_API_KEY  – (volitelné) režim PORADNA: most odpovídá pacientům sám podle fb-instrukce.js
  *                        (rychlejší, s pamětí konverzace); objednávky posílá Fablovi na AInet.
  *                        Bez klíče běží původní režim: vše přeposílá Fablovi.
@@ -38,7 +42,8 @@ const PORT = process.env.PORT || 4790;
 const AINET = (process.env.AINET_BASE || "https://ainet-1e2y.onrender.com").replace(/\/$/, "");
 const FABLE = process.env.FABLE_NAME || "Fable";
 const { PAGE_ACCESS_TOKEN, VERIFY_TOKEN, AINET_TOKEN, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID } = process.env;
-const VOICE_ON = !!(ELEVENLABS_API_KEY && ELEVENLABS_VOICE_ID);
+const HLASOVKY = process.env.HLASOVKY === "1";                 // hlasovky v psaném Messengeru – výchozí vypnuto
+const VOICE_ON = !!(ELEVENLABS_API_KEY && ELEVENLABS_VOICE_ID) && HLASOVKY;
 const VOICE_MAX = Number(process.env.VOICE_MAX_CHARS || 1200);
 const { ANTHROPIC_API_KEY } = process.env;
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
@@ -46,13 +51,16 @@ const PORADNA = !!ANTHROPIC_API_KEY;
 const lit = require("./literatura.js");   // PubMed (Europe PMC) + ClinicalTrials.gov
 const pavel = require("./pavel.js");      // soukromá sekce /pavel
 const LIT_PORADNA = process.env.LITERATURA_PORADNA !== "0";
-/* placená poradna: ZDARMA_SMYCEK otázek zdarma, pak platební odkaz (vypnuto, dokud není PLATBA_URL) */
+/* placená poradna: ZDARMA_SMYCEK otázek zdarma, pak platební odkaz; bez PLATBA_URL jen konec bezplatné části + objednání */
 const PLATBA_URL = process.env.PLATBA_URL || "";          // např. Stripe Payment Link https://buy.stripe.com/...
 const CENA = process.env.CENA || "";                      // text ceny pro pacienta, např. "290 Kč"
-const ZDARMA = Number(process.env.ZDARMA_SMYCEK || 3);
+const ZDARMA = Number(process.env.ZDARMA_SMYCEK || 5);
+const HOVOR_ZDARMA = Number(process.env.HOVOR_ZDARMA || ZDARMA);
 const PLATBA_PLATNOST_H = Number(process.env.PLATBA_PLATNOST_H || 24);
 const { STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET } = process.env;
-const PAYWALL = !!PLATBA_URL;
+const PAYWALL = !!PLATBA_URL;                                   // dá se zaplatit
+const LIMIT = PAYWALL || process.env.LIMIT_ZDARMA !== "0";      // hlídá se počet bezplatných odpovědí
+const HLAS_PLACENY_AGENT = process.env.HLAS_PLACENY_AGENT || "agent_6201m46ewnpnfb29655y23rkfss3"; // „Doctor – placená konzultace (PubMed)“
 let INSTRUKCE = "";
 if (PORADNA) { try { INSTRUKCE = require("./fb-instrukce.js"); } catch (e) { console.warn("[most] fb-instrukce.js chybí, režim poradna vypnut"); } }
 
@@ -113,7 +121,7 @@ async function fbSendAudio(psid, mp3) {
 }
 /* stav kreditu ElevenLabs – do logu při startu a každých 6 h, varování pod 15 % */
 async function elevenStav() {
-  if (!VOICE_ON) return null;
+  if (!ELEVENLABS_API_KEY) return null;
   const r = await fetch("https://api.elevenlabs.io/v1/user/subscription", { headers: { "xi-api-key": ELEVENLABS_API_KEY } });
   if (!r.ok) throw new Error(`subscription ${r.status}`);
   const j = await r.json();
@@ -123,7 +131,7 @@ async function elevenStav() {
   log(zbyva < 0.15 * limit ? `⚠️ ${msg}` : msg);
   return { used, limit, zbyva, tier: j.tier, reset };
 }
-if (VOICE_ON) { setTimeout(() => elevenStav().catch(e => log(`kredit: ${e.message}`)), 5000); setInterval(() => elevenStav().catch(e => log(`kredit: ${e.message}`)), 6 * 3600 * 1000); }
+if (ELEVENLABS_API_KEY) { setTimeout(() => elevenStav().catch(e => log(`kredit: ${e.message}`)), 5000); setInterval(() => elevenStav().catch(e => log(`kredit: ${e.message}`)), 6 * 3600 * 1000); }
 
 /* text jde vždy; hlasovka je bonus – když selže, nic se neděje */
 async function sendVoiceIfShort(psid, text) {
@@ -153,10 +161,10 @@ async function askModel(psid, text) {
   if (!c || now - c.t > CHAT_TTL) c = { turns: [], t: now };
   c.n = (c.n || 0) + 1;                       // kolo rozhovoru (odpovědi AI od začátku tématu)
   c.q = (c.q || 0) + 1; if (OBJEDNAT.test(text)) c.objednavani = true; // otázky pacienta (pro placení)
-  const KOLA = Number(process.env.MAX_KOLA || 4) * (jeZaplaceno(psid) ? 2 : 1);
+  const KOLA = Number(process.env.MAX_KOLA || ZDARMA) * (jeZaplaceno(psid) ? 2 : 1);
   const hint = c.n < KOLA ? `[kolo ${c.n}/${KOLA}]` : c.n === KOLA ? `[kolo ${KOLA}/${KOLA} – uzavři: závěr + objednání nebo rada]` : `[po uzávěru – odpověz stručně, nabídni objednání nebo nové téma]`;
-  const posledniZdarma = PAYWALL && !jeZaplaceno(psid) && !c.objednavani && c.q === ZDARMA;
-  c.turns.push({ role: "user", content: `${text}\n\n${posledniZdarma ? "[poslední bezplatná odpověď – shrň, co zatím víš, řekni předběžný závěr a nabídni objednání; neptej se dál]" : hint}` });
+  const posledniZdarma = LIMIT && !jeZaplaceno(psid) && !c.objednavani && c.q === ZDARMA;
+  c.turns.push({ role: "user", content: `${text}\n\n${posledniZdarma ? `[poslední bezplatná odpověď – shrň, co zatím víš, řekni předběžný závěr a nabídni objednání${PAYWALL ? " nebo placené pokračování" : ""}; neptej se dál]` : hint}` });
   if (c.turns.length > CHAT_MAX) c.turns = c.turns.slice(-CHAT_MAX);
   const { text: full } = await lit.askWithTools({
     apiKey: ANTHROPIC_API_KEY, model: MODEL, maxTokens: 700, maxKol: 1, log, messages: c.turns,
@@ -175,8 +183,11 @@ function odemknout(id, hodin = PLATBA_PLATNOST_H) { zaplaceno.set(String(id), Da
 const platebniOdkaz = (id) => PLATBA_URL + (PLATBA_URL.includes("?") ? "&" : "?") + "client_reference_id=" + encodeURIComponent(id);
 const CERVENE = /(dušn|nemůžu dýchat|nemohu dýchat|bolest na hrudi|tlak na hrudi|černá stolice|černou stolici|silné krvácení|silně krvácí|hodně krve|bezvědom|omdlel|zmaten|náhle otekl|zmodral|horečk)/i;
 const OBJEDNAT = /objedn|termín|ordinac/i;
+const zdarmaVeta = () => ({ 1: "První odpověď poradny je zdarma", 2: "Dvě odpovědi poradny jsou zdarma", 3: "Tři odpovědi poradny jsou zdarma", 4: "Čtyři odpovědi poradny jsou zdarma" })[ZDARMA] || `Prvních ${ZDARMA} odpovědí poradny je zdarma`;
 function paywallText(psid) {
-  return `Tři odpovědi poradny jsou zdarma${CENA ? `, pokračování konzultace stojí ${CENA}` : ""}. Zaplatíte tady: ${platebniOdkaz(psid)}\n` +
+  if (!PAYWALL) return `${zdarmaVeta()} a ta bezplatná část teď skončila. Placené pokračování konzultace s podrobnějšími odbornými odpověďmi právě připravujeme.\n` +
+    "Objednat do ordinace se můžete zdarma – stačí napsat „objednat“. Nový dotaz můžete poslat zítra. Při akutních potížích volejte 155.";
+  return `${zdarmaVeta()}${CENA ? `, pokračování konzultace stojí ${CENA}` : ""}. Zaplatíte tady: ${platebniOdkaz(psid)}\n` +
     "Po zaplacení mi sem napište, na čem jsme skončili, a pokračujeme. Objednání do ordinace je zdarma – stačí napsat „objednat“. Při akutních potížích volejte 155.";
 }
 /* po restartu obnoví zaplacené z posledních plateb ve Stripe (paměť se na Renderu při uspání maže) */
@@ -200,7 +211,7 @@ function stripePodpisOk(raw, hlavicka) {
 }
 /* vrací true, když zprávu vyřídil paywall (model se nevolá) */
 async function paywallKontrola(psid, text) {
-  if (!PAYWALL || jeZaplaceno(psid)) return false;
+  if (!LIMIT || jeZaplaceno(psid)) return false;
   if (CERVENE.test(text)) { await fbSend(psid, "To zní vážně – volejte prosím hned 155 nebo jeďte na pohotovost. Na odpověď z chatu nečekejte."); log(`červený praporek → FB ${psid}`); return true; }
   const c = chats.get(psid);
   const q = c && Date.now() - c.t < CHAT_TTL ? (c.q || 0) : 0;
@@ -247,10 +258,10 @@ async function poradnaWeb(id, text) {
   const c0 = chats.get(key);
   if (c0 && (c0.n || 0) >= (jeZaplaceno(key) ? HARD_CAP * 3 : HARD_CAP) && Date.now() - c0.t < CHAT_TTL)
     return { odpoved: "Tady bych to pro dnešek uzavřel – víc už zvládne jen vyšetření. Napište „objednat“ a domluvíme termín, nebo se ozvěte zítra s novým dotazem. Při akutních potížích volejte 155." };
-  if (PAYWALL && !jeZaplaceno(key)) {
+  if (LIMIT && !jeZaplaceno(key)) {
     if (CERVENE.test(text)) return { odpoved: "To zní vážně – volejte prosím hned 155 nebo jeďte na pohotovost. Na odpověď z chatu nečekejte." };
     const q = c0 && Date.now() - c0.t < CHAT_TTL ? (c0.q || 0) : 0;
-    if (q >= ZDARMA && !OBJEDNAT.test(text) && !(c0 && c0.objednavani)) return { odpoved: paywallText(key), platba: platebniOdkaz(key) };
+    if (q >= ZDARMA && !OBJEDNAT.test(text) && !(c0 && c0.objednavani)) return { odpoved: paywallText(key), platba: PAYWALL ? platebniOdkaz(key) : null };
   }
   const full = await askModel(key, text);
   const hit = OBJ.exec(full);
@@ -437,7 +448,7 @@ http.createServer(async (req, res) => {
       if (url.searchParams.get("key") !== VERIFY_TOKEN) { res.writeHead(403); return res.end("forbidden"); }
       const el = await elevenStav().catch(e => ({ error: e.message }));
       res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-      return res.end(JSON.stringify({ rezim: PORADNA && INSTRUKCE ? "poradna" : "fable", hlasovky: VOICE_ON, model: MODEL, konverzaci_v_pameti: chats.size, paywall: PAYWALL, literatura_poradna: LIT_PORADNA, zdarma_smycek: ZDARMA, zaplacenych: [...zaplaceno.values()].filter(t => t > Date.now()).length, elevenlabs: el }));
+      return res.end(JSON.stringify({ rezim: PORADNA && INSTRUKCE ? "poradna" : "fable", hlasovky: VOICE_ON, model: MODEL, konverzaci_v_pameti: chats.size, paywall: PAYWALL, limit_zdarma: LIMIT, hovor_zdarma: HOVOR_ZDARMA, placeny_hlas: !!HLAS_PLACENY_AGENT, literatura_poradna: LIT_PORADNA, zdarma_smycek: ZDARMA, zaplacenych: [...zaplaceno.values()].filter(t => t > Date.now()).length, elevenlabs: el }));
     }
     if (url.pathname === "/setup-messenger" && req.method === "GET") {
       if (url.searchParams.get("key") !== VERIFY_TOKEN) { res.writeHead(403); return res.end("forbidden"); }
@@ -548,6 +559,50 @@ http.createServer(async (req, res) => {
       try { out = { prispevek: await posledniPrispevek() }; }
       catch (e) { log(`posledni: ${e.message}`); st = 502; out = { prispevek: null, chyba: e.message.slice(0, 200) }; }
       res.writeHead(st, st === 200 ? h : { ...h, "Cache-Control": "no-store" }); return res.end(JSON.stringify(out));
+    }
+
+    /* web: GET /web/limity → veřejné nastavení bezplatné části a placení (pro chat a hovor na webu) */
+    if (url.pathname === "/web/limity" && (req.method === "GET" || req.method === "OPTIONS")) {
+      const origin = req.headers.origin || "";
+      const h = { "Access-Control-Allow-Origin": WEB_ORIGINS.includes(origin) ? origin : WEB_ORIGINS[0], "Vary": "Origin", "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
+      if (req.method === "OPTIONS") { res.writeHead(204, h); return res.end(); }
+      res.writeHead(200, h);
+      return res.end(JSON.stringify({ zdarma: ZDARMA, hovor_zdarma: HOVOR_ZDARMA, limit: LIMIT, platba: PAYWALL, cena: CENA || null, platba_url: PAYWALL ? PLATBA_URL : null, placeny_hlas: !!(HLAS_PLACENY_AGENT && ELEVENLABS_API_KEY) }));
+    }
+
+    /* placený hovor: GET /hlas/token?id=web_… → { token } pro placeného agenta, jen když je id zaplacené */
+    if (url.pathname === "/hlas/token" && (req.method === "GET" || req.method === "OPTIONS")) {
+      const origin = req.headers.origin || "";
+      const h = { "Access-Control-Allow-Origin": WEB_ORIGINS.includes(origin) ? origin : WEB_ORIGINS[0], "Vary": "Origin", "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
+      if (req.method === "OPTIONS") { res.writeHead(204, h); return res.end(); }
+      const json = (st, o) => { res.writeHead(st, h); res.end(JSON.stringify(o)); };
+      const id = String(url.searchParams.get("id") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 48);
+      if (!HLAS_PLACENY_AGENT || !ELEVENLABS_API_KEY) return json(503, { zaplaceno: false, chyba: "placený hovor zatím není zapnutý" });
+      if (!id || !jeZaplaceno(id)) return json(402, { zaplaceno: false });
+      try {
+        const r = await fetch(`https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${encodeURIComponent(HLAS_PLACENY_AGENT)}`, { headers: { "xi-api-key": ELEVENLABS_API_KEY } });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.token) throw new Error(`ElevenLabs ${r.status}`);
+        log(`placený hovor: token pro ${id}`);
+        return json(200, { zaplaceno: true, token: j.token });
+      } catch (e) { log(`hlas/token: ${e.message}`); return json(502, { zaplaceno: true, chyba: "hovor se teď nepodařilo připravit" }); }
+    }
+
+    /* nástroj placeného hlasového agenta: POST /hlas/literatura { dotaz } → stručný výtah z PubMedu (Europe PMC) */
+    if (url.pathname === "/hlas/literatura" && req.method === "POST") {
+      const json = (st, o) => { res.writeHead(st, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(o)); };
+      if (process.env.HLAS_KLIC && req.headers["x-doctor-klic"] !== process.env.HLAS_KLIC) return json(403, { chyba: "forbidden" });
+      if (webPrilisRychle("lit_hlas")) return json(429, { vysledek: "Hledání je teď přetížené, odpověz bez literatury." });
+      let b; try { b = await readBody(req); } catch { return json(400, { chyba: "špatný JSON" }); }
+      const dotaz = String((b && b.dotaz) || "").slice(0, 200).trim();
+      if (!dotaz) return json(400, { vysledek: "Chybí dotaz – zadej anglický odborný dotaz, např. 'laser hemorrhoidoplasty recurrence'." });
+      try {
+        let v = await lit.hledejClanky(dotaz, { max: 4, typ: b.jen_prehledy === false ? "vse" : "prehledy", razeni: "relevance" });
+        if (!v.clanky.length) v = await lit.hledejClanky(dotaz, { max: 4, typ: "vse", razeni: "relevance" });
+        const kratce = v.clanky.length ? v.clanky.map((a, i) => `[${i + 1}] ${a.nazev} – ${a.autori}, ${a.casopis} ${a.rok}${a.typy.length ? " (" + a.typy.join(", ") + ")" : ""}. Abstrakt: ${(a.abstrakt || "").slice(0, 900)}`).join("\n\n") : "Nic nenalezeno – zkus obecnější anglický dotaz, nebo odpověz z obecných znalostí a řekni, že konkrétní data nemáš.";
+        log(`hlas/literatura: ${dotaz} → ${v.clanky.length}`);
+        return json(200, { vysledek: kratce });
+      } catch (e) { log(`hlas/literatura: ${e.message}`); return json(502, { vysledek: "Literaturu se teď nepodařilo prohledat, odpověz z obecných znalostí a řekni to." }); }
     }
 
     /* hlasový asistent (ElevenLabs, web i telefon): POST /hlas/objednani { jmeno, telefon, den, potiz, … } → objednávka Pavlovi */
