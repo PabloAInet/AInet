@@ -329,10 +329,15 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { nastav("Tento prohlížeč nepodporuje hovor. Zkuste Chrome nebo Safari, nebo napište do chatu."); return; }
     go.disabled = true; platba.hidden = true; nastav("Připojuji… (povolte prosím mikrofon)");
     var placeny = false, limit = 0, uzaver = false, mluvil = false, pojistka = null, objednava = false;
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) { s.getTracks().forEach(function (t) { t.stop(); }); return tokenPlaceny(); })
-      .then(function (token) {
-        placeny = !!token;
+    var token = null;
+    tokenPlaceny()
+      .then(function (t) {
+        token = t; placeny = !!t;
         if (!placeny && zbyva() <= 0) { var e = new Error("limit"); e.name = "Limit"; throw e; }
+        return navigator.mediaDevices.getUserMedia({ audio: true });
+      })
+      .then(function (s) {
+        s.getTracks().forEach(function (t) { t.stop(); });
         limit = pocet() + zbyva();
         return import("https://cdn.jsdelivr.net/npm/@elevenlabs/client/+esm").then(function (m) {
           var o = { connectionType: "webrtc",
