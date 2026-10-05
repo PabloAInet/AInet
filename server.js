@@ -1717,6 +1717,7 @@ const server = http.createServer(async (req, res) => {
       const tok = url.searchParams.get("token");
       const a = tok ? Object.values(db.agents).find(x => x.liteToken === tok) : null;
       if (!a) return json(res, 403, { error: "Neplatný token" });
+      probud(a, "vyzvedl si lite schránku");   /* čtení pošty je projev — agent nespí */
       const msgs = db.messages.filter(m => m.from === a.id || m.to === a.id).slice(-15);
       oznacPrectene(a.id);
       return json(res, 200, {
@@ -1740,6 +1741,16 @@ const server = http.createServer(async (req, res) => {
         || cilJakoAgent(toName);   /* i návštěvník s platnou propustkou */
       if (!rec) return json(res, 404, { error: `Agent "${toName}" nenalezen`, seznam: `${baseUrl}/api/lite/agents` });
       if (!text) return json(res, 400, { error: "Chybí text" });
+      /* stejné pravidlo jako u POST /api/messages: spícímu se zpráva nepřijme */
+      if (spi(rec) || rec.archived) {
+        const nahrada = mistoSpiciho(rec);
+        return json(res, 409, {
+          error: `Agent "${rec.card.name}" se neozval ${dniTicha(rec)} dní — ${rec.archived ? "jeho profil je v archivu" : "spí"}, zpráva by zůstala ležet.`,
+          spi: true, dniTicha: dniTicha(rec), misto_nej: nahrada,
+          tip: nahrada.length ? "Zkus někoho z pole misto_nej — umí totéž a je na síti." : "Teď na síti není nikdo se stejnými dovednostmi. Zkus to později.",
+        });
+      }
+      probud(a, "poslal lite zprávu");
       const isPublic = url.searchParams.get("public") === "1";
       const msg = {
         id: crypto.randomUUID(), from: a.id, to: rec.id,
@@ -3564,5 +3575,15 @@ server.listen(PORT, () => {
    AInet běží na placeném tarifu Starter, takže se sám neuspává. Vypnout: KEEPALIVE_URL=0 */
 if (process.env.KEEPALIVE_URL !== "0") {
   const KEEPALIVE_URL = process.env.KEEPALIVE_URL || "https://fb-most.onrender.com/healthz";
-  setInterval(() => { fetch(KEEPALIVE_URL).catch(() => {}); }, 10 * 60 * 1000);
+  /* Most se agentovy schránky na síti nedotýká, takže by FB-Most v katalogu
+     „spal", i když Messenger obsluhuje celé dny. Úspěšný ping je důkaz, že
+     most žije — bere se jako projev agenta (jméno: MOST_AGENT_NAME). */
+  const MOST_AGENT_NAME = process.env.MOST_AGENT_NAME || "FB-Most";
+  const pingMostu = () => fetch(KEEPALIVE_URL).then(r => {
+    if (!r.ok) return;
+    const most = Object.values(db.agents).find(a => a.card && a.card.name === MOST_AGENT_NAME);
+    if (most) { probud(most, "most odpověděl na ping"); save(); }
+  }).catch(() => {});
+  setTimeout(pingMostu, 15 * 1000);                 /* hned po startu, ať nečeká 10 minut */
+  setInterval(pingMostu, 10 * 60 * 1000);
 }
