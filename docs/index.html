@@ -296,6 +296,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
   function ulozPocet(n) { try { localStorage.setItem("pd_hovor", JSON.stringify({ d: dnes(), n: n })); } catch (e) {} }
   function zbyva() { return Math.max(0, nast.hovor_zdarma - pocet()); }
   function nastav(t) { stav.textContent = t || ""; }
+  function zbyvaText() { var n = zbyva(); return n === 1 ? "zbývá 1 otázka" : n >= 2 && n <= 4 ? "zbývají " + n + " otázky" : "zbývá " + n + " otázek"; }
   function tlacitko() { go.textContent = bezi ? "Ukončit hovor" : "Zahájit hovor"; go.classList.toggle("end", bezi); }
   function ukazInfo() { var i = document.getElementById("callZdarma"); if (i) i.textContent = "Prvních " + nast.hovor_zdarma + " otázek denně je zdarma. Placená konzultace: podrobnější odborné odpovědi ověřené v PubMedu."; }
   function ukazPlatbu() {
@@ -341,7 +342,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
         limit = pocet() + zbyva();
         return import("https://cdn.jsdelivr.net/npm/@elevenlabs/client/+esm").then(function (m) {
           var o = { connectionType: "webrtc",
-            onConnect: function () { bezi = true; tlacitko(); nastav(placeny ? "Placená konzultace – mluvte." : "Spojeno – mluvte. Zdarma zbývá " + zbyva() + " otázek."); },
+            onConnect: function () { bezi = true; tlacitko(); nastav(placeny ? "Placená konzultace – mluvte." : "Spojeno – mluvte. Zdarma " + zbyvaText() + "."); },
             onDisconnect: function () { bezi = false; hovor = null; clearTimeout(pojistka); tlacitko(); if (uzaver) { nastav("Hovor skončil. Děkujeme."); ukazPlatbu(); } else nastav("Hovor skončil. Děkujeme."); },
             onError: function () { nastav("Spojení se přerušilo. Zkuste to znovu, nebo napište do chatu."); },
             onMessage: function (x) {
@@ -356,7 +357,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
             },
             onModeChange: function (x) {
               var mode = x && x.mode;
-              if (bezi) nastav(mode === "speaking" ? "Mluví AI…" : "Poslouchám…" + (placeny ? "" : " (zdarma zbývá " + zbyva() + ")"));
+              if (bezi) nastav(mode === "speaking" ? "Mluví AI…" : "Poslouchám…" + (placeny ? "" : " (zdarma " + zbyvaText() + ")"));
               if (uzaver && mode === "speaking") mluvil = true;
               if (uzaver && mluvil && mode === "listening" && hovor) setTimeout(function () { if (hovor) hovor.endSession().catch(function () {}); }, 1200);
             } };
