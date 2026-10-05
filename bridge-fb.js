@@ -165,12 +165,14 @@ async function askModel(psid, text) {
   const KOLA = Number(process.env.MAX_KOLA || ZDARMA) * (jeZaplaceno(psid) ? 2 : 1);
   const hint = c.n < KOLA ? `[kolo ${c.n}/${KOLA}]` : c.n === KOLA ? `[kolo ${KOLA}/${KOLA} – uzavři: závěr + objednání nebo rada]` : `[po uzávěru – odpověz stručně, nabídni objednání nebo nové téma]`;
   const posledniZdarma = LIMIT && !jeZaplaceno(psid) && !c.objednavani && c.q === ZDARMA;
-  c.turns.push({ role: "user", content: `${text}\n\n${posledniZdarma ? `[poslední bezplatná odpověď – shrň, co zatím víš, řekni předběžný závěr a nabídni objednání${PAYWALL ? " nebo placené pokračování" : ""}; neptej se dál]` : hint}` });
+  const nabidkaPlacene = PAYWALL ? `; pak jednou větou řekni, že pokračovat lze v placené konzultaci (${PLACENA_POPIS}) – odkaz na platbu pošle systém hned po této odpovědi` : `; pak jednou větou řekni, že připravujeme placenou konzultaci (${PLACENA_POPIS})`;
+  c.turns.push({ role: "user", content: `${text}\n\n${posledniZdarma ? `[poslední bezplatná odpověď – shrň, co zatím víš, řekni předběžný závěr a nabídni objednání${nabidkaPlacene}; neptej se dál]` : hint}` });
   if (c.turns.length > CHAT_MAX) c.turns = c.turns.slice(-CHAT_MAX);
+  const placena = jeZaplaceno(psid);
   const { text: full } = await lit.askWithTools({
-    apiKey: ANTHROPIC_API_KEY, model: MODEL, maxTokens: 700, maxKol: 1, log, messages: c.turns,
-    system: INSTRUKCE + (LIT_PORADNA ? lit.PORADNA_DODATEK : ""),
-    tools: LIT_PORADNA ? lit.NASTROJE.filter(t => t.name === "hledej_literaturu") : [],
+    apiKey: ANTHROPIC_API_KEY, model: MODEL, maxTokens: placena ? 1400 : 700, maxKol: placena ? 2 : 1, log, messages: c.turns,
+    system: INSTRUKCE + (LIT_PORADNA || placena ? lit.PORADNA_DODATEK : "") + (placena ? PLACENA_DODATEK : `\n\nKdyž se pacient zeptá na placenou konzultaci: ${PLACENA_POPIS}; ${PAYWALL ? "odkaz na platbu dostane po bezplatných odpovědích" : "zatím ji připravujeme"}. Cenu sám neuváděj.`),
+    tools: LIT_PORADNA || placena ? lit.NASTROJE.filter(t => t.name === "hledej_literaturu") : [],
   });
   c.turns.push({ role: "assistant", content: full });
   c.t = now; chats.set(psid, c);
@@ -186,11 +188,22 @@ function odemknout(id, hodin = PLATBA_PLATNOST_H) { zaplaceno.set(String(id), Da
 const platebniOdkaz = (id) => PLATBA_URL + (PLATBA_URL.includes("?") ? "&" : "?") + "client_reference_id=" + encodeURIComponent(id);
 const CERVENE = /(dušn|nemůžu dýchat|nemohu dýchat|bolest na hrudi|tlak na hrudi|černá stolice|černou stolici|silné krvácení|silně krvácí|hodně krve|bezvědom|omdlel|zmaten|náhle otekl|zmodral|horečk)/i;
 const OBJEDNAT = /objedn|termín|ordinac/i;
+/* jak placenou verzi popisujeme pacientům – všude stejně (Messenger, chat na webu, hovor) */
+const PLACENA_POPIS = "podrobnější a odbornější odpovědi, fakta ověřená v lékařských databázích (PubMed)";
+const PLATNOST_TEXT = PLATBA_PLATNOST_H % 24 === 0 ? (PLATBA_PLATNOST_H === 24 ? "24 hodin" : `${PLATBA_PLATNOST_H / 24} ${PLATBA_PLATNOST_H / 24 < 5 ? "dny" : "dní"}`) : `${PLATBA_PLATNOST_H} h`;
+/* doplněk systémového promptu pro zaplacenou konzultaci (má přednost před limitem délky a zákazem citací) */
+const PLACENA_DODATEK = `
+
+PLACENÁ KONZULTACE (tato pravidla mají přednost před pravidly výše)
+- Pacient si zaplatil podrobnější konzultaci. Odpovídej podrobněji a odborněji: klidně 80–180 slov, vysvětli důvody, možnosti léčby, jejich výhody a rizika a co se dá čekat. Pořád srozumitelně, česky, latinu hned vysvětli.
+- U konkrétních údajů (úspěšnost a návrat potíží u metod, doba hojení, bolest, komplikace, srovnání metod) nejdřív použij nástroj hledej_literaturu a odpověď opři o nalezené studie. Zdroj uveď stručně na konci (např. „Zdroj: Barone et al., Colorectal Disease 2026“), PMID neuváděj.
+- Když literatura nic nenajde, řekni to a odpověz z obecných znalostí.
+- Červené praporky a pravidla o diagnóze, lécích a objednání platí beze změny; konzultace pořád nenahrazuje vyšetření.`;
 const zdarmaVeta = () => ({ 1: "První odpověď poradny je zdarma", 2: "Dvě odpovědi poradny jsou zdarma", 3: "Tři odpovědi poradny jsou zdarma", 4: "Čtyři odpovědi poradny jsou zdarma" })[ZDARMA] || `Prvních ${ZDARMA} odpovědí poradny je zdarma`;
 function paywallText(psid) {
-  if (!PAYWALL) return `${zdarmaVeta()} a ta bezplatná část teď skončila. Placené pokračování konzultace s podrobnějšími odbornými odpověďmi právě připravujeme.\n` +
+  if (!PAYWALL) return `${zdarmaVeta()} a ta bezplatná část teď skončila. Připravujeme placenou konzultaci: ${PLACENA_POPIS}.\n` +
     "Objednat do ordinace se můžete zdarma – stačí napsat „objednat“. Nový dotaz můžete poslat zítra. Při akutních potížích volejte 155.";
-  return `${zdarmaVeta()}${CENA ? `, pokračování konzultace stojí ${CENA}` : ""}. Zaplatíte tady: ${platebniOdkaz(psid)}\n` +
+  return `${zdarmaVeta()}. Pokračovat můžete v placené konzultaci${CENA ? ` za ${CENA}` : ""} (platí ${PLATNOST_TEXT}): ${PLACENA_POPIS}. Zaplatíte tady: ${platebniOdkaz(psid)}\n` +
     "Po zaplacení mi sem napište, na čem jsme skončili, a pokračujeme. Objednání do ordinace je zdarma – stačí napsat „objednat“. Při akutních potížích volejte 155.";
 }
 /* po restartu obnoví zaplacené z posledních plateb ve Stripe (paměť se na Renderu při uspání maže) */
@@ -211,6 +224,11 @@ function stripePodpisOk(raw, hlavicka) {
   if (!p.t || !p.v1 || Math.abs(Date.now() / 1000 - Number(p.t)) > 600) return false;
   const h = require("crypto").createHmac("sha256", STRIPE_WEBHOOK_SECRET).update(`${p.t}.${raw}`).digest("hex");
   return h.length === p.v1.length && require("crypto").timingSafeEqual(Buffer.from(h), Buffer.from(p.v1));
+}
+/* právě padla poslední bezplatná odpověď a dá se platit → odkaz se pošle hned za ni */
+function hnedPlatba(id) {
+  const c = chats.get(id);
+  return PAYWALL && LIMIT && !jeZaplaceno(id) && c && !c.objednavani && c.q === ZDARMA;
 }
 /* vrací true, když zprávu vyřídil paywall (model se nevolá) */
 async function paywallKontrola(psid, text) {
@@ -239,6 +257,7 @@ async function poradna(psid, text) {
   await fbSend(psid, reply);
   log(`poradna → FB ${psid}: ${reply.slice(0, 60)}`);
   await sendVoiceIfShort(psid, reply);
+  if (!hit && hnedPlatba(psid)) { try { await fbSend(psid, paywallText(psid)); log(`platební odkaz po poslední bezplatné → FB ${psid}`); } catch (e) { log(`platební odkaz: ${e.message}`); } }
   if (hit) {
     const souhrn = `OBJEDNÁNÍ z Messengeru (psid ${psid}, ${new Date().toISOString().slice(0, 16)})\n${hit[1].trim()}`;
     log(`objednávka: ${hit[1].trim().split("\n").slice(0, 2).join(" | ")}`);
@@ -274,6 +293,7 @@ async function poradnaWeb(id, text) {
     const souhrn = `OBJEDNÁNÍ z webu (${key}, ${new Date().toISOString().slice(0, 16)})\n${hit[1].trim()}`;
     try { await ainetSend(`[OBJEDNANI] ${souhrn}`); } catch (e) { log(`objednávka z webu → AInet: ${e.message}`); }
   }
+  if (!hit && hnedPlatba(key)) return { odpoved: odpoved + "\n\n" + paywallText(key), platba: platebniOdkaz(key) };
   return { odpoved };
 }
 
@@ -520,7 +540,7 @@ http.createServer(async (req, res) => {
       const s = JSON.parse(raw).data?.object || {};
       if (s.object === "checkout.session" && s.client_reference_id && s.payment_status === "paid") {
         odemknout(s.client_reference_id);
-        if (/^\d+$/.test(s.client_reference_id)) { try { await fbSend(s.client_reference_id, "Děkuji, platba prošla. Napište, na čem jsme skončili, a pokračujeme."); } catch (e) { log(`po platbě: ${e.message}`); } }
+        if (/^\d+$/.test(s.client_reference_id)) { try { await fbSend(s.client_reference_id, `Děkuji, platba prošla. Teď jste v placené konzultaci (platí ${PLATNOST_TEXT}): ${PLACENA_POPIS}. Napište, na čem jsme skončili, a pokračujeme.`); } catch (e) { log(`po platbě: ${e.message}`); } }
       }
       return;
     }
