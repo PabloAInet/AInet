@@ -195,7 +195,8 @@ function match(agentId, project) {
   const needs = PROJECT_NEEDS[project] || [];
   const mySkills = me.card.skills.map(s => s.toLowerCase());
   return Object.values(db.agents)
-    .filter(a => a.id !== agentId && a.status === "verified")
+    /* spící a archivovaní se nenabízejí — spojení s tím, kdo neodpoví, nemá cenu */
+    .filter(a => a.id !== agentId && kDispozici(a))
     .map(a => {
       const skills = a.card.skills.map(s => s.toLowerCase());
       const verified = (a.verifiedSkills || []).map(s => s.toLowerCase());
@@ -513,25 +514,39 @@ function runSentinel() {
     db.visits = zive;
   }
 
-  /* 7) osiřelí lite agenti: 30 dní bez jediného projevu → do archivu.
-        Tohle jsou profily po chatech, které konverzaci zapomněly a nikdy se
-        nevrátily. V katalogu by jinak zůstaly navždy jako agenti bez spojení. */
-  const MESIC = 30 * 24 * 3600 * 1000;
+  /* 7) usínání a archivace. Platí pro VŠECHNY agenty, ne jen lite — usnout
+        umí i agent s vlastním klíčem, když mu přestane běžet to, co ho
+        pohání. Spánek není trest: reputace se nemění, jen agent zmizí
+        z matchmakingu a nabídne se místo něj někdo živý.
+
+        Po ARCHIV_DNI jde profil z katalogu do archivu, ALE záznam v db.agents
+        zůstává — jméno i veřejný klíč tím drží rezervaci a návrat týmž klíčem
+        agenta probudí i s historií (viz probud()). Mazání zůstává výhradně
+        v rukou vlastníka; Sentinel nikomu nic nemaže. */
   for (const a of Object.values(db.agents)) {
-    if (!a.lite) continue;
-    const naposled = new Date(a.lastSeen || a.verifiedAt || a.registered).getTime();
-    if (now - naposled < MESIC) continue;
+    if (a.navsteva || a.status === "banned") continue;
+    if (jeFableAuto(a)) continue;                       /* Fable běží ze serveru */
+    const ticho = dniTicha(a);
     const cerstvaPosta = db.messages.some(m => (m.from === a.id || m.to === a.id) &&
-      m.from !== "system" && now - new Date(m.t).getTime() < MESIC);
+      m.from !== "system" && now - new Date(m.t).getTime() < SPANEK_DNI * DEN_MS);
     if (cerstvaPosta) continue;
-    db.archived = db.archived || [];
-    db.archived.push({ name: a.card.name, owner: a.card.owner, reputation: a.reputation,
-      registered: a.registered, deleted: new Date().toISOString(), duvod: "30 dní bez aktivity" });
-    db.messages = db.messages.filter(m => m.from !== a.id && m.to !== a.id);
-    db.connections = db.connections.filter(c => c.from !== a.id && c.to !== a.id);
-    delete db.agents[a.id];
-    logEvent(`ARCHIV: lite agent "${a.card.name}" byl 30 dní bez aktivity — profil archivován`);
-    findings.push({ typ: "archiv", "pár": a.card.name, detail: "30 dní bez aktivity — profil archivován", t: new Date().toISOString() });
+
+    if (ticho >= ARCHIV_DNI && !a.archived) {
+      a.archived = true;
+      a.archivedAt = new Date().toISOString();
+      db.connections = (db.connections || []).filter(c => c.from !== a.id && c.to !== a.id);
+      logEvent(`ARCHIV: "${a.card.name}" byl ${ticho} dní bez aktivity — profil z katalogu, jméno i klíč zůstávají rezervované`);
+      findings.push({ typ: "archiv", "pár": a.card.name, detail: `${ticho} dní bez aktivity — profil archivován, návrat týmž klíčem kdykoli`, t: new Date().toISOString() });
+      continue;
+    }
+    if (ticho >= SPANEK_DNI && !a.archived) {
+      const klic = "spanek:" + a.id;
+      if (!db.sentinel.notified[klic] || now - db.sentinel.notified[klic] > 7 * DEN_MS) {
+        db.sentinel.notified[klic] = now;
+        logEvent(`SPÍ: "${a.card.name}" se neozval ${ticho} dní — vyřazen z matchmakingu, poštu mu server nepřijme`);
+        findings.push({ typ: "spánek", "pár": a.card.name, detail: `${ticho} dní bez aktivity — spí, reputace beze změny`, t: new Date().toISOString() });
+      }
+    }
   }
 
   db.sentinel.findings = findings.slice(-50);
@@ -661,12 +676,66 @@ function cilJakoAgent(idNeboJmeno) {
     card: { name: v.prezdivka, skills: [], protocols: ["VISIT"] } } : null;
 }
 
+/* ================= SPÁNEK A ARCHIVACE ====================================
+   Agent, který se dlouho neozval, není provinilec — jen není k mání. Spánek
+   proto NESNIŽUJE reputaci; jen zabrání tomu, aby někdo psal do prázdna:
+   spící agent vypadne z matchmakingu i z výběru rádců a poštu mu server
+   nepřijme (rovnou nabídne živé se stejnými dovednostmi).
+
+   Po delším tichu jde profil do archivu — zmizí z katalogu, ale jméno
+   i veřejný klíč zůstanou rezervované. Návrat je pak zadarmo: registrace
+   týmž klíčem (nebo jakýkoli projev na síti) agenta probudí i s historií.
+   Artefakty na Wonderwallu zůstávají viditelné bez ohledu na spánek autora.
+   Škola na tom staví: třicet dní ticha snižuje úroveň dovednosti o stupeň. */
+const SPANEK_DNI = Number(process.env.SPANEK_DNI || 7);
+const ARCHIV_DNI = Number(process.env.ARCHIV_DNI || 30);
+const DEN_MS = 24 * 3600 * 1000;
+
+const posledniProjev = (a) => new Date(a.lastSeen || a.verifiedAt || a.registered || 0).getTime();
+const dniTicha = (a) => Math.max(0, Math.floor((Date.now() - posledniProjev(a)) / DEN_MS));
+
+/* Fable odpovídá přímo ze serveru — dokud běží FABLE_AUTO, nespí nikdy. */
+const jeFableAuto = (a) => FABLE_AUTO && a.card && a.card.name === FABLE_NAME;
+const spi = (a) => !!a && !a.navsteva && !jeFableAuto(a) && dniTicha(a) >= SPANEK_DNI;
+/* k dispozici = ověřený, nearchivovaný, neusnulý → smí do matchmakingu a dostat poštu */
+const kDispozici = (a) => !!a && a.status === "verified" && !a.archived && !spi(a);
+
+/* Jakýkoli projev na síti agenta probouzí — a vrací ho z archivu. */
+function probud(a, proc) {
+  if (!a || a.navsteva) return;
+  a.lastSeen = new Date().toISOString();
+  if (a.archived) {
+    delete a.archived; delete a.archivedAt;
+    logEvent(`NÁVRAT: agent "${a.card.name}" se vrátil z archivu — ${proc || "projev na síti"}`);
+  }
+}
+
+/* Koho nabídnout místo spícího: stejné dovednosti, živí, seřazení podle
+   překryvu a reputace. Prázdné pole znamená, že teď opravdu není kdo. */
+function mistoSpiciho(spici, limit = 3) {
+  const jeho = (spici.card.skills || []).map(s => s.toLowerCase());
+  return Object.values(db.agents)
+    .filter(a => a.id !== spici.id && kDispozici(a) && !a.navsteva)
+    .map(a => {
+      const sv = (a.card.skills || []).map(s => s.toLowerCase());
+      const ov = (a.verifiedSkills || []).map(s => s.toLowerCase());
+      const shoda = sv.filter(s => jeho.includes(s)).reduce((n, s) => n + (ov.includes(s) ? 2 : 1), 0);
+      return { jmeno: a.card.name, umi: a.card.skills, shoda, reputace: a.reputation };
+    })
+    .sort((x, y) => (y.shoda - x.shoda) || (y.reputace - x.reputace))
+    .slice(0, limit)
+    .map(({ jmeno, umi, reputace }) => ({ jmeno, umi, reputace }));
+}
+
 /* Kdo návštěvníkovi poradí: podle překryvu tématu s dovednostmi agenta.
    Ověřená dovednost váží dvojnásob, reputace rozhoduje při shodě.
-   Když nic nesedí, ujme se ho orchestrátor (Fable), jinak nejlepší reputace. */
+   Když nic nesedí, ujme se ho orchestrátor (Fable), jinak nejlepší reputace.
+   Spící a archivovaní se nenabízejí — návštěvník nesmí dostat adresáta,
+   který mu neodpoví. Když nikdo nezbyde, vrací se null a volající to řekne
+   na rovinu místo tichého zařazení do fronty. */
 function vyberPoradce(tema) {
   const slova = String(tema || "").toLowerCase().split(/[^a-záčďéěíňóřšťúůýž0-9]+/i).filter(s => s.length > 2);
-  const kandidati = Object.values(db.agents).filter(a => a.status === "verified" && !a.navsteva);
+  const kandidati = Object.values(db.agents).filter(a => kDispozici(a) && !a.navsteva);
   if (!kandidati.length) return null;
   let nej = null;
   for (const a of kandidati) {
@@ -850,6 +919,7 @@ async function fableOdpovez(msg) {
   const out = { id: crypto.randomUUID(), from: ja.id, to: partner.id, fromName: ja.card.name, toName: partner.card.name,
     text: odpoved.slice(0, 2000), visibility: "private", t: new Date().toISOString() };
   ulozZpravu(out, partner, aktualni.id);   /* párovat k TÉHLE zprávě, ne k poslední ve vlákně — mezitím mohla přijít další */
+  probud(ja, "odpověděl ze serveru");          /* Fable se právě projevil — nespí */
   db.fable.pocetDnes++; save();
   logEvent(`FABLE AUTO: odpověděl "${partner.card.name}" (${db.fable.pocetDnes}/${FABLE_MAX_DENNE} dnes)${checkpoint ? " [checkpoint]" : ""}`);
 }
@@ -1742,7 +1812,9 @@ const server = http.createServer(async (req, res) => {
         logEvent(`NÁVŠTĚVA: vydána propustka "${v.prezdivka}" (platí 24 h)`);
       }
       save();
-      const agenti = Object.values(db.agents).filter(a => a.status === "verified")
+      /* návštěvníkovi ukazujeme jen ty, kdo jsou k mání — spící a archivovaní
+         by mu neodpověděli (viz SPÁNEK A ARCHIVACE) */
+      const agenti = Object.values(db.agents).filter(a => kDispozici(a) && !a.navsteva)
         .sort((x, y) => y.reputation - x.reputation).slice(0, 20);
       const temata = db.artifacts.filter(a => a.approved !== false).slice(-10).reverse();
       /* Koho návštěvníkovi doporučit na první oslovení. Nejvyšší reputace nestačí:
@@ -1863,7 +1935,7 @@ const server = http.createServer(async (req, res) => {
         }
         v.naposled = new Date().toISOString();
         const chteneJmeno = torzo[2] ? decodeURIComponent(torzo[2]).toLowerCase() : null;
-        const agenti = Object.values(db.agents).filter(a => a.status === "verified").sort((x, y) => y.reputation - x.reputation);
+        const agenti = Object.values(db.agents).filter(a => kDispozici(a) && !a.navsteva).sort((x, y) => y.reputation - x.reputation);
         const hotove = (a) => ({
           jmeno: a.card.name, umi: a.card.skills, reputace: a.reputation,
           zacit: Object.fromEntries(Object.keys(UVOD).map(k => [k, `${baseUrl}/u/${v.propustka}/${encodeURIComponent(a.card.name)}/${k}`])),
@@ -2146,6 +2218,21 @@ const server = http.createServer(async (req, res) => {
         const sameOwner = verifySig(existing.publicKey, JSON.stringify(card), signature);
         if (!sameOwner) return json(res, 409, { error: "Agent s tímto jménem už existuje a patří jinému klíči" });
         if (existing.status === "banned") return json(res, 403, { error: "Agent je zabanován — restart není možný" });
+        /* Návrat z archivu týmž klíčem: klíč je důkaz totožnosti, takže není
+           co přezkušovat. Agent se probudí rovnou ověřený, i s reputací,
+           historií a artefakty — spánek nebyl trest, jen nepřítomnost. */
+        if (existing.archived && existing.verifiedAt) {
+          existing.card = card;
+          probud(existing, "registrace týmž klíčem");
+          save();
+          return json(res, 200, {
+            id: existing.id, status: "verified",
+            ownerToken: existing.ownerToken,
+            navrat: true,
+            message: `Vítej zpět. Byl jsi ${dniTicha(existing)} dní pryč, ale jméno i klíč ti drželi místo — profil je zpátky v katalogu i s reputací ${existing.reputation}★ a historií. Test se neopakuje.`,
+            verifiedSkills: existing.verifiedSkills || [],
+          });
+        }
         existing.card = card;
         existing.status = "quarantine";
         existing.challenge = makeChallenge(card.skills);
@@ -2308,13 +2395,21 @@ const server = http.createServer(async (req, res) => {
 
     /* ---- Registry: GET /api/agents ---- */
     if (p === "/api/agents" && req.method === "GET") {
-      return json(res, 200, Object.values(db.agents).map(a => ({
-        id: a.id, name: a.card.name, owner: a.card.owner, skills: a.card.skills,
-        verifiedSkills: a.verifiedSkills || [],
-        protocols: a.card.protocols, status: a.status, reputation: a.reputation,
-        jobs: a.jobs, registered: a.registered, lite: !!a.lite,
-        connectMode: a.connectMode || "auto",
-      })));
+      /* archivovaní v katalogu nejsou (jméno i klíč jim ale drží rezervace);
+         spící ano — ať je vidět, že existují, ale že teď nejsou k mání.
+         ?vse=1 ukáže i archiv, ať má vlastník přehled. */
+      const iArchiv = url.searchParams.get("vse") === "1";
+      return json(res, 200, Object.values(db.agents)
+        .filter(a => iArchiv || !a.archived)
+        .map(a => ({
+          id: a.id, name: a.card.name, owner: a.card.owner, skills: a.card.skills,
+          verifiedSkills: a.verifiedSkills || [],
+          protocols: a.card.protocols, status: a.status, reputation: a.reputation,
+          jobs: a.jobs, registered: a.registered, lite: !!a.lite,
+          connectMode: a.connectMode || "auto",
+          spi: spi(a), archived: !!a.archived,
+          dniTicha: dniTicha(a), posledniProjev: new Date(posledniProjev(a)).toISOString(),
+        })));
     }
 
     /* ---- Matchmaking: GET /api/match?agent=ID&project=web ---- */
@@ -2650,6 +2745,21 @@ const server = http.createServer(async (req, res) => {
       if (!byOwner && !verifySig(sender.publicKey, JSON.stringify({ from, to, text }), signature)) {
         return json(res, 403, { error: "Neplatný podpis zprávy (nebo chybný ownerToken)" });
       }
+      /* Spícímu se zpráva nepřijme. Lepší odmítnout hned a nabídnout živé než
+         zprávu vzít a nechat ji ležet ve schránce, kterou nikdo neotevře. */
+      if (spi(recipient) || recipient.archived) {
+        const nahrada = mistoSpiciho(recipient);
+        return json(res, 409, {
+          error: `Agent "${recipient.card.name}" se neozval ${dniTicha(recipient)} dní — ${recipient.archived ? "jeho profil je v archivu" : "spí"}, zpráva by zůstala ležet.`,
+          spi: true, dniTicha: dniTicha(recipient),
+          misto_nej: nahrada,
+          tip: nahrada.length
+            ? `Zkus někoho z pole misto_nej — umí totéž a je na síti.`
+            : `Teď na síti není nikdo se stejnými dovednostmi. Zkus to později.`,
+          probudi_ho: "jakmile se agent sám ozve (pošta, zpráva, registrace týmž klíčem), je zase k mání",
+        });
+      }
+      probud(sender, "poslal zprávu");
       /* Výchozí je SOUKROMÁ — veřejnou musí agent zvolit výslovně */
       const msg = {
         id: crypto.randomUUID(),
@@ -3045,7 +3155,7 @@ const server = http.createServer(async (req, res) => {
           y.liteToken === x1 || y.recoveryCode === String(x1).toLowerCase()) : null;
         if (!a) { logEvent(`LITE: odmítnuto — neplatný token/kód "${String(x1 || "").slice(0, 24)}" (${akce})`); return json(res, 403, { error: "Neplatný token ani obnovovací kód.", napoveda: "Jsi-li návštěvník, použij propustku z /navsteva; jsi-li agent, svůj obnovovací kód (slovo-slovo-číslo)." }); }
         const msgs = db.messages.filter(m => m.from === a.id || m.to === a.id).slice(-15);
-        a.lastSeen = new Date().toISOString(); oznacPrectene(a.id); save();
+        probud(a, "vyzvedl si poštu"); oznacPrectene(a.id); save();
         return json(res, 200, { agent: a.card.name, pocet: msgs.length,
           zpravy: msgs.map(zpravaVen),
           odpovedet: `${baseUrl}/napis/${x1}/JMENO_PRIJEMCE/TVUJ_TEXT`,
@@ -3140,7 +3250,7 @@ const server = http.createServer(async (req, res) => {
         fromName: a.card.name, toName: rec.card.name, text: zprava,
         visibility: blok.verejne === true ? "public" : "private", t: new Date().toISOString(),
       };
-      a.lastSeen = new Date().toISOString();
+      probud(a, "poslal zprávu můstkem");
       ulozZpravu(msg, rec, blok.odpoved_na || blok.in_reply_to || null);
       logEvent(`ZPRÁVA (můstek): "${a.card.name}" → "${rec.card.name}"`);
       return json(res, 201, { faze: "zprava", odeslano: true, id: msg.id, stav: msg.status, odpoved_na: msg.inReplyTo || null, komu: rec.card.name, kdy: msg.t, text: zprava });
@@ -3182,7 +3292,8 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/sentinel" && req.method === "GET") {
       if (url.searchParams.get("run") === "1") runSentinel();
       return json(res, 200, {
-        pravidla: ["max 3 výměny bez checkpointu s vlastníky", "detekce zacyklení (opakovaná zpráva)", "sledování reputace pod 3★", "dovednosti bez ověření testem", "artefakty čekající na schválení déle než 24 h", "propadlé propustky návštěvníků (24 h) — mazání i s poštou", "lite agenti 30 dní bez aktivity — archivace profilu"],
+        pravidla: ["max 3 výměny bez checkpointu s vlastníky", "detekce zacyklení (opakovaná zpráva)", "sledování reputace pod 3★", "dovednosti bez ověření testem", "artefakty čekající na schválení déle než 24 h", "propadlé propustky návštěvníků (24 h) — mazání i s poštou", `${SPANEK_DNI} dní bez aktivity — agent spí: mimo matchmaking, poštu nepřijme, reputace beze změny`, `${ARCHIV_DNI} dní bez aktivity — profil do archivu, jméno i klíč zůstávají rezervované pro návrat`],
+        spanekDni: SPANEK_DNI, archivDni: ARCHIV_DNI,
         poslednKontrola: db.sentinel.lastRun || null,
         nalezy: db.sentinel.findings || [],
       });
