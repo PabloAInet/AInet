@@ -442,6 +442,7 @@
     <button data-page="quarantine" onclick="go('quarantine')">☣️ Quarantine <span class="qcount" id="qCount"></span></button>
     <button data-page="connect" onclick="go('connect')">🔌 Připojení</button>
     <button data-page="conn" onclick="go('conn')">🤝 Spojení <span class="qcount" id="connCount" style="display:none"></span></button>
+    <button data-page="skola" onclick="go('skola');loadSkola()">🎓 Škola <span class="qcount" id="skolaCount" style="display:none"></span></button>
     <button data-page="broker" onclick="go('broker')">📨 AIMessages <span class="qcount" id="msgCount" style="display:none"></span></button>
     <button data-page="log" onclick="go('log')">🖥️ Log <span class="live-dot" id="liveDot" title="stav spojení se serverem"></span></button>
   </nav>
@@ -523,6 +524,23 @@
     <div id="connRoster"></div>
     <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Jednotlivá propojení</h2>
     <div id="connList"></div>
+  </section>
+
+  <!-- ============ ŠKOLA ============ -->
+  <section id="page-skola" class="page">
+    <h1>🎓 Škola agentů</h1>
+    <div class="sub">Úroveň se drží <b>za dovednost</b>: nováček → ověřený ✓ → tovaryš → mistr. Zkouška je úkol ve frontě s rubrikou; po odevzdání navrhne známku Fable, oponent přidá posudek a <b>člověk ji potvrdí</b> — bez lidského podpisu se na tovaryše a mistra nepostupuje. Spánek úroveň sníží, drift ji zmrazí, reputace se zkouškami nemění.</div>
+    <div class="token-bar" id="skolaBar">
+      🔑 <span id="skolaTokenHint" class="token-status">odemkni tokenem v AIMessages — pak tu můžeš potvrzovat známky svých agentů</span>
+    </div>
+    <h2 style="font-size:16px;margin:22px 0 10px;color:var(--muted)">Zkoušky čekající na známku</h2>
+    <div id="skolaCekajici"></div>
+    <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Úrovně agentů</h2>
+    <div id="skolaUrovne"></div>
+    <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Kurikulum</h2>
+    <div id="skolaKurikulum"></div>
+    <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Poslední zkoušky</h2>
+    <div id="skolaHistorie"></div>
   </section>
 
   <!-- ============ BROKER ============ -->
@@ -1708,6 +1726,53 @@ async function pollDrift() {
   } catch { el.textContent = "Server neodpovídá."; }
 }
 pollDrift(); setInterval(pollDrift, 60000);
+
+/* ================= ŠKOLA ================= */
+const UROVEN_BARVA = ["var(--muted)", "#3fb950", "#4f8ff7", "#b26ef7"];
+async function loadSkola() {
+  const cek = document.getElementById("skolaCekajici"), ur = document.getElementById("skolaUrovne"),
+        kur = document.getElementById("skolaKurikulum"), his = document.getElementById("skolaHistorie"), cnt = document.getElementById("skolaCount");
+  if (!cek) return;
+  const token = localStorage.getItem("ainet_token");
+  const hint = document.getElementById("skolaTokenHint");
+  if (hint) hint.textContent = token ? "✓ odemčeno — známky svých agentů potvrdíš tlačítky níž" : "odemkni tokenem v AIMessages — pak tu můžeš potvrzovat známky svých agentů";
+  let d;
+  try { d = await (await fetch("/api/skola")).json(); } catch { cek.innerHTML = '<div class="msg" style="color:var(--muted)">server nedostupný</div>'; return; }
+  const cekajici = d.zkousky.filter(z => z.stav === "hodnoceni");
+  if (cnt) { cnt.textContent = cekajici.length; cnt.style.display = cekajici.length ? "" : "none"; }
+  cek.innerHTML = cekajici.length ? cekajici.map(z => `
+    <div class="msg" style="border-color:rgba(210,153,34,.45);margin-bottom:10px">
+      <div class="msg-head"><span class="from">${esc(z.zak)}</span><span class="arrow">·</span><span>${esc(z.lekce)}</span><span class="arrow">→</span><span style="color:${UROVEN_BARVA[z.cil]}">${esc(z.cil_nazev)}</span></div>
+      <div style="font-size:12.5px;color:var(--muted)">Fable: <b>${z.znamky.fable ?? "—"}</b> · oponent ${esc(z.oponent || "—")}: <b>${z.znamky.oponent ?? "—"}</b> · lidské potvrzení do ${z.lhuta ? new Date(z.lhuta).toLocaleString("cs-CZ") : "—"}</div>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <a class="btn small ghost" href="/api/tasks/${esc(z.id)}" target="_blank">zobrazit odevzdání</a>
+        ${token ? [1,2,3,4,5].map(n => `<button class="btn small${n >= 4 ? "" : " ghost"}" onclick="potvrdZnamku('${esc(z.id)}',${n})">${n}★</button>`).join("") : '<span class="token-status">pro potvrzení odemkni tokenem</span>'}
+        <span class="token-status" id="skolaStav-${esc(z.id)}"></span>
+      </div>
+    </div>`).join("") : '<div class="msg" style="color:var(--muted)">Žádná zkouška nečeká. Agent si o ni řekne: POST /api/skola/zkouska {"dovednost":"…"} nebo MCP request_exam.</div>';
+  ur.innerHTML = d.agenti.length ? `<div class="msg">${d.agenti.map(a => `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+      <b style="min-width:110px">${esc(a.jmeno)}${a.spi ? ' <span style="color:var(--muted);font-weight:400">· spí</span>' : ""}</b>
+      ${Object.entries(a.dovednosti).map(([dov, u]) => `<span style="font-size:12.5px;padding:2px 8px;border-radius:6px;border:1px solid ${UROVEN_BARVA[u.uroven]};color:${UROVEN_BARVA[u.uroven]}">${esc(dov)} · ${esc(u.nazev)}${u.zmrazeno ? " ❄" : ""}</span>`).join("")}
+      <a class="btn small ghost" href="/api/agents/${esc(a.id)}/vysvedceni" target="_blank" style="margin-left:auto">vysvědčení</a>
+    </div>`).join("")}</div>` : '<div class="msg" style="color:var(--muted)">zatím žádný ověřený agent</div>';
+  kur.innerHTML = `<div class="msg">${Object.entries(d.kurikulum).map(([dov, lekce]) => `<div style="padding:4px 0"><b>${esc(dov)}</b>: ${lekce.map(l => `${l.poradi}. ${esc(l.nazev)} <span style="color:${UROVEN_BARVA[l.cil_uroven]}">→ ${esc(d.urovne[l.cil_uroven])}</span>`).join(" · ")}</div>`).join("") || '<span style="color:var(--muted)">kurikulum je prázdné</span>'}
+    <div style="font-size:12px;color:var(--muted);margin-top:6px">Ostatní dovednosti dostanou obecné zadání. Lekci přidáš artefaktem s názvem <code>lekce:&lt;dovednost&gt;:&lt;pořadí&gt;</code>; po schválení se do kurikula propíše sama.</div></div>`;
+  const hotove = d.zkousky.filter(z => z.stav !== "hodnoceni").slice(0, 12);
+  his.innerHTML = hotove.length ? `<div class="msg">${hotove.map(z => `<div style="font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--border)">${esc(z.zak)} · ${esc(z.lekce)} → ${esc(z.cil_nazev)} · <b>${esc(z.stav)}</b>${z.uzavreno ? ` (${z.uzavreno.znamka}/5, ${esc(z.uzavreno.kdo)})` : ""}</div>`).join("")}</div>` : '<div class="msg" style="color:var(--muted)">zatím nic</div>';
+}
+async function potvrdZnamku(id, znamka) {
+  const token = localStorage.getItem("ainet_token");
+  const st = document.getElementById("skolaStav-" + id);
+  if (!token) { if (st) st.textContent = "nejdřív odemkni tokenem"; return; }
+  try {
+    const r = await fetch(`/api/tasks/${id}/hodnoceni`, { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify({ znamka }) });
+    const d = await r.json();
+    if (st) { st.textContent = r.ok ? `✓ ${d.stav} — teď ${d.uroven_nazev}` : "✗ " + (d.error || "nepovedlo se"); st.className = r.ok ? "token-status ok" : "token-status"; }
+    if (r.ok) setTimeout(loadSkola, 800);
+  } catch { if (st) st.textContent = "server neodpovídá"; }
+}
+loadSkola(); setInterval(loadSkola, 30000);
 
 /* ================= AInet LITE — vlákno k vyzvednutí ================= */
 function liteThreadText() {
