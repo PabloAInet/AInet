@@ -197,7 +197,9 @@ const PLACENA_DODATEK = `
 PLACENÁ KONZULTACE (tato pravidla mají přednost před pravidly výše)
 - Pacient si zaplatil podrobnější konzultaci. Odpovídej podrobněji a odborněji: klidně 80–180 slov, vysvětli důvody, možnosti léčby, jejich výhody a rizika a co se dá čekat. Pořád srozumitelně, česky, latinu hned vysvětli.
 - U konkrétních údajů (úspěšnost a návrat potíží u metod, doba hojení, bolest, komplikace, srovnání metod) nejdřív použij nástroj hledej_literaturu a odpověď opři o nalezené studie. Zdroj uveď stručně na konci (např. „Zdroj: Barone et al., Colorectal Disease 2026“), PMID neuváděj.
+- Hledej přednostně nejnovější přehledy a metaanalýzy (typ "prehledy", od_roku zhruba posledních 5 let); starší práce jen doplňkově. Když se studie rozcházejí, řekni to a uveď, co ukazuje ta nejnovější.
 - Když literatura nic nenajde, řekni to a odpověz z obecných znalostí.
+- Piš prostý text bez formátování – žádné hvězdičky, nadpisy ani tučné písmo (Messenger ani web je nezobrazí).
 - Červené praporky a pravidla o diagnóze, lécích a objednání platí beze změny; konzultace pořád nenahrazuje vyšetření.`;
 const zdarmaVeta = () => ({ 1: "První odpověď poradny je zdarma", 2: "Dvě odpovědi poradny jsou zdarma", 3: "Tři odpovědi poradny jsou zdarma", 4: "Čtyři odpovědi poradny jsou zdarma" })[ZDARMA] || `Prvních ${ZDARMA} odpovědí poradny je zdarma`;
 function paywallText(psid) {
@@ -620,7 +622,9 @@ http.createServer(async (req, res) => {
       const dotaz = String((b && b.dotaz) || "").slice(0, 200).trim();
       if (!dotaz) return json(400, { vysledek: "Chybí dotaz – zadej anglický odborný dotaz, např. 'laser hemorrhoidoplasty recurrence'." });
       try {
-        let v = await lit.hledejClanky(dotaz, { max: 4, typ: b.jen_prehledy === false ? "vse" : "prehledy", razeni: "relevance" });
+        /* nejdřív přehledy a metaanalýzy z posledních ~6 let, pak starší přehledy, nakonec cokoli */
+        let v = await lit.hledejClanky(dotaz, { max: 4, typ: "prehledy", odRoku: new Date().getFullYear() - 6, razeni: "relevance" });
+        if (!v.clanky.length) v = await lit.hledejClanky(dotaz, { max: 4, typ: "prehledy", razeni: "relevance" });
         if (!v.clanky.length) v = await lit.hledejClanky(dotaz, { max: 4, typ: "vse", razeni: "relevance" });
         const kratce = v.clanky.length ? v.clanky.map((a, i) => `[${i + 1}] ${a.nazev} – ${a.autori}, ${a.casopis} ${a.rok}${a.typy.length ? " (" + a.typy.join(", ") + ")" : ""}. Abstrakt: ${(a.abstrakt || "").slice(0, 900)}`).join("\n\n") : "Nic nenalezeno – zkus obecnější anglický dotaz, nebo odpověz z obecných znalostí a řekni, že konkrétní data nemáš.";
         log(`hlas/literatura: ${dotaz} → ${v.clanky.length}`);
