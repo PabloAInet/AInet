@@ -269,7 +269,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
   <div class="call-b">
     <h4>Hovor s AI přes internet</h4>
     <p>Mluvíte s umělou inteligencí, kterou trénoval MUDr. Ditl – jeho hlasem. Stačí mikrofon v počítači nebo v mobilu. Umí vás i objednat.</p>
-    <p id="callZdarma">Prvních 5 otázek denně je zdarma. Placená konzultace: podrobnější odborné odpovědi ověřené v PubMedu.</p>
+    <p id="callZdarma">Prvních 5 otázek denně je zdarma. Placená konzultace: podrobnější a odbornější odpovědi, fakta ověřená v lékařských databázích (PubMed).</p>
     <button id="callGo" class="callgo" type="button">Zahájit hovor</button>
     <div id="callStav" class="callstav" aria-live="polite"></div>
     <div id="callPlatba" class="callstav" hidden style="color:var(--white)"></div>
@@ -289,6 +289,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
   var cid = null; try { cid = localStorage.getItem("pd_chat_id"); } catch (e) {}
   if (!cid) { cid = "w" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); try { localStorage.setItem("pd_chat_id", cid); } catch (e) {} }
   var KEY = "web_" + cid, nast = { hovor_zdarma: 5, platba: false };
+  var POPIS = "podrobnější a odbornější odpovědi, fakta ověřená v lékařských databázích (PubMed)";
   fetch(MOST + "/web/limity").then(function (r) { return r.json(); }).then(function (j) { if (j && j.hovor_zdarma) nast = j; ukazInfo(); }).catch(function () {});
   /* bezplatné otázky se počítají za den (napříč hovory) */
   function dnes() { return new Date().toISOString().slice(0, 10); }
@@ -298,13 +299,13 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
   function nastav(t) { stav.textContent = t || ""; }
   function zbyvaText() { var n = zbyva(); return n === 1 ? "zbývá 1 otázka" : n >= 2 && n <= 4 ? "zbývají " + n + " otázky" : "zbývá " + n + " otázek"; }
   function tlacitko() { go.textContent = bezi ? "Ukončit hovor" : "Zahájit hovor"; go.classList.toggle("end", bezi); }
-  function ukazInfo() { var i = document.getElementById("callZdarma"); if (i) i.textContent = "Prvních " + nast.hovor_zdarma + " otázek denně je zdarma. Placená konzultace: podrobnější odborné odpovědi ověřené v PubMedu."; }
+  function ukazInfo() { var i = document.getElementById("callZdarma"); if (i) i.textContent = "Prvních " + nast.hovor_zdarma + " otázek denně je zdarma. Placená konzultace: " + POPIS + "."; }
   function ukazPlatbu() {
     platba.hidden = false;
     if (nast.platba && nast.platba_url) {
-      platba.innerHTML = 'Bezplatná část hovoru pro dnešek skončila. <a class="callgo" style="display:block;text-align:center;margin-top:8px;text-decoration:none" href="' + nast.platba_url + (nast.platba_url.indexOf("?") < 0 ? "?" : "&") + "client_reference_id=" + encodeURIComponent(KEY) + '" target="_blank" rel="noopener">Pokračovat v placené konzultaci' + (nast.cena ? " (" + nast.cena + ")" : "") + "</a>Po zaplacení se sem vraťte a klikněte znovu na Zahájit hovor. Objednání do ordinace je zdarma – napište v chatu „objednat“.";
+      platba.innerHTML = 'Bezplatná část hovoru pro dnešek skončila. <a class="callgo" style="display:block;text-align:center;margin-top:8px;text-decoration:none" href="' + nast.platba_url + (nast.platba_url.indexOf("?") < 0 ? "?" : "&") + "client_reference_id=" + encodeURIComponent(KEY) + '" target="_blank" rel="noopener">Pokračovat v placené konzultaci' + (nast.cena ? " (" + nast.cena + ")" : "") + "</a>Placená konzultace: " + POPIS + ". Po zaplacení se sem vraťte a klikněte znovu na Zahájit hovor. Objednání do ordinace je zdarma – napište v chatu „objednat“.";
     } else {
-      platba.textContent = "Bezplatná část hovoru pro dnešek skončila. Placenou konzultaci s podrobnějšími odpověďmi ověřenými v odborné literatuře právě připravujeme. Objednat se můžete zdarma v chatu (napište „objednat“), nebo zavolejte zítra.";
+      platba.textContent = "Bezplatná část hovoru pro dnešek skončila. Připravujeme placenou konzultaci: " + POPIS + ". Objednat se můžete zdarma v chatu (napište „objednat“), nebo zavolejte zítra.";
     }
   }
   function otevritHovor() { box.hidden = false; var ch = document.getElementById("chat"); if (ch) ch.hidden = true; if (vAplikaci && !bezi) nastav(tipAplikace); }
@@ -323,7 +324,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
   }
 
   function posledni(c) {
-    if (c && c.sendContextualUpdate) try { c.sendContextualUpdate("Pokyn systému: příští odpověď je poslední bezplatná. Odpověz na otázku volajícího, stručně shrň předběžný závěr, nabídni objednání do ordinace" + (nast.platba ? " nebo placené pokračování konzultace na webu" : "") + " a zdvořile se rozluč. Neptej se už na nic dalšího."); } catch (e) {}
+    if (c && c.sendContextualUpdate) try { c.sendContextualUpdate("Pokyn systému: příští odpověď je poslední bezplatná. Odpověz na otázku volajícího, stručně shrň předběžný závěr a nabídni objednání do ordinace. Pak jednou větou řekni, že " + (nast.platba ? "pokračovat lze v placené konzultaci tady na webu – je podrobnější a odbornější a fakta ověřuje v lékařských databázích PubMed; odkaz na platbu se ukáže na obrazovce po skončení hovoru" : "připravujeme placenou konzultaci, která bude podrobnější a odbornější a fakta bude ověřovat v lékařských databázích PubMed") + ". Pak se zdvořile rozluč a už se na nic neptej."); } catch (e) {}
   }
   go.onclick = function () {
     if (bezi && hovor) { go.disabled = true; hovor.endSession().catch(function () {}).then(function () { go.disabled = false; }); return; }
