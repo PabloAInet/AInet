@@ -176,7 +176,8 @@ async function askModel(psid, text) {
   });
   c.turns.push({ role: "assistant", content: full });
   c.t = now; chats.set(psid, c);
-  return full;
+  /* Messenger ani web markdown nezobrazí – tučné **…** a nadpisy # převeď na prostý text */
+  return full.replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/^#{1,6}\s+/gm, "");
 }
 
 /* ---------- Placená poradna ---------- */
