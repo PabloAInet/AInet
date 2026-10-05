@@ -25,6 +25,7 @@
  *   HLAS_PLACENY_AGENT – ID placeného hlasového agenta ElevenLabs (PubMed, delší odpovědi); token vydá /hlas/token jen po zaplacení
  *   HOVOR_ZDARMA       – kolik otázek má hovor na webu zdarma (výchozí stejně jako ZDARMA_SMYCEK)
  *   LIMIT_ZDARMA       – "0" vypne limit bezplatných odpovědí, když ještě není PLATBA_URL
+ *   TEST_ZAPLACENO     – id brané jako zaplacené (test placené verze bez platby), oddělené čárkou
  *   ANTHROPIC_API_KEY  – (volitelné) režim PORADNA: most odpovídá pacientům sám podle fb-instrukce.js
  *                        (rychlejší, s pamětí konverzace); objednávky posílá Fablovi na AInet.
  *                        Bez klíče běží původní režim: vše přeposílá Fablovi.
@@ -178,7 +179,9 @@ async function askModel(psid, text) {
 
 /* ---------- Placená poradna ---------- */
 const zaplaceno = new Map(); // id (psid nebo tel…) → platí do (ms)
-const jeZaplaceno = (id) => (zaplaceno.get(String(id)) || 0) > Date.now();
+/* testovací odemčení bez platby: env TEST_ZAPLACENO = id oddělená čárkou (např. web_… z prohlížeče MUDr. Ditla) */
+const TEST_ZAPLACENO = new Set((process.env.TEST_ZAPLACENO || "").split(",").map(s => s.trim()).filter(Boolean));
+const jeZaplaceno = (id) => TEST_ZAPLACENO.has(String(id)) || (zaplaceno.get(String(id)) || 0) > Date.now();
 function odemknout(id, hodin = PLATBA_PLATNOST_H) { zaplaceno.set(String(id), Date.now() + hodin * 3600e3); log(`platba ✓ ${id} na ${Math.round(hodin)} h`); }
 const platebniOdkaz = (id) => PLATBA_URL + (PLATBA_URL.includes("?") ? "&" : "?") + "client_reference_id=" + encodeURIComponent(id);
 const CERVENE = /(dušn|nemůžu dýchat|nemohu dýchat|bolest na hrudi|tlak na hrudi|černá stolice|černou stolici|silné krvácení|silně krvácí|hodně krve|bezvědom|omdlel|zmaten|náhle otekl|zmodral|horečk)/i;
