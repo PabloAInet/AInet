@@ -283,7 +283,13 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
   var box = document.getElementById("call"), go = document.getElementById("callGo"), stav = document.getElementById("callStav"), hovor = null, bezi = false;
   function nastav(t) { stav.textContent = t || ""; }
   function tlacitko() { go.textContent = bezi ? "Ukončit hovor" : "Zahájit hovor"; go.classList.toggle("end", bezi); }
-  document.getElementById("callBtn").onclick = function () { box.hidden = !box.hidden; var ch = document.getElementById("chat"); if (!box.hidden && ch) ch.hidden = true; };
+  var vAplikaci = /FBAN|FBAV|FB_IAB|FBIOS|Instagram|Messenger/i.test(navigator.userAgent || "");
+  var tipAplikace = "Pokud v aplikaci Facebook nejde mikrofon, otevřete stránku v prohlížeči (⋯ → Otevřít v prohlížeči).";
+  function otevritHovor() { box.hidden = false; var ch = document.getElementById("chat"); if (ch) ch.hidden = true; if (vAplikaci && !bezi) nastav(tipAplikace); }
+  document.getElementById("callBtn").onclick = function () { if (box.hidden) otevritHovor(); else box.hidden = true; };
+  function chceHovor() { return /[?&#](hovor|zavolat|call)\b/i.test(location.search + location.hash); }
+  if (chceHovor()) otevritHovor();
+  window.addEventListener("hashchange", function () { if (chceHovor()) otevritHovor(); });
   document.getElementById("callX").onclick = function () { box.hidden = true; };
   go.onclick = function () {
     if (bezi && hovor) { go.disabled = true; hovor.endSession().catch(function () {}).then(function () { go.disabled = false; }); return; }
@@ -298,7 +304,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
           onModeChange: function (x) { if (bezi) nastav(x && x.mode === "speaking" ? "Mluví AI…" : "Poslouchám…"); } });
       })
       .then(function (c) { hovor = c; go.disabled = false; })
-      .catch(function (e) { go.disabled = false; bezi = false; tlacitko(); nastav(e && e.name === "NotAllowedError" ? "Bez povolení mikrofonu hovor nejde. Povolte ho v prohlížeči, nebo napište do chatu." : "Hovor se nepodařilo spustit. Zkuste to za chvíli, nebo napište do chatu."); });
+      .catch(function (e) { go.disabled = false; bezi = false; tlacitko(); nastav(vAplikaci ? tipAplikace : e && e.name === "NotAllowedError" ? "Bez povolení mikrofonu hovor nejde. Povolte ho v prohlížeči, nebo napište do chatu." : "Hovor se nepodařilo spustit. Zkuste to za chvíli, nebo napište do chatu."); });
   };
 })();
 </script>
