@@ -51,6 +51,7 @@ const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
 const PORADNA = !!ANTHROPIC_API_KEY;
 const lit = require("./literatura.js");   // PubMed (Europe PMC) + ClinicalTrials.gov
 const pavel = require("./pavel.js");      // soukromá sekce /pavel
+const opravy = require("./opravy.js");    // Pavlovy opravy pravidel (trvale na AInetu)
 const LIT_PORADNA = process.env.LITERATURA_PORADNA !== "0";
 /* placená poradna: ZDARMA_SMYCEK otázek zdarma, pak platební odkaz; bez PLATBA_URL jen konec bezplatné části + objednání */
 const PLATBA_URL = process.env.PLATBA_URL || "";          // např. Stripe Payment Link https://buy.stripe.com/...
@@ -144,6 +145,7 @@ async function sendVoiceIfShort(psid, text) {
 
 /* ---------- Režim PORADNA: model odpovídá sám, s pamětí konverzace ---------- */
 const chats = new Map();                       // psid → { turns: [{role, content}], t }
+pavel.pripoj({ chats: () => chats });       // soukromá sekce: Konverzace → Opravy AI
 const CHAT_TTL = 24 * 3600 * 1000, CHAT_MAX = 24;
 const OBJ = /\[\[OBJEDNANI\]\]([\s\S]*?)\[\[\/OBJEDNANI\]\]/;
 
@@ -171,7 +173,7 @@ async function askModel(psid, text) {
   const placena = jeZaplaceno(psid);
   const { text: full } = await lit.askWithTools({
     apiKey: ANTHROPIC_API_KEY, model: MODEL, maxTokens: placena ? 1400 : 700, maxKol: placena ? 2 : 1, log, messages: c.turns,
-    system: INSTRUKCE + (LIT_PORADNA || placena ? lit.PORADNA_DODATEK : "") + (placena ? PLACENA_DODATEK : `\n\nKdyž se pacient zeptá na placenou konzultaci: ${PLACENA_POPIS}; ${PAYWALL ? "odkaz na platbu dostane po bezplatných odpovědích" : "zatím ji připravujeme"}. Cenu sám neuváděj.`),
+    system: INSTRUKCE + (LIT_PORADNA || placena ? lit.PORADNA_DODATEK : "") + (placena ? PLACENA_DODATEK : `\n\nKdyž se pacient zeptá na placenou konzultaci: ${PLACENA_POPIS}; ${PAYWALL ? "odkaz na platbu dostane po bezplatných odpovědích" : "zatím ji připravujeme"}. Cenu sám neuváděj.`) + opravy.textProPrompt(),
     tools: LIT_PORADNA || placena ? lit.NASTROJE.filter(t => t.name === "hledej_literaturu") : [],
   });
   c.turns.push({ role: "assistant", content: full });
@@ -430,7 +432,7 @@ const SOUKROMI_HTML = `<!doctype html><html lang="cs"><head><meta charset="utf-8
 <li>Stripe (platby za placenou konzultaci) – zpracovává platební údaje, my vidíme jen potvrzení platby;</li>
 <li>Anthropic (jazykový model generující odpovědi) a ElevenLabs (převod textu na hlas) – zpracovávají text konverzace pouze pro vytvoření odpovědi.</li></ul>
 <h2>Doba uložení</h2>
-<p>Obsah konverzace držíme v paměti aplikace nejvýše 24 hodin. Shrnutí objednávky (jméno, telefon, potíže, termín) předáváme ordinaci a mažeme po vyšetření, nejpozději do 90 dnů. Historii v Messengeru spravuje Meta podle svých pravidel.</p>
+<p>Obsah konverzace držíme v paměti aplikace nejvýše 24 hodin; během této doby ho může MUDr. Ditl zkontrolovat a opravit případné chyby AI. Shrnutí objednávky (jméno, telefon, potíže, termín) předáváme ordinaci a mažeme po vyšetření, nejpozději do 90 dnů. Historii v Messengeru spravuje Meta podle svých pravidel.</p>
 <h2>Vaše práva</h2>
 <p>Máte právo na přístup k údajům, jejich opravu, výmaz, omezení zpracování, přenositelnost a právo vznést námitku. Napište na stránku Pavel Ditl MD do zpráv slovo <strong>SMAZAT</strong>, nebo kontaktujte správce e-mailem uvedeným na stránce; údaje odstraníme do 30 dnů. Stížnost lze podat u Úřadu pro ochranu osobních údajů (uoou.gov.cz).</p>
 <h2>Smazání dat</h2>
