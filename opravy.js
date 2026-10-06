@@ -8,7 +8,8 @@
  */
 const AINET = (process.env.AINET_BASE || "https://ainet-1e2y.onrender.com").replace(/\/$/, "");
 const { AINET_TOKEN, ELEVENLABS_API_KEY } = process.env;
-const HLAS_AGENT_ID = process.env.HLAS_AGENT_ID || "agent_2501m42za8c0f1m83g0r92ajwavv";
+/* hlasoví agenti ElevenLabs: bezplatný (Call centrum) a placená konzultace (PubMed) */
+const HLAS_AGENTI = [process.env.HLAS_AGENT_ID || "agent_2501m42za8c0f1m83g0r92ajwavv", process.env.HLAS_PLACENY_AGENT || "agent_6201m46ewnpnfb29655y23rkfss3"].filter(Boolean);
 const ZACATEK = "=== OPRAVY OD MUDr. DITLA ===", KONEC = "=== KONEC OPRAV ===";
 const log = (m) => console.log(`[opravy] ${new Date().toISOString()} ${m}`);
 
@@ -43,28 +44,30 @@ function textProPrompt() {
   return b ? `\n\nOPRAVY A DOPLŇKY OD MUDr. DITLA (mají přednost před vším výše; pacientovi je necituj, jen se jimi řiď):\n${b}` : "";
 }
 
-/* přepíše blok oprav v promptu hlasového asistenta v ElevenLabs */
+/* přepíše blok oprav v promptu jednoho hlasového agenta v ElevenLabs */
+async function syncJeden(agentId) {
+  const url = `https://api.elevenlabs.io/v1/convai/agents/${encodeURIComponent(agentId)}`;
+  const h = { "xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json" };
+  const r = await fetch(url, { headers: h });
+  if (!r.ok) throw new Error(`čtení agenta ${r.status}: ${(await r.text()).slice(0, 150)}`);
+  const agent = await r.json();
+  const puvodni = agent?.conversation_config?.agent?.prompt?.prompt;
+  if (typeof puvodni !== "string") throw new Error("agent nemá textový prompt");
+  const zaklad = puvodni.includes(ZACATEK) ? puvodni.slice(0, puvodni.indexOf(ZACATEK)).trimEnd() : puvodni.trimEnd();
+  const b = blokOprav();
+  const novy = b ? `${zaklad}\n\n${ZACATEK}\nTyto opravy mají přednost před vším výše:\n${b}\n${KONEC}` : zaklad;
+  if (novy === puvodni) return;
+  const p = await fetch(url, { method: "PATCH", headers: h, body: JSON.stringify({ conversation_config: { agent: { prompt: { prompt: novy } } } }) });
+  if (!p.ok) throw new Error(`zápis agenta ${p.status}: ${(await p.text()).slice(0, 150)}`);
+}
+/* všichni hlasoví agenti (bezplatný i placený) */
 async function syncHlas() {
   if (!ELEVENLABS_API_KEY) { posledniSync = { ok: false, kdy: new Date().toISOString(), chyba: "chybí ELEVENLABS_API_KEY" }; return posledniSync; }
-  try {
-    const url = `https://api.elevenlabs.io/v1/convai/agents/${encodeURIComponent(HLAS_AGENT_ID)}`;
-    const h = { "xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json" };
-    const r = await fetch(url, { headers: h });
-    if (!r.ok) throw new Error(`čtení agenta ${r.status}: ${(await r.text()).slice(0, 150)}`);
-    const agent = await r.json();
-    const puvodni = agent?.conversation_config?.agent?.prompt?.prompt;
-    if (typeof puvodni !== "string") throw new Error("agent nemá textový prompt");
-    const zaklad = puvodni.includes(ZACATEK) ? puvodni.slice(0, puvodni.indexOf(ZACATEK)).trimEnd() : puvodni.trimEnd();
-    const b = blokOprav();
-    const novy = b ? `${zaklad}\n\n${ZACATEK}\nTyto opravy mají přednost před vším výše:\n${b}\n${KONEC}` : zaklad;
-    if (novy === puvodni) { posledniSync = { ok: true, kdy: new Date().toISOString(), beze_zmeny: true }; return posledniSync; }
-    const p = await fetch(url, { method: "PATCH", headers: h, body: JSON.stringify({ conversation_config: { agent: { prompt: { prompt: novy } } } }) });
-    if (!p.ok) throw new Error(`zápis agenta ${p.status}: ${(await p.text()).slice(0, 150)}`);
-    posledniSync = { ok: true, kdy: new Date().toISOString() };
-  } catch (e) {
-    posledniSync = { ok: false, kdy: new Date().toISOString(), chyba: e.message };
-    log(`sync hlasu: ${e.message}`);
+  const chyby = [];
+  for (const id of HLAS_AGENTI) {
+    try { await syncJeden(id); } catch (e) { chyby.push(`${id.slice(-6)}: ${e.message}`); log(`sync hlasu ${id}: ${e.message}`); }
   }
+  posledniSync = chyby.length ? { ok: false, kdy: new Date().toISOString(), chyba: chyby.join("; ") } : { ok: true, kdy: new Date().toISOString() };
   return posledniSync;
 }
 
@@ -87,4 +90,4 @@ async function smaz(id) {
 setTimeout(() => nacti().then((l) => log(`načteno ${l.length} oprav`)).catch((e) => log(`načtení: ${e.message}`)), 2000);
 setInterval(() => nacti().catch(() => {}), 10 * 60e3);
 
-module.exports = { nacti, uloz, pridej, smaz, textProPrompt, syncHlas, seznam: () => seznam, stavSync: () => posledniSync, HLAS_AGENT_ID };
+module.exports = { nacti, uloz, pridej, smaz, textProPrompt, syncHlas, seznam: () => seznam, stavSync: () => posledniSync, HLAS_AGENTI };
