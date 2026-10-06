@@ -288,7 +288,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
   /* stejné id jako chat – jedna platba odemkne chat i hovor */
   var cid = null; try { cid = localStorage.getItem("pd_chat_id"); } catch (e) {}
   if (!cid) { cid = "w" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); try { localStorage.setItem("pd_chat_id", cid); } catch (e) {} }
-  var KEY = "web_" + cid, nast = { hovor_zdarma: 5, platba: false };
+  var KEY = "web_" + cid, nast = { hovor_zdarma: 5, platba: false }, posledniPoslano = false;
   var POPIS = "podrobnější a odbornější odpovědi, fakta ověřená v lékařských databázích (PubMed)";
   fetch(MOST + "/web/limity").then(function (r) { return r.json(); }).then(function (j) { if (j && j.hovor_zdarma) nast = j; ukazInfo(); }).catch(function () {});
   /* bezplatné otázky se počítají za den (napříč hovory) */
@@ -324,13 +324,14 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
   }
 
   function posledni(c) {
+    posledniPoslano = true;
     if (c && c.sendContextualUpdate) try { c.sendContextualUpdate("Pokyn systému: příští odpověď je poslední bezplatná. Odpověz na otázku volajícího, stručně shrň předběžný závěr a nabídni objednání do ordinace. Pak jednou větou řekni, že " + (nast.platba ? "pokračovat lze v placené konzultaci tady na webu – je podrobnější a odbornější a fakta ověřuje v lékařských databázích PubMed; odkaz na platbu se ukáže na obrazovce po skončení hovoru" : "připravujeme placenou konzultaci, která bude podrobnější a odbornější a fakta bude ověřovat v lékařských databázích PubMed") + ". Pak se zdvořile rozluč a už se na nic neptej."); } catch (e) {}
   }
   go.onclick = function () {
     if (bezi && hovor) { go.disabled = true; hovor.endSession().catch(function () {}).then(function () { go.disabled = false; }); return; }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { nastav("Tento prohlížeč nepodporuje hovor. Zkuste Chrome nebo Safari, nebo napište do chatu."); return; }
     go.disabled = true; platba.hidden = true; nastav("Připojuji… (povolte prosím mikrofon)");
-    var placeny = false, limit = 0, uzaver = false, mluvil = false, pojistka = null, objednava = false;
+    var placeny = false, limit = 0, uzaver = false, mluvil = false, pojistka = null, objednava = false; posledniPoslano = false;
     var token = null;
     tokenPlaceny()
       .then(function (t) {
@@ -344,7 +345,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
         return import("https://cdn.jsdelivr.net/npm/@elevenlabs/client/+esm").then(function (m) {
           var o = { connectionType: "webrtc",
             onConnect: function () { bezi = true; tlacitko(); nastav(placeny ? "Placená konzultace – mluvte." : "Spojeno – mluvte. Zdarma " + zbyvaText() + "."); },
-            onDisconnect: function () { bezi = false; hovor = null; clearTimeout(pojistka); tlacitko(); if (uzaver) { nastav("Hovor skončil. Děkujeme."); ukazPlatbu(); } else nastav("Hovor skončil. Děkujeme."); },
+            onDisconnect: function () { bezi = false; hovor = null; clearTimeout(pojistka); tlacitko(); nastav("Hovor skončil. Děkujeme."); if (!placeny && (uzaver || posledniPoslano || zbyva() <= 0)) ukazPlatbu(); },
             onError: function () { nastav("Spojení se přerušilo. Zkuste to znovu, nebo napište do chatu."); },
             onMessage: function (x) {
               if (placeny || !x) return;
