@@ -2035,6 +2035,20 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    /* ---- LITE poznámky (trvalé): GET/POST /api/lite/poznamky?token=... — např. Pavlovy opravy pravidel poradny ---- */
+    if (p === "/api/lite/poznamky" && (req.method === "GET" || req.method === "POST")) {
+      const tok = url.searchParams.get("token");
+      const a = tok ? Object.values(db.agents).find(x => x.liteToken === tok) : null;
+      if (!a) return json(res, 403, { error: "Neplatný token" });
+      db.poznamky = db.poznamky || {};
+      if (req.method === "GET") return json(res, 200, { poznamky: db.poznamky[a.id] || [] });
+      let b; try { b = await readBody(req); } catch { return json(res, 400, { error: "Špatný JSON" }); }
+      if (!b || !Array.isArray(b.poznamky)) return json(res, 400, { error: "Chybí pole poznamky" });
+      const list = b.poznamky.slice(0, 300).map(x => ({ id: String((x && x.id) || "").slice(0, 40), text: String((x && x.text) || "").slice(0, 2000), kdy: String((x && x.kdy) || "").slice(0, 40), zdroj: String((x && x.zdroj) || "").slice(0, 200) })).filter(x => x.text.trim());
+      db.poznamky[a.id] = list; save();
+      return json(res, 200, { ok: true, pocet: list.length });
+    }
+
     /* ---- LITE schránka: GET /api/lite/inbox?token=... ---- */
     if (p === "/api/lite/inbox" && req.method === "GET") {
       const tok = url.searchParams.get("token");
