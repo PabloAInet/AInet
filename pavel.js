@@ -9,6 +9,9 @@
  */
 const crypto = require("crypto");
 const lit = require("./literatura.js");
+const opravy = require("./opravy.js");
+let zdroje = { chats: () => new Map() };      // most sem připojí paměť konverzací
+function pripoj(z) { zdroje = { ...zdroje, ...z }; }
 
 const HESLO = process.env.PAVEL_HESLO || "";
 const { ANTHROPIC_API_KEY } = process.env;
@@ -92,7 +95,7 @@ function posli(res, status, html, extra = {}) {
   res.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Robots-Tag": "noindex", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", ...extra });
   res.end(html);
 }
-const NAV = `<nav><a href="/pavel">Literatura</a><a href="/pavel?rezim=prispevek">Příspěvek na FB</a><a href="/pavel?rezim=novinky">Novinky</a><span>Operační program – připravujeme</span><a href="/pavel/odhlasit">Odhlásit</a></nav>`;
+const NAV = `<nav><a href="/pavel">Literatura</a><a href="/pavel?rezim=prispevek">Příspěvek na FB</a><a href="/pavel?rezim=novinky">Novinky</a><a href="/pavel/konverzace">Konverzace</a><a href="/pavel/opravy">Opravy AI</a><span>Operační program – připravujeme</span><a href="/pavel/odhlasit">Odhlásit</a></nav>`;
 
 function formular(rezim = "lekar", otazka = "", dni = 30) {
   const ph = { lekar: "Např. Laser vs. excize u pilonidálního sinu – recidivy a hojení?", prispevek: "Téma příspěvku, např. Kdy po laserové operaci hemoroidů zpět do práce", novinky: "Téma (prázdné = všechna tvoje témata)" }[rezim];
@@ -181,6 +184,21 @@ async function handle(req, res, url) {
   if (!prihlasen(req)) { posli(res, 200, stranka("Přihlášení", loginHtml())); return true; }
   res.setHeader("Set-Cookie", sessionCookie()); // klouzavé prodloužení: kdo sekci používá, zůstává přihlášený
 
+  if (p === "/pavel/konverzace" && req.method === "GET") { posli(res, 200, stranka("Pavel – Konverzace", konverzaceHtml())); return true; }
+  if (p === "/pavel/opravy" && req.method === "GET") {
+    try { await opravy.nacti(); } catch (e) { log(`opravy: ${e.message}`); }
+    posli(res, 200, stranka("Pavel – Opravy AI", opravyHtml(url.searchParams.get("ok")))); return true;
+  }
+  if (p === "/pavel/opravy/pridat" && req.method === "POST") {
+    const f = await readForm(req);
+    let ok = "1"; try { await opravy.pridej(f.get("text") || "", f.get("zdroj") || ""); } catch (e) { log(`přidání opravy: ${e.message}`); ok = "0"; }
+    res.writeHead(303, { Location: `/pavel/opravy?ok=${ok}`, "Cache-Control": "no-store" }); res.end(); return true;
+  }
+  if (p === "/pavel/opravy/smazat" && req.method === "POST") {
+    const f = await readForm(req);
+    try { await opravy.smaz(f.get("id") || ""); } catch (e) { log(`smazání opravy: ${e.message}`); }
+    res.writeHead(303, { Location: "/pavel/opravy", "Cache-Control": "no-store" }); res.end(); return true;
+  }
   if (p === "/pavel" && req.method === "GET") {
     const rezim = ["lekar", "prispevek", "novinky"].includes(url.searchParams.get("rezim")) ? url.searchParams.get("rezim") : "lekar";
     posli(res, 200, stranka("Pavel – " + NADPIS[rezim], `<h1>${NADPIS[rezim]}</h1><p class="sub">Soukromá sekce · PubMed (Europe PMC) a ClinicalTrials.gov</p>${NAV}<div class="card">${formular(rezim, "", 30)}</div>`));
@@ -200,10 +218,39 @@ async function handle(req, res, url) {
   }
   posli(res, 404, stranka("Nenalezeno", `<h1>Nenalezeno</h1>${NAV}`)); return true;
 }
+const kdy = (t) => new Date(t).toLocaleString("cs-CZ", { timeZone: "Europe/Prague" });
+function konverzaceHtml() {
+  const ted = Date.now();
+  const list = [...zdroje.chats().entries()].filter(([, c]) => c && ted - c.t < 24 * 3600e3).sort((a, b) => b[1].t - a[1].t).slice(0, 50);
+  const kanal = (id) => (String(id).startsWith("web_") ? "Chat na webu" : "Messenger");
+  const maska = (id) => "…" + String(id).slice(-4);
+  const cist = (t) => String(typeof t === "string" ? t : "").replace(/\n\n\[[^\]]*\]\s*$/, "").trim();
+  const bloky = list.map(([id, c]) => {
+    const turns = (c.turns || []).filter((x) => typeof x.content === "string");
+    const items = turns.map((x, i) => x.role === "user"
+      ? `<p><b>Pacient:</b> ${esc(cist(x.content))}</p>`
+      : `<p><b>AI:</b> ${esc(x.content)}</p><details><summary class="muted">Opravit tuto odpověď</summary><form method="post" action="/pavel/opravy/pridat">
+<input type="hidden" name="zdroj" value="${esc(`${kanal(id)} ${maska(id)}: ${cist(turns[i - 1]?.content || "")}`.slice(0, 190))}">
+<label>Jak má AI příště odpovědět (pravidlo platí pro všechny pacienty)</label><textarea name="text" placeholder="Např. U krvácení po laserové operaci vždy doporuč kontrolu do týdne."></textarea><button>Uložit opravu</button></form></details>`).join("\n");
+    return `<div class="card"><p class="muted">${kanal(id)} ${maska(id)} · ${kdy(c.t)} · ${turns.length} zpráv</p>${items}</div>`;
+  }).join("\n");
+  return `<h1>Konverzace</h1><p class="sub">Messenger a chat na webu za posledních 24 hodin (déle se neukládají). Hovory s hlasovým asistentem najdeš v ElevenLabs → Agents → Conversations.</p>${NAV}${bloky || `<div class="card">Zatím žádné konverzace.</div>`}`;
+}
+function opravyHtml(ok) {
+  const s = opravy.seznam(), sync = opravy.stavSync();
+  const zprava = ok === "1"
+    ? `<div class="card">✅ Uloženo. V Messengeru a chatu na webu platí hned${sync && sync.ok ? " a hlasový asistent je taky aktualizovaný." : `; hlasového asistenta se nepodařilo aktualizovat (${esc((sync && sync.chyba) || "?")}).`}</div>`
+    : ok === "0" ? `<div class="card">❌ Opravu se nepodařilo uložit. Zkus to prosím znovu.</div>` : "";
+  const items = s.map((o) => `<li>${esc(o.text)}<br><span class="muted">${kdy(o.kdy)}${o.zdroj ? " · " + esc(o.zdroj) : ""}</span>
+<form method="post" action="/pavel/opravy/smazat"><input type="hidden" name="id" value="${esc(o.id)}"><button style="margin:6px 0 10px;padding:5px 12px;font-size:13px;background:#aa5032;color:#fff">Smazat</button></form></li>`).join("\n");
+  return `<h1>Opravy AI</h1><p class="sub">Pravidla, kterými AI doučuješ. Platí v Messengeru, v chatu na webu i v hlasovém asistentovi a mají přednost před výchozími instrukcemi.</p>${NAV}${zprava}
+<div class="card"><form method="post" action="/pavel/opravy/pridat"><label>Nové pravidlo</label><textarea name="text" placeholder="Např. Pacientům po laseru hemoroidů doporučuj sedací koupele až od druhého dne."></textarea><button>Uložit pravidlo</button></form></div>
+<div class="card"><h3>Platná pravidla (${s.length})</h3>${s.length ? `<ul>${items}</ul>` : `<p class="muted">Zatím žádná.</p>`}</div>`;
+}
 function loginHtml(chyba = "") {
   return `<h1>Soukromá sekce</h1><p class="sub">MUDr. Pavel Ditl</p><div class="card"><form method="post" action="/pavel/login">
 <label>Heslo</label><input type="password" name="heslo" autocomplete="current-password" autofocus>${chyba ? `<p style="color:#ff8a7a">${esc(chyba)}</p>` : ""}<button>Přihlásit</button></form></div>
 <div class="card"><b>Bez hesla:</b> napiš stránce Pavel Ditl MD v Messengeru slovo <b>přihlásit</b> – přijde ti odkaz, který tě rovnou přihlásí.</div>`;
 }
 
-module.exports = { handle, md, TEMATA, novinkyData, messengerPrikaz };
+module.exports = { handle, md, TEMATA, novinkyData, messengerPrikaz, pripoj };
