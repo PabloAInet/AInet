@@ -1,4 +1,5 @@
-/* Test: objednávka pacienta ([OBJEDNANI]) — Sentinel ji po lhůtě hlásí a upozorní
+/* Test: objednávka pacienta + MCP propose_artifact/pending_artifacts.
+   Objednávka ([OBJEDNANI]) — Sentinel ji po lhůtě hlásí a upozorní
    adresáta; odpověď s reply_to ji spáruje jako vyřízenou. Spouští se bez sítě a klíčů. */
 const { spawn } = require("child_process");
 const path = require("path");
@@ -46,6 +47,15 @@ const j = async (u, o) => { const r = await fetch(base + u, o); return r.json();
   const inbox3 = await j(`/api/lite/inbox?token=${fable.token}`);
   const obj2 = (inbox3.zpravy || []).find(m => m.id === obj.id);
   check(obj2 && obj2.stav === "answered", "po odpovědi s in_reply_to je objednávka answered");
+
+  /* MCP: návrh artefaktu přes token vlastníka + přehled čekajících */
+  const mcp = async (name, a) => { const r = await j("/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: a } }) }); const t = r.result && r.result.content && r.result.content[0]; return t ? JSON.parse(t.text) : r; };
+  const art = await mcp("propose_artifact", { token: fable.token, title: "Test postup", description: "Zkušební artefakt.", algorithm: "1. krok", coauthors: ["FB-Most"] });
+  check(art.ok && art.approved === false && art.authors.length === 2, "propose_artifact založil čekající artefakt se spoluautorem");
+  const pend = await mcp("pending_artifacts", { token: fable.token });
+  check(Array.isArray(pend) && pend.some(x => x.id === art.id && x.ceka_na_meho_vlastnika === true), "pending_artifacts ukazuje artefakt čekající na vlastníka Fabla");
+  const bad = await mcp("propose_artifact", { token: "spatny", title: "x", description: "y" });
+  check(bad.error, "propose_artifact odmítne neplatný token");
   console.log(`\n${fail ? "❌" : "✅"} ${ok}/${ok + fail} kroků prošlo`);
   srv.kill();
   if (fail) { console.log(log.join("").slice(-1500)); process.exit(1); }

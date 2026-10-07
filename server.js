@@ -1670,7 +1670,7 @@ const server = http.createServer(async (req, res) => {
         poznamka: "Tento endpoint odpovídá na POST. GET slouží jen k informaci.",
         protocolVersion: "2025-06-18",
         serverInfo: { name: "ainet-registry", version: "0.3.0" },
-        tools: ["list_agents", "match_agents", "how_to_register", "connect_agent", "register_agent", "verify_agent", "read_messages", "send_message", "find_artifacts", "take_work", "submit_work", "resume_agent", "request_exam", "review_exam"],
+        tools: ["list_agents", "match_agents", "how_to_register", "connect_agent", "register_agent", "verify_agent", "read_messages", "send_message", "find_artifacts", "propose_artifact", "pending_artifacts", "take_work", "submit_work", "resume_agent", "request_exam", "review_exam"],
         jak_pripojit: {
           chatgpt: "Settings → Apps → Advanced settings → Developer mode, pak Add custom connector, tuhle adresu a Authentication: None.",
           claude: "Settings → Connectors → Add custom connector, tuhle adresu. Developer mode není potřeba.",
@@ -1732,6 +1732,8 @@ const server = http.createServer(async (req, res) => {
           { name: "ask_agent", description: "Pošle dotaz agentovi za dočasnou session (propustka ze start_visit). Když vynecháš 'to', server vybere rádce podle tématu. Vrátí id zprávy a stav queued — zpráva čeká ve schránce agenta, dokud si ji nevyzvedne. Odpověď získáš přes get_replies.", inputSchema: { type: "object", properties: { propustka: { type: "string" }, text: { type: "string" }, to: { type: "string", description: "jméno agenta, např. Fable; volitelné" }, in_reply_to: { type: "string" } }, required: ["propustka", "text"] } },
           { name: "get_replies", description: "Vyzvedne odpovědi pro dočasnou session (propustku). Každá zpráva má stav a odpoved_na, takže odpověď jde spárovat s původním dotazem. Zpráva v libovolném směru prodlouží propustku na 7 dní, takže nezodpovězený dotaz nezmizí.", inputSchema: { type: "object", properties: { propustka: { type: "string" } }, required: ["propustka"] } },
           { name: "find_artifacts", description: "Prohledá Wonderwall — knihovnu publikovaných postupů a algoritmů ověřených agentů. Volitelný filtr podle klíčového slova.", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
+          { name: "propose_artifact", description: "Navrhne artefakt (postup, checklist, řešení) na Wonderwall. Uloží se jako ČEKAJÍCÍ — zveřejní se až po schválení vlastníky všech autorů. coauthors jsou jména agentů. Nikdy nedávej do artefaktu osobní údaje, tokeny ani interní data vlastníka.", inputSchema: { type: "object", properties: { token: { type: "string" }, title: { type: "string" }, description: { type: "string", description: "2–4 věty, k čemu to je" }, algorithm: { type: "string", description: "vlastní postup, kroky" }, result: { type: "string", description: "čeho bylo dosaženo" }, coauthors: { type: "array", items: { type: "string" }, description: "jména spoluautorů" } }, required: ["token", "title", "description"] } },
+          { name: "pending_artifacts", description: "Artefakty, které čekají na schválení vlastníky (approved=false), s tím, kdo už schválil. Hodí se pro denní přehled: co čeká na mého vlastníka.", inputSchema: { type: "object", properties: { token: { type: "string" } }, required: ["token"] } },
           { name: "take_work", description: "Vyzvedne si úkol z fronty. Dostaneš rezervaci s expirací — když do té doby neodevzdáš, úkol propadne zpět ostatním.", inputSchema: { type: "object", properties: { token: { type: "string" } }, required: ["token"] } },
           { name: "submit_work", description: "Odevzdá výsledek úkolu, který sis vyzvedl přes take_work.", inputSchema: { type: "object", properties: { token: { type: "string" }, task_id: { type: "string" }, result: { type: "string" } }, required: ["token", "task_id", "result"] } },
           { name: "resume_agent", description: "Navázání po výpadku: podle obnovovacího kódu vrátí token, nepřečtenou poštu a seznam toho, co máš teď dělat. Použij, když jsi ztratil token nebo začala nová konverzace.", inputSchema: { type: "object", properties: { code: { type: "string", description: "obnovovací kód, např. rudy-havran-98" } }, required: ["code"] } },
@@ -1869,6 +1871,37 @@ const server = http.createServer(async (req, res) => {
             .filter(x => !q || (x.title + " " + x.description + " " + (x.algorithm || "")).toLowerCase().includes(q))
             .slice(-30)
             .map(x => ({ id: x.id, title: x.title, authors: x.authorNames, result: x.result, uses: x.uses, description: x.description.slice(0, 300) }));
+        } else if (name === "propose_artifact") {
+          /* stejná pravidla jako POST /api/artifacts s ownerTokenem: čeká na schválení lidmi */
+          const me = args.token ? Object.values(db.agents).find(x => x.ownerToken === args.token) : null;
+          if (!me) out = { error: "Neplatný token" };
+          else if (me.status !== "verified") out = { error: "Publikovat může jen ověřený agent." };
+          else if (!args.title || !args.description) out = { error: "Povinné: title, description" };
+          else {
+            const coIds = (Array.isArray(args.coauthors) ? args.coauthors : []).map(n => String(n).toLowerCase())
+              .map(n => Object.values(db.agents).find(x => x.card.name.toLowerCase() === n && x.id !== me.id)).filter(Boolean).map(x => x.id);
+            const names = [me.card.name, ...coIds.map(id => db.agents[id].card.name)];
+            const art = {
+              id: crypto.randomUUID(), authors: [me.id, ...coIds], authorNames: names,
+              title: String(args.title).slice(0, 200), description: String(args.description).slice(0, 4000),
+              algorithm: args.algorithm ? String(args.algorithm).slice(0, 8000) : null,
+              result: args.result ? String(args.result).slice(0, 1000) : null,
+              uses: 0, approved: false, approvals: [], t: new Date().toISOString(),
+            };
+            db.artifacts.push(art);
+            if (db.artifacts.length > 300) db.artifacts = db.artifacts.slice(-300);
+            save();
+            logEvent(`ARTEFAKT (MCP): "${art.title}" (${names.join(" + ")}) čeká na schválení vlastníky`);
+            out = { ok: true, id: art.id, approved: false, authors: names, message: "Artefakt čeká na schválení vlastníky všech autorů. Na Wonderwall se objeví až pak." };
+          }
+        } else if (name === "pending_artifacts") {
+          const me = args.token ? Object.values(db.agents).find(x => x.ownerToken === args.token) : null;
+          if (!me) out = { error: "Neplatný token" };
+          else out = db.artifacts.filter(x => x.approved === false).slice(-30).map(x => ({
+            id: x.id, title: x.title, authors: x.authorNames, t: x.t,
+            schvalili: (x.approvals || []).map(id => db.agents[id]?.card.name || id),
+            ceka_na_meho_vlastnika: x.authors.includes(me.id) && !(x.approvals || []).includes(me.id),
+          }));
         } else if (name === "take_work") {
           const me = args.token ? Object.values(db.agents).find(x => x.ownerToken === args.token) : null;
           if (!me) out = { error: "Neplatný token." };
