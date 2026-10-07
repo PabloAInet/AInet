@@ -42,6 +42,12 @@ const http = require("http");
 const PORT = process.env.PORT || 4790;
 const AINET = (process.env.AINET_BASE || "https://ainet-1e2y.onrender.com").replace(/\/$/, "");
 const FABLE = process.env.FABLE_NAME || "Fable";
+/* Kam na AInetu chodí objednávky pacientů ([OBJEDNANI]). Výchozí Fable; až bude
+   mít Organizer vlastní identitu, stačí přepnout env, kód se nemění. */
+const OBJEDNAVKY_AGENT = process.env.OBJEDNAVKY_AGENT || FABLE;
+/* Čí zprávy s [FB:psid] smí most doručit pacientovi do Messengeru (čárkami
+   oddělený seznam jmen agentů). Výchozí jen Fable. */
+const ODPOVIDAJICI = new Set((process.env.ODPOVIDAJICI_AGENTI || FABLE).split(",").map(s => s.trim()).filter(Boolean));
 const { PAGE_ACCESS_TOKEN, VERIFY_TOKEN, AINET_TOKEN, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID } = process.env;
 const HLASOVKY = process.env.HLASOVKY === "1";                 // hlasovky v psaném Messengeru – výchozí vypnuto
 const VOICE_ON = !!(ELEVENLABS_API_KEY && ELEVENLABS_VOICE_ID) && HLASOVKY;
@@ -74,8 +80,8 @@ const log = (m) => console.log(`[most] ${new Date().toISOString()} ${m}`);
 const TAG = /^\[FB:(\d+)\]\s*/;
 
 /* ---------- AInet (Lite API) ---------- */
-async function ainetSend(text) {
-  const u = `${AINET}/api/lite/send?token=${encodeURIComponent(AINET_TOKEN)}&to=${encodeURIComponent(FABLE)}&text=${encodeURIComponent(text)}`;
+async function ainetSend(text, to = FABLE) {
+  const u = `${AINET}/api/lite/send?token=${encodeURIComponent(AINET_TOKEN)}&to=${encodeURIComponent(to)}&text=${encodeURIComponent(text)}`;
   const r = await fetch(u);
   if (!r.ok) throw new Error(`AInet send ${r.status}: ${await r.text()}`);
 }
@@ -266,7 +272,7 @@ async function poradna(psid, text) {
   if (hit) {
     const souhrn = `OBJEDNÁNÍ z Messengeru (psid ${psid}, ${new Date().toISOString().slice(0, 16)})\n${hit[1].trim()}`;
     log(`objednávka: ${hit[1].trim().split("\n").slice(0, 2).join(" | ")}`);
-    try { await ainetSend(`[OBJEDNANI] ${souhrn}`); } catch (e) { log(`objednávka → AInet: ${e.message}`); }
+    try { await ainetSend(`[OBJEDNANI] ${souhrn}`, OBJEDNAVKY_AGENT); } catch (e) { log(`objednávka → AInet: ${e.message}`); }
   }
 }
 
@@ -296,7 +302,7 @@ async function poradnaWeb(id, text) {
   log(`web ${key} ← ${text.slice(0, 40)} → ${odpoved.slice(0, 50)}`);
   if (hit) {
     const souhrn = `OBJEDNÁNÍ z webu (${key}, ${new Date().toISOString().slice(0, 16)})\n${hit[1].trim()}`;
-    try { await ainetSend(`[OBJEDNANI] ${souhrn}`); } catch (e) { log(`objednávka z webu → AInet: ${e.message}`); }
+    try { await ainetSend(`[OBJEDNANI] ${souhrn}`, OBJEDNAVKY_AGENT); } catch (e) { log(`objednávka z webu → AInet: ${e.message}`); }
   }
   if (!hit && hnedPlatba(key)) return { odpoved: odpoved + "\n\n" + paywallText(key), platba: platebniOdkaz(key) };
   return { odpoved };
@@ -392,7 +398,7 @@ async function pump() {
       seen.add(id);
       if (!primed) continue;
       const from = m.od || m.fromName || m.from || "";
-      if (from !== FABLE) continue;
+      if (!ODPOVIDAJICI.has(from)) continue;
       const hit = TAG.exec(m.text || "");
       if (!hit) continue;
       const psid = hit[1];
@@ -638,6 +644,8 @@ http.createServer(async (req, res) => {
     /* hlasový asistent (ElevenLabs, web i telefon): POST /hlas/objednani { jmeno, telefon, den, potiz, … } → objednávka Pavlovi */
     if (url.pathname === "/hlas/objednani" && req.method === "POST") {
       const json = (st, o) => { res.writeHead(st, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(o)); };
+      /* stejná ochrana jako /hlas/literatura: bez správného x-doctor-klic nikdo nezaloží objednávku s cizími údaji */
+      if (process.env.HLAS_KLIC && req.headers["x-doctor-klic"] !== process.env.HLAS_KLIC) return json(403, { ok: false, chyba: "forbidden" });
       const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim();
       if (webPrilisRychle("hlas_" + ip)) return json(429, { ok: false, chyba: "příliš mnoho požadavků" });
       let b; try { b = await readBody(req); } catch { return json(400, { ok: false, chyba: "špatný JSON" }); }
@@ -646,7 +654,7 @@ http.createServer(async (req, res) => {
       const souhrn = [`OBJEDNÁNÍ z hlasového hovoru (${new Date().toISOString().slice(0, 16)})`, `Jméno: ${t("jmeno")}`, `Telefon: ${t("telefon")}`,
         `Věk: ${t("vek") || "?"}`, `Diagnóza: ${t("diagnoza") || "?"}`, `Hlavní potíž: ${t("potiz") || "?"}`, `Trvání: ${t("trvani") || "?"}`,
         `Varovné příznaky: ${t("varovne") || "žádné"}`, `Preferovaný den: ${t("den") || "?"}`, `Poznámka: ${t("poznamka") || "-"}`].join("\n");
-      try { await ainetSend(`[OBJEDNANI] ${souhrn}`); }
+      try { await ainetSend(`[OBJEDNANI] ${souhrn}`, OBJEDNAVKY_AGENT); }
       catch (e) { log(`objednávka z hovoru → AInet: ${e.message}`); return json(502, { ok: false, chyba: "objednávku se nepodařilo předat – požádej volajícího, ať napíše do chatu na webu nebo zavolá znovu" }); }
       log(`objednávka z hovoru: ${t("jmeno")}, ${t("den")}`);
       return json(200, { ok: true, zprava: "Objednávka je předaná ordinaci. Termín potvrdí do dvou pracovních dnů zprávou nebo SMS." });

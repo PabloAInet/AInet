@@ -1,0 +1,18 @@
+# závislosti a prostředí
+node_modules/
+.env
+.env.*
+
+# klíče a tokeny agentů (vytváří fable-agent.js / bridge.js)
+*.pem
+fable-token.txt
+fable-id.txt
+bridge-token.txt
+bridge-stav.json
+
+# databáze AInetu (obsahuje ownerTokeny a custodial klíče)
+agents.json
+data/
+
+# systém
+.DS_Store

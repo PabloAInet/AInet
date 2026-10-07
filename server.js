@@ -391,11 +391,32 @@ function spocitejDrift() {
    a dlouho neschválené artefakty. Nálezy zapisuje do logu a při zacyklení
    pošle oběma stranám upozornění, ať zapojí vlastníky. */
 const SENTINEL_MAX_EXCHANGES = 6;   /* zpráv v páru bez zásahu člověka */
+/* Objednávka pacienta (z mostu: Messenger, web, hlas) — po této době bez
+   spárované odpovědi Sentinel upozorní adresáta; jednou denně, dokud se nevyřídí. */
+const OBJEDNAVKA_LHUTA_H = Number(process.env.OBJEDNAVKA_LHUTA_H || 4);
 db.sentinel = db.sentinel || { findings: [], notified: {} };
+
+/* Zpráva je objednávka pacienta (most ji značí prefixem). Obsah se nikam nekopíruje. */
+function jeObjednavka(m) { return typeof m.text === "string" && m.text.startsWith("[OBJEDNANI]"); }
 
 function runSentinel() {
   const findings = [];
   const now = Date.now();
+
+  /* 0) OBJEDNÁVKY PACIENTŮ bez reakce: nejdůležitější kontrola — zapadlá
+        objednávka je ztracený pacient. Hlídá se jen stav a stáří, ne obsah. */
+  for (const m of db.messages) {
+    if (!jeObjednavka(m) || m.status === "answered" || m.from === "system") continue;
+    const stariH = (now - new Date(m.t).getTime()) / 3_600_000;
+    if (stariH < OBJEDNAVKA_LHUTA_H) continue;
+    const klic = "objednavka:" + m.id;
+    if (db.sentinel.notified[klic] && now - db.sentinel.notified[klic] < DEN_MS) continue;
+    db.sentinel.notified[klic] = now;
+    findings.push({ typ: "objednávka_čeká", pár: `${m.fromName} → ${m.toName}`,
+      detail: `objednávka z ${m.t.slice(0, 16).replace("T", " ")} je ${Math.floor(stariH)} h bez odpovědi (id ${m.id.slice(0, 8)})`, t: new Date().toISOString() });
+    systemovaZprava(m.to, "Sentinel", `🛡️ Objednávka pacienta (id ${m.id}) čeká ${Math.floor(stariH)} h bez reakce. Zapiš ji do kalendáře a odpověz zprávou s in_reply_to=${m.id}, aby byla spárovaná jako vyřízená.`);
+    logEvent(`SENTINEL: objednávka ${m.id.slice(0, 8)} pro "${m.toName}" čeká ${Math.floor(stariH)} h`);
+  }
 
   /* 1) páry agentů: kolik zpráv od posledního upozornění/checkpointu */
   const pairs = {};
@@ -1177,6 +1198,9 @@ async function fableOdpovez(msg) {
   if (!ja || msg.to !== ja.id || msg.from === ja.id || msg.from === "system") return;
   const aktualni = db.messages.find(m => m.id === msg.id);
   if (!aktualni || aktualni.status === "answered") return;          /* mezitím odpověděl Bridge nebo člověk */
+  /* Objednávky pacientů (jméno, telefon, potíže) nikdy nejdou do modelu —
+     zpracuje je člověk nebo Organizer, ne auto-odpovídač. */
+  if (jeObjednavka(aktualni)) { logEvent(`FABLE AUTO: objednávka od "${msg.fromName}" čeká na člověka/Organizer — model ji nedostane`); return; }
   const den = new Date().toISOString().slice(0, 10);
   if (db.fable.den !== den) { db.fable.den = den; db.fable.pocetDnes = 0; }
   if (db.fable.pocetDnes >= FABLE_MAX_DENNE) { logEvent(`FABLE AUTO: denní strop ${FABLE_MAX_DENNE} vyčerpán — zpráva od "${msg.fromName}" čeká na člověka`); return; }
