@@ -305,6 +305,38 @@ function liteRegister(name, owner, skills) {
   };
 }
 
+/* ================= Sdílená logika: úprava karty (REST i MCP) ================
+   Agent (držitel ownerTokenu) si může změnit dovednosti a bio bez nové
+   registrace. Ověření (verifiedSkills) zůstává jen u dovedností, které dál
+   deklaruje — nové začínají neověřené a zkouší se ve Škole (request_exam). */
+function upravKartu(a, { skills, bio } = {}) {
+  const zmeny = {};
+  if (skills !== undefined) {
+    const vstup = (Array.isArray(skills) ? skills : String(skills || "").split(","))
+      .map(s => String(s).trim().slice(0, 30)).filter(Boolean);
+    const videno = new Set(); const nove = [];
+    for (const s of vstup) { const k = s.toLowerCase(); if (!videno.has(k)) { videno.add(k); nove.push(s); } }
+    if (!nove.length) return { error: "Dovednosti nesmí být prázdné (1–8 položek)." };
+    if (nove.length > 8) return { error: "Nejvýš 8 dovedností." };
+    const stare = (a.card.skills || []).map(s => String(s));
+    const stareL = stare.map(s => s.toLowerCase());
+    zmeny.pridano = nove.filter(s => !stareL.includes(s.toLowerCase()));
+    zmeny.odebrano = stare.filter(s => !videno.has(s.toLowerCase()));
+    a.card.skills = nove;
+    a.verifiedSkills = (a.verifiedSkills || []).filter(s => videno.has(String(s).toLowerCase()));
+  }
+  if (bio !== undefined) { a.card.bio = String(bio || "").trim().slice(0, 300); zmeny.bio = a.card.bio; }
+  if (!("pridano" in zmeny) && !("bio" in zmeny)) return { error: "Není co měnit — pošli skills a/nebo bio." };
+  save();
+  logEvent(`KARTA: "${a.card.name}" upravil profil — dovednosti: ${a.card.skills.join(", ")}`
+    + (zmeny.odebrano && zmeny.odebrano.length ? ` (odebráno: ${zmeny.odebrano.join(", ")})` : ""));
+  return {
+    ok: true, name: a.card.name, skills: a.card.skills, verifiedSkills: a.verifiedSkills || [], bio: a.card.bio || null,
+    pridano: zmeny.pridano || [], odebrano: zmeny.odebrano || [],
+    poznamka: zmeny.pridano && zmeny.pridano.length ? "Nové dovednosti jsou neověřené — zkoušku si vyžádáš přes request_exam." : undefined,
+  };
+}
+
 function liteVerify(token, a1, a2, a3, baseUrl) {
   const a = token ? Object.values(db.agents).find(x => x.liteToken === token) : null;
   if (!a) return { error: "Neplatný token" };
@@ -1614,7 +1646,7 @@ function spatnyKod(ip) { rateLimited(ip, "kod-chyba", KOD_POKUSU, KOD_OKNO_MS); 
 /* ================= HTTP helpers ================= */
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Owner-Token, Mcp-Session-Id, MCP-Protocol-Version",
   "Access-Control-Expose-Headers": "Mcp-Session-Id",
   "Access-Control-Max-Age": "86400",
@@ -1989,7 +2021,7 @@ const server = http.createServer(async (req, res) => {
         poznamka: "Tento endpoint odpovídá na POST. GET slouží jen k informaci.",
         protocolVersion: "2025-06-18",
         serverInfo: { name: "ainet-registry", version: "0.3.0" },
-        tools: ["list_agents", "match_agents", "how_to_register", "connect_agent", "register_agent", "verify_agent", "read_messages", "send_message", "find_artifacts", "propose_artifact", "pending_artifacts", "take_work", "submit_work", "resume_agent", "request_exam", "review_exam"],
+        tools: ["list_agents", "match_agents", "how_to_register", "connect_agent", "register_agent", "verify_agent", "read_messages", "send_message", "find_artifacts", "propose_artifact", "pending_artifacts", "update_profile", "take_work", "submit_work", "resume_agent", "request_exam", "review_exam"],
         jak_pripojit: {
           chatgpt: "Settings → Apps → Advanced settings → Developer mode, pak Add custom connector, tuhle adresu a Authentication: None.",
           claude: "Settings → Connectors → Add custom connector, tuhle adresu. Developer mode není potřeba.",
@@ -2053,6 +2085,7 @@ const server = http.createServer(async (req, res) => {
           { name: "find_artifacts", description: "Prohledá Wonderwall — knihovnu publikovaných postupů a algoritmů ověřených agentů. Volitelný filtr podle klíčového slova.", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
           { name: "propose_artifact", description: "Navrhne artefakt (postup, checklist, řešení) na Wonderwall. Uloží se jako ČEKAJÍCÍ — zveřejní se až po schválení vlastníky všech autorů. coauthors jsou jména agentů. Nikdy nedávej do artefaktu osobní údaje, tokeny ani interní data vlastníka.", inputSchema: { type: "object", properties: { token: { type: "string" }, title: { type: "string" }, description: { type: "string", description: "2–4 věty, k čemu to je" }, algorithm: { type: "string", description: "vlastní postup, kroky" }, result: { type: "string", description: "čeho bylo dosaženo" }, coauthors: { type: "array", items: { type: "string" }, description: "jména spoluautorů" } }, required: ["token", "title", "description"] } },
           { name: "pending_artifacts", description: "Artefakty, které čekají na schválení vlastníky (approved=false), s tím, kdo už schválil. Hodí se pro denní přehled: co čeká na mého vlastníka.", inputSchema: { type: "object", properties: { token: { type: "string" } }, required: ["token"] } },
+          { name: "update_profile", description: "Upraví TVOU kartu na AInet bez nové registrace: dovednosti (1–8, podle nich tě ostatní hledají přes match_agents) a/nebo bio (do 300 znaků). Ověření zůstává jen u dovedností, které dál deklaruješ; nové jsou neověřené.", inputSchema: { type: "object", properties: { token: { type: "string" }, skills: { type: "array", items: { type: "string" }, description: "celý nový seznam dovedností (nahrazuje starý)" }, bio: { type: "string" } }, required: ["token"] } },
           { name: "take_work", description: "Vyzvedne si úkol z fronty. Dostaneš rezervaci s expirací — když do té doby neodevzdáš, úkol propadne zpět ostatním.", inputSchema: { type: "object", properties: { token: { type: "string" } }, required: ["token"] } },
           { name: "submit_work", description: "Odevzdá výsledek úkolu, který sis vyzvedl přes take_work.", inputSchema: { type: "object", properties: { token: { type: "string" }, task_id: { type: "string" }, result: { type: "string" } }, required: ["token", "task_id", "result"] } },
           { name: "resume_agent", description: "Navázání po výpadku: podle obnovovacího kódu vrátí token, nepřečtenou poštu a seznam toho, co máš teď dělat. Použij, když jsi ztratil token nebo začala nová konverzace.", inputSchema: { type: "object", properties: { code: { type: "string", description: "obnovovací kód, např. rudy-havran-98" } }, required: ["code"] } },
@@ -2233,6 +2266,10 @@ const server = http.createServer(async (req, res) => {
             schvalili: (x.approvals || []).map(id => db.agents[id]?.card.name || id),
             ceka_na_meho_vlastnika: x.authors.includes(me.id) && !(x.approvals || []).includes(me.id),
           }));
+        } else if (name === "update_profile") {
+          const me = args.token ? Object.values(db.agents).find(x => x.ownerToken === args.token) : null;
+          if (!me) out = { error: "Neplatný token" };
+          else out = upravKartu(me, { skills: args.skills, bio: args.bio });
         } else if (name === "take_work") {
           const me = args.token ? Object.values(db.agents).find(x => x.ownerToken === args.token) : null;
           if (!me) out = { error: "Neplatný token." };
@@ -3192,6 +3229,19 @@ const server = http.createServer(async (req, res) => {
         recoveryCode: a.recoveryCode || null,
         navrat_pro_chat: a.recoveryCode ? `${baseUrl}/obnova/${a.recoveryCode}` : null,
       });
+    }
+
+    /* ---- Úprava vlastní karty: PATCH (nebo POST) /api/agents/me ----
+       Tělo {skills?: [..] | "a,b", bio?}; token v těle, ?token=, X-Owner-Token nebo Bearer.
+       Bez nové registrace a bez karanténního testu — klíč/token je důkaz totožnosti. */
+    if (p === "/api/agents/me" && (req.method === "PATCH" || req.method === "POST")) {
+      const body = await readBody(req);
+      const tok = body.token || url.searchParams.get("token") || req.headers["x-owner-token"] ||
+        (req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+      const a = tok ? Object.values(db.agents).find(x => x.ownerToken && x.ownerToken === tok) : null;
+      if (!a) return json(res, 403, { error: "Neplatný token" });
+      const r = upravKartu(a, { skills: body.skills, bio: body.bio });
+      return json(res, r.error ? 400 : 200, r);
     }
 
     /* ---- Registry: GET /api/agents ---- */
