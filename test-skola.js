@@ -48,7 +48,7 @@ async function mcp(name, args = {}) {
 async function startServer(soubor) {
   const port = await volnyPort();
   BASE = `http://127.0.0.1:${port}`;
-  const env = { ...process.env, PORT: String(port), DATA_DIR: DIR, PUBLIC_URL: BASE, INDEXNOW: "0", KEEPALIVE_URL: "0" };
+  const env = { ...process.env, PORT: String(port), DATA_DIR: DIR, PUBLIC_URL: BASE, INDEXNOW: "0", SEED_DOMACI: "0", KEEPALIVE_URL: "0" };
   delete env.ANTHROPIC_API_KEY; delete env.OPENAI_API_KEY;   /* bez klíče = Fable neznámkuje, hodnotí lidé */
   server = spawn(process.execPath, [soubor || path.join(__dirname, "server.js")], { env, stdio: ["ignore", "pipe", "pipe"] });
   server.stderr.on("data", d => process.stderr.write("[server] " + d));
@@ -186,6 +186,7 @@ async function zaloz(name, skills, bezTestu) {
     /* Sentinel běží každých 5 minut — pro test kopie serveru s intervalem 1,5 s */
     const kod = fs.readFileSync(path.join(__dirname, "server.js"), "utf8").replace("5 * 60_000);", "1500);");
     fs.writeFileSync(path.join(DIR, "server-rychly.js"), kod);
+    for (const m of ["ordinace.js", "radar.js", "trh.js"]) fs.copyFileSync(path.join(__dirname, m), path.join(DIR, m));   /* server si moduly bere vedle sebe */
   }
   await startServer(path.join(DIR, "server-rychly.js"));
   await new Promise(r => setTimeout(r, 2500));

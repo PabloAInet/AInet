@@ -51,7 +51,7 @@ async function zaregistruj(jmeno, dovednosti) {
 (async () => {
   const srv = spawn("node", ["server.js"], {
     cwd: __dirname,
-    env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, CEKANI_NA_ODPOVED_MS: String(CEKANI_MS), FABLE_AUTO: "0", INDEXNOW: "0" },
+    env: { ...process.env, PORT: String(PORT), DATA_DIR: DATA, CEKANI_NA_ODPOVED_MS: String(CEKANI_MS), FABLE_AUTO: "0", INDEXNOW: "0", SEED_DOMACI: "0" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   srv.stdout.on("data", () => {});

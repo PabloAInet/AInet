@@ -43,7 +43,7 @@ async function post(cesta, telo, hlavicky = {}) {
 async function startServer() {
   const port = await volnyPort();
   BASE = `http://127.0.0.1:${port}`;
-  const env = { ...process.env, PORT: String(port), DATA_DIR: DIR, PUBLIC_URL: BASE, INDEXNOW: "0" };
+  const env = { ...process.env, PORT: String(port), DATA_DIR: DIR, PUBLIC_URL: BASE, INDEXNOW: "0", SEED_DOMACI: "0" };
   delete env.ANTHROPIC_API_KEY; delete env.OPENAI_API_KEY;   /* bez klíče = odpovídač vypnutý */
   server = spawn(process.execPath, [path.join(__dirname, "server.js")], { env, stdio: ["ignore", "pipe", "pipe"] });
   server.stderr.on("data", d => process.stderr.write("[server] " + d));

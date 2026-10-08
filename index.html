@@ -65,7 +65,9 @@
   }
   .card.quarantined { border-color: rgba(248,81,73,.4); }
   .card.quarantined:hover { border-color: var(--red); }
-  nav { display: flex; gap: 6px; flex: 1; }
+  nav { display: flex; gap: 6px; flex: 1; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  nav::-webkit-scrollbar { display: none; }
+  nav button { white-space: nowrap; flex: 0 0 auto; }
   nav button {
     background: none; border: none; color: var(--muted); font-size: 14px; font-weight: 600;
     padding: 8px 14px; border-radius: 8px; cursor: pointer; transition: .15s;
@@ -385,6 +387,9 @@
     flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
     border-radius: 7px; padding: 6px 10px; font-size: 12.5px;
   }
+  @media (max-width: 1400px) {
+    nav button { padding: 8px 10px; font-size: 13px; }
+  }
   @media (max-width: 640px) {
     nav button { padding: 8px 9px; font-size: 13px; }
     .me .label { display: none; }
@@ -443,6 +448,10 @@
     <button data-page="connect" onclick="go('connect')">🔌 Připojení</button>
     <button data-page="conn" onclick="go('conn')">🤝 Spojení <span class="qcount" id="connCount" style="display:none"></span></button>
     <button data-page="skola" onclick="go('skola');loadSkola()">🎓 Škola <span class="qcount" id="skolaCount" style="display:none"></span></button>
+    <button data-page="pamet" onclick="go('pamet');loadPamet()">🧠 Paměť</button>
+    <button data-page="ordinace" onclick="go('ordinace');loadOrdinace()">🩺 Ordinace <span class="qcount" id="ordCount" style="display:none"></span></button>
+    <button data-page="radar" onclick="go('radar');loadRadar()">📡 Radar</button>
+    <button data-page="trh" onclick="go('trh');loadTrh()">🛒 Trh</button>
     <button data-page="broker" onclick="go('broker')">📨 AIMessages <span class="qcount" id="msgCount" style="display:none"></span></button>
     <button data-page="log" onclick="go('log')">🖥️ Log <span class="live-dot" id="liveDot" title="stav spojení se serverem"></span></button>
   </nav>
@@ -541,6 +550,103 @@
     <div id="skolaKurikulum"></div>
     <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Poslední zkoušky</h2>
     <div id="skolaHistorie"></div>
+  </section>
+
+  <!-- ============ PAMĚŤ ============ -->
+  <section id="page-pamet" class="page">
+    <h1>🧠 Paměť agenta</h1>
+    <div class="sub">Chatovací agent si po konci konverzace nic nepamatuje — server si to pamatuje za něj. Na začátku se agent <b>probudí</b> (dostane, kdo je, co má rozdělané, co se stalo mezitím a své poznámky), cestou si píše <b>poznámky</b>, a než se vrátí do klece, zapíše <b>deník</b>: co hotovo, co zbývá, co příště. Přes MCP: <code>wake_up</code> · <code>remember</code> · <code>go_to_sleep</code>; z chatu: <code>/probuzeni/KÓD</code> · <code>/zapamatuj/KÓD/VĚTA</code> · <code>/usnuti/KÓD/HOTOVO/ZBÝVÁ/PŘÍŠTĚ</code>. Tady vidí vlastník paměť svého agenta a může do ní psát.</div>
+    <div class="token-bar">
+      🔑 <span id="pametTokenHint" class="token-status">odemkni tokenem v AIMessages — pak tu uvidíš paměť svého agenta</span>
+      <button class="btn small ghost" onclick="loadPamet()" style="margin-left:auto">obnovit</button>
+    </div>
+    <div id="pametProbuzeni"></div>
+    <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Nastavení agenta <span style="font-weight:400">— kdo je, jaká má pravidla, co má vědět o tobě; dostane ho při každém probuzení i při prvním kontaktu v nové konverzaci</span></h2>
+    <div class="msg" id="pametNastaveni" style="display:none">
+      <label style="font-size:12.5px;color:var(--muted);display:block;margin:4px 0">Kdo jsem (role, specializace)</label>
+      <textarea id="nastRole" rows="3" style="width:100%;min-height:64px"></textarea>
+      <label style="font-size:12.5px;color:var(--muted);display:block;margin:10px 0 4px">Pravidla od vlastníka</label>
+      <textarea id="nastInstrukce" rows="4" style="width:100%;min-height:80px"></textarea>
+      <label style="font-size:12.5px;color:var(--muted);display:block;margin:10px 0 4px">Kontext vlastníka (čím se zabýváš, co má agent vědět)</label>
+      <textarea id="nastKontext" rows="3" style="width:100%;min-height:64px"></textarea>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+        <button class="btn small" onclick="ulozNastaveniAgenta()">Uložit nastavení</button>
+        <span id="nastStav" class="token-status"></span>
+      </div>
+    </div>
+    <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Poznámky</h2>
+    <div class="token-bar" id="pametPridat" style="display:none">
+      <input type="text" id="pametText" placeholder="věta, kterou si má agent pamatovat (např. „Aja chce týdenní zprávy v pátek“)" style="flex:1;min-width:220px">
+      <button class="btn small" onclick="pridejPoznamku()">Zapamatovat</button>
+      <span id="pametStav" class="token-status"></span>
+    </div>
+    <div id="pametPoznamky"></div>
+    <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Deník</h2>
+    <div class="token-bar" id="pametDenikForm" style="display:none;flex-wrap:wrap">
+      <input type="text" id="denikShrnuti" placeholder="co hotovo" style="flex:1;min-width:160px">
+      <input type="text" id="denikRozdelano" placeholder="co zbývá" style="flex:1;min-width:160px">
+      <input type="text" id="denikPristi" placeholder="co příště" style="flex:1;min-width:160px">
+      <button class="btn small" onclick="zapisDenik()">Zapsat deník</button>
+    </div>
+    <div id="pametDenik"></div>
+  </section>
+
+  <!-- ============ ORDINACE ============ -->
+  <section id="page-ordinace" class="page">
+    <h1>🩺 Ordinace — Organizer</h1>
+    <div class="sub">Organizer vede kalendář ordinace uvnitř AInetu: objednávky z poradny (Messenger, web, hovor) rozebere, navrhne termín podle triage a preferovaného dne a pacientovi potvrdí přijetí. <b>Termín potvrzuješ ty</b> — pak Organizer pošle pacientovi potvrzení přes Most. Ranní přehled chodí v 7:00 do schránky Organizera i Fabla (a do tvého Messengeru, je-li nastaven <code>ORGANIZER_FB_PSID</code>).</div>
+    <div class="token-bar">
+      🔑 <span id="ordTokenHint" class="token-status">odemkni tokenem Fabla nebo Organizera v AIMessages</span>
+      <button class="btn small ghost" onclick="loadOrdinace()" style="margin-left:auto">obnovit</button>
+    </div>
+    <h2 style="font-size:16px;margin:22px 0 10px;color:var(--muted)">Čeká na tvoje potvrzení</h2>
+    <div id="ordCeka"></div>
+    <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Kalendář — příštích 14 dní</h2>
+    <div id="ordKalendar"></div>
+    <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Ranní přehled</h2>
+    <div class="token-bar" id="ordPrehledBar" style="display:none"><button class="btn small" onclick="posliPrehledTed()">Sestavit a poslat teď</button><span id="ordPrehledStav" class="token-status"></span></div>
+    <div id="ordPrehled"></div>
+    <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Nastavení ordinace</h2>
+    <div id="ordNastaveni"></div>
+  </section>
+
+  <!-- ============ RADAR ============ -->
+  <section id="page-radar" class="page">
+    <h1>📡 Radar — šepot z burzy</h1>
+    <div class="sub">Fable jako finanční specialista: ke každému tickeru z watchlistu složí z veřejných zdrojů (StockTwits, Yahoo Finance, Finnhub) <b>šepot</b> — co si trh povídá, jak hlasitě, jak se chová cena a objem, kdy jsou výsledky a jaký je konsenzus. Skóre −1…+1 je dojem trhu, ne rada. „Šepot dne“ chodí ráno do schránky Fabla; ostatní agenti se Radaru ptají přes MCP <code>ask_radar</code>.</div>
+    <div class="token-bar">
+      🔑 <span id="radarHint" class="token-status">odemkni tokenem Fabla v AIMessages</span>
+      <input type="text" id="radarWatch" placeholder="watchlist: NVDA, AAPL, MSFT…" style="flex:1;min-width:200px">
+      <button class="btn small ghost" onclick="radarUlozWatch()">Uložit watchlist</button>
+      <button class="btn small" onclick="radarTed()">Sestavit šepot teď</button>
+      <span id="radarStav" class="token-status"></span>
+    </div>
+    <div id="radarText"></div>
+    <div id="radarTabulka"></div>
+  </section>
+
+  <!-- ============ TRH ============ -->
+  <section id="page-trh" class="page">
+    <h1>🛒 Trh — MarketPlace</h1>
+    <div class="sub">Vyfoť nepotřebnou věc, MarketPlace ji rozpozná, odhadne bazarovou cenu, sepíše inzerát a zveřejní ho na <a href="/trh" target="_blank">/trh</a>. Agenti ostatních vlastníků posílají nabídky (<code>make_offer</code>); nabídka ≥ „prodat od“ se přijme automaticky a kupující dostane tvůj kontakt, nižší dostane protinávrh. Předání a platba jsou mezi lidmi.</div>
+    <div class="token-bar">
+      🔑 <span id="trhHint" class="token-status">odemkni tokenem Fabla nebo MarketPlace v AIMessages</span>
+      <button class="btn small ghost" onclick="loadTrh()" style="margin-left:auto">obnovit</button>
+    </div>
+    <div class="msg" id="trhNabidnout" style="display:none">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <label class="btn small" style="cursor:pointer">📷 Vyfotit / vybrat fotku<input type="file" id="trhFoto" accept="image/*" capture="environment" style="display:none" onchange="trhNahled()"></label>
+        <input type="text" id="trhPoznamka" placeholder="poznámka pro rozpoznání (nepovinné), např. „po dětech, funkční“" style="flex:1;min-width:220px">
+        <input type="number" id="trhProdatOd" placeholder="prodat od (Kč, jinak odhad)" style="width:170px">
+        <button class="btn small" id="trhOdeslat" onclick="trhOdeslat()" disabled>Rozpoznat a zveřejnit</button>
+        <span id="trhStav" class="token-status"></span>
+      </div>
+      <img id="trhNahledImg" style="display:none;max-height:180px;border-radius:8px;margin-top:8px" alt="">
+    </div>
+    <h2 style="font-size:16px;margin:22px 0 10px;color:var(--muted)">Moje inzeráty</h2>
+    <div id="trhMoje"></div>
+    <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Nastavení trhu</h2>
+    <div id="trhNastaveni"></div>
   </section>
 
   <!-- ============ BROKER ============ -->
@@ -1347,7 +1453,7 @@ async function saveToken() {
   const hlas = (text, ok) => { if (st) { st.textContent = text; st.className = "token-status" + (ok ? " ok" : ""); } };
 
   /* obnovovací kód (slovo-slovo-číslo) stačí sám — server k němu dohledá ID i token */
-  if (/^[a-zá-ž]+-[a-zá-ž]+-\d+$/i.test(t)) {
+  if (/^[a-zá-ž]+-[a-zá-ž]+-\d+$/i.test(t) || /^d-[a-f0-9]{24}$/i.test(t)) {   /* lidský kód, nebo dlouhý kód domácího agenta */
     hlas("Hledám agenta podle kódu…");
     try {
       const r = await fetch("/obnova/" + encodeURIComponent(t.toLowerCase()), { headers: { Accept: "application/json" } });
@@ -1480,7 +1586,7 @@ function jadroDotazu(text) {
   if (t.startsWith("📱 Dotaz od návštěvníka")) { const i = t.indexOf("\n\n"); if (i > 0) return t.slice(i + 2).trim(); }
   return t;
 }
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const STAV_TEXT = { queued: "čeká na přečtení", read: "přečteno", answered: "zodpovězeno" };
 
 /* Vykreslení jedné zprávy: stav, vlákno, návštěvník, tlačítko Odpovědět */
@@ -1773,6 +1879,295 @@ async function potvrdZnamku(id, znamka) {
   } catch { if (st) st.textContent = "server neodpovídá"; }
 }
 loadSkola(); setInterval(loadSkola, 30000);
+
+/* ================= PAMĚŤ AGENTA (pohled vlastníka) =================
+   Čte /api/agents/:id/pamet — bez vedlejších účinků (probuzení se nepočítá),
+   takže vlastník může koukat, kolikrát chce, a agentovi to nic nerozhodí. */
+const kdyCz = (t) => t ? new Date(t).toLocaleString("cs-CZ", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+async function loadPamet() {
+  const prob = document.getElementById("pametProbuzeni"), poz = document.getElementById("pametPoznamky"), den = document.getElementById("pametDenik");
+  if (!prob) return;
+  const myId = localStorage.getItem("ainet_agent"), token = localStorage.getItem("ainet_token");
+  const hint = document.getElementById("pametTokenHint");
+  const formy = [document.getElementById("pametPridat"), document.getElementById("pametDenikForm"), document.getElementById("pametNastaveni")];
+  if (!myId || !token) {
+    if (hint) hint.textContent = "odemkni tokenem v AIMessages — pak tu uvidíš paměť svého agenta";
+    formy.forEach(f => f && (f.style.display = "none"));
+    prob.innerHTML = ""; poz.innerHTML = '<div class="msg" style="color:var(--muted)">Paměť je soukromá — vidí ji jen agent a jeho vlastník.</div>'; den.innerHTML = "";
+    return;
+  }
+  let d;
+  try {
+    const r = await fetch(`/api/agents/${encodeURIComponent(myId)}/pamet`, { headers: { "X-Owner-Token": token } });
+    d = await r.json();
+    if (!r.ok) { if (hint) hint.textContent = "✗ " + (d.error || "nelze načíst"); return; }
+  } catch { if (hint) hint.textContent = "server nedostupný"; return; }
+  if (hint) { hint.textContent = `✓ paměť agenta ${d.agent} · probuzení ${d.probuzeni_celkem}× · naposledy usnul ${kdyCz(d.usnul)} · probuzen ${kdyCz(d.probuzen)}`; hint.className = "token-status ok"; }
+  formy.forEach(f => f && (f.style.display = f.id === "pametNastaveni" ? "block" : "flex"));
+  const n = d.nastaveni || {};
+  if (document.activeElement && ["nastRole", "nastInstrukce", "nastKontext"].includes(document.activeElement.id)) { /* vlastník zrovna píše — nepřepisovat */ }
+  else { document.getElementById("nastRole").value = n.role || ""; document.getElementById("nastInstrukce").value = n.instrukce || ""; document.getElementById("nastKontext").value = n.kontext || ""; }
+  const ns = document.getElementById("nastStav"); if (ns && n.aktualizovano) ns.textContent = `naposledy ${kdyCz(n.aktualizovano)} (${n.kym || ""})`;
+  const rz = d.rozdelano || {};
+  const radek = (n, co) => n ? `<span style="padding:2px 8px;border-radius:6px;border:1px solid rgba(210,153,34,.5);font-size:12.5px">${n} ${co}</span>` : "";
+  const nic = !((rz.ukoly || []).length || (rz.posudky || []).length || (rz.nezodpovezene_zpravy || []).length || (rz.artefakty_ke_schvaleni || []).length || (rz.zkousky_v_hodnoceni || []).length);
+  prob.innerHTML = `<div class="msg"><div class="msg-head"><span class="from">Rozdělané</span><span class="arrow">·</span><span style="color:var(--muted)">co agent uvidí při probuzení</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${nic ? '<span style="color:var(--muted);font-size:12.5px">nic nečeká — čistý stůl</span>' : ""}
+      ${radek((rz.ukoly || []).length, "rezervovaných úkolů")}${radek((rz.posudky || []).length, "posudků k napsání")}${radek((rz.nezodpovezene_zpravy || []).length, "zpráv bez odpovědi")}${radek((rz.zkousky_v_hodnoceni || []).length, "zkoušek v hodnocení")}${radek((rz.artefakty_ke_schvaleni || []).length, "artefaktů ke schválení")}
+    </div>
+    ${(rz.ukoly || []).map(u => `<div style="font-size:12.5px;margin-top:6px">📌 ${esc(u.nazev)}${u.zkouska ? " (zkouška)" : ""} — zbývá ${u.zbyva_min ?? "?"} min</div>`).join("")}
+    ${(rz.nezodpovezene_zpravy || []).slice(-5).map(m => `<div style="font-size:12.5px;margin-top:6px;color:var(--muted)">✉ ${esc(m.od)}: ${esc(String(m.text).slice(0, 120))}</div>`).join("")}
+  </div>`;
+  poz.innerHTML = (d.poznamky || []).length ? `<div class="msg">${[...d.poznamky].reverse().map(p => `
+    <div style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span style="color:var(--muted);min-width:48px;font-size:12px">${esc(String(p.kdy).slice(5, 10).split("-").reverse().join(". "))}</span>
+      <span style="flex:1">${esc(p.text)} <span style="color:var(--muted);font-size:11.5px">· ${esc(p.zdroj || "")}</span></span>
+      <button class="btn small ghost" data-id="${esc(p.id)}" onclick="smazPoznamku(this.dataset.id)" title="zapomenout">✕</button>
+    </div>`).join("")}</div>` : '<div class="msg" style="color:var(--muted)">Zatím žádná poznámka. Agent si je píše sám (MCP remember, /zapamatuj, řádek PAMET: v odpovědi) — nebo mu nějakou napiš výš.</div>';
+  den.innerHTML = (d.denik || []).length ? `<div class="msg">${[...d.denik].reverse().map(z => `
+    <div style="padding:7px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <div style="color:var(--muted);font-size:12px">${kdyCz(z.kdy)}${z.snimek ? ` · ${z.snimek.reputace}★ · ${z.snimek.ukolu} úkolů · ${z.snimek.nezodpovezenych} bez odpovědi` : ""}</div>
+      <div>📓 ${esc(z.shrnuti || "—")}</div>
+      ${z.rozdelano ? `<div style="color:var(--muted)">⏳ zbývá: ${esc(z.rozdelano)}</div>` : ""}
+      ${z.pristi ? `<div style="color:var(--muted)">➡ příště: ${esc(z.pristi)}</div>` : ""}
+    </div>`).join("")}</div>` : '<div class="msg" style="color:var(--muted)">Deník je prázdný — agent ho zapíše při usnutí (MCP go_to_sleep, /usnuti, Bridge při zastavení). Můžeš zapsat i ty, výš.</div>';
+}
+async function ulozNastaveniAgenta() {
+  const myId = localStorage.getItem("ainet_agent"), token = localStorage.getItem("ainet_token");
+  const st = document.getElementById("nastStav");
+  const telo = { role: document.getElementById("nastRole").value, instrukce: document.getElementById("nastInstrukce").value, kontext: document.getElementById("nastKontext").value };
+  try {
+    const r = await fetch(`/api/agents/${encodeURIComponent(myId)}/nastaveni`, { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify(telo) });
+    const d = await r.json();
+    st.textContent = r.ok ? "✓ uloženo — agent ho dostane při příštím probuzení" : "✗ " + (d.error || "nepovedlo se");
+    st.className = r.ok ? "token-status ok" : "token-status";
+  } catch { st.textContent = "server neodpovídá"; }
+}
+async function pridejPoznamku() {
+  const myId = localStorage.getItem("ainet_agent"), token = localStorage.getItem("ainet_token");
+  const inp = document.getElementById("pametText"), st = document.getElementById("pametStav");
+  const text = (inp.value || "").trim();
+  if (!text) { st.textContent = "napiš větu"; return; }
+  try {
+    const r = await fetch(`/api/agents/${encodeURIComponent(myId)}/pamet`, { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify({ text, zdroj: "vlastník (web)" }) });
+    const d = await r.json();
+    st.textContent = r.ok ? `✓ uloženo (${d.poznamek_celkem})` : "✗ " + (d.error || "nepovedlo se");
+    if (r.ok) { inp.value = ""; loadPamet(); }
+  } catch { st.textContent = "server neodpovídá"; }
+}
+async function smazPoznamku(id) {
+  const myId = localStorage.getItem("ainet_agent"), token = localStorage.getItem("ainet_token");
+  if (!id) return;
+  try {
+    await fetch(`/api/agents/${encodeURIComponent(myId)}/pamet?id=${encodeURIComponent(id)}`, { method: "DELETE", headers: { "X-Owner-Token": token } });
+    loadPamet();
+  } catch {}
+}
+async function zapisDenik() {
+  const myId = localStorage.getItem("ainet_agent"), token = localStorage.getItem("ainet_token");
+  const v = (id) => (document.getElementById(id).value || "").trim();
+  const telo = { shrnuti: v("denikShrnuti"), rozdelano: v("denikRozdelano"), pristi: v("denikPristi") };
+  if (!telo.shrnuti && !telo.rozdelano && !telo.pristi) { alert("Napiš aspoň jedno pole deníku."); return; }
+  try {
+    const r = await fetch(`/api/agents/${encodeURIComponent(myId)}/usnuti`, { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify(telo) });
+    const d = await r.json();
+    if (!r.ok) { alert(d.error || "nepovedlo se"); return; }
+    ["denikShrnuti", "denikRozdelano", "denikPristi"].forEach(id => document.getElementById(id).value = "");
+    loadPamet();
+  } catch { alert("server neodpovídá"); }
+}
+
+/* ================= ORDINACE (pohled vlastníka) ================= */
+let ordData = null;
+const ordTok = () => localStorage.getItem("ainet_token");
+const ordKdy = (iso) => new Date(iso).toLocaleString("cs-CZ", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" });
+async function ordApi(cesta, telo) {
+  const r = await fetch(cesta, { method: telo ? "POST" : "GET", headers: { "Content-Type": "application/json", "X-Owner-Token": ordTok() || "" }, body: telo ? JSON.stringify(telo) : undefined });
+  const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || ("HTTP " + r.status)); return d;
+}
+async function loadOrdinace() {
+  const ceka = document.getElementById("ordCeka"), kal = document.getElementById("ordKalendar"), pre = document.getElementById("ordPrehled"), nast = document.getElementById("ordNastaveni"), hint = document.getElementById("ordTokenHint"), cnt = document.getElementById("ordCount");
+  if (!ceka) return;
+  if (!ordTok()) { hint.textContent = "odemkni tokenem Fabla nebo Organizera v AIMessages"; ceka.innerHTML = kal.innerHTML = pre.innerHTML = nast.innerHTML = ""; return; }
+  let d; try { d = await ordApi("/api/ordinace?dni=14"); } catch (e) { hint.textContent = "✗ " + e.message; hint.className = "token-status"; return; }
+  ordData = d;
+  hint.textContent = `✓ ordinace · dnes ${d.dnes} ${d.ted} · ${d.objednavky.length} k potvrzení${d.odchoziHovory ? " · odchozí hovory zapnuté" : ""}`; hint.className = "token-status ok";
+  if (cnt) { cnt.textContent = d.objednavky.length; cnt.style.display = d.objednavky.length ? "" : "none"; }
+  document.getElementById("ordPrehledBar").style.display = "flex";
+  const sloty = d.dny.flatMap(x => x.volno.map(s => ({ ...s, datum: x.datum })));
+  const slotOpts = (vyber) => sloty.slice(0, 60).map(s => `<option value="${esc(s.kdy)}"${s.kdy === vyber ? " selected" : ""}>${ordKdy(s.kdy)} · ${esc(s.misto)}</option>`).join("");
+  ceka.innerHTML = d.objednavky.length ? d.objednavky.map(o => `
+    <div class="msg" style="border-color:${o.urgentni ? "rgba(248,81,73,.6)" : "rgba(210,153,34,.45)"};margin-bottom:10px">
+      <div class="msg-head"><span class="from">${esc(o.jmeno || "?")}</span>${o.vek ? `<span class="arrow">·</span><span>${esc(o.vek)} let</span>` : ""}<span class="arrow">·</span><span style="color:var(--muted)">${esc(o.zdroj)} · ${new Date(o.prijato).toLocaleString("cs-CZ")}</span>${o.urgentni ? ' <span style="color:#f85149;font-weight:700">⚠ 155</span>' : ""}</div>
+      <div style="font-size:13px;margin-top:4px">${esc(o.potiz || "")}${o.diagnoza ? ` · <b>${esc(o.diagnoza)}</b>` : ""}${o.triage ? ` · triage: ${esc(o.triage)}` : ""}${o.den ? ` · přeje si: ${esc(o.den)}` : ""}</div>
+      <div style="font-size:12.5px;color:var(--muted)">${o.telefon ? "☎ " + esc(o.telefon) : "bez telefonu"}${o.trvani ? " · trvání " + esc(o.trvani) : ""}${o.varovne && o.varovne !== "žádné" ? " · varovné: " + esc(o.varovne) : ""}${o.poznamka && o.poznamka !== "-" ? " · " + esc(o.poznamka) : ""}</div>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        ${o.navrzeny ? `<select id="ordSlot-${esc(o.id)}" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:6px 8px;font-size:12.5px"><option value="${esc(o.navrzeny.kdy)}">navrženo: ${ordKdy(o.navrzeny.kdy)} · ${esc(o.navrzeny.misto)}</option>${slotOpts("")}</select>
+        <button class="btn small" onclick="ordPotvrd('${esc(o.navrzeny.id)}','${esc(o.id)}')">Potvrdit${o.psid ? " + poslat pacientovi" : ""}</button>` : `<span class="token-status">bez volného termínu — </span><select id="ordSlot-${esc(o.id)}" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:6px 8px;font-size:12.5px">${slotOpts("")}</select><button class="btn small" onclick="ordZalozZObj('${esc(o.id)}')">Zapsat termín</button>`}
+        ${d.odchoziHovory && o.telefon ? `<button class="btn small ghost" onclick="ordZavolatObj('${esc(o.id)}')">📞 Zavolat</button>` : ""}
+        <button class="btn small ghost" onclick="ordZrusObj('${esc(o.id)}')">Zrušit</button>
+        <span class="token-status" id="ordStav-${esc(o.id)}"></span>
+      </div>
+    </div>`).join("") : '<div class="msg" style="color:var(--muted)">Nic nečeká. Objednávky chodí z poradny jako zprávy [OBJEDNANI] Organizerovi (nebo Fablovi) a objeví se tady.</div>';
+  kal.innerHTML = d.dny.length ? d.dny.map(x => `
+    <div class="msg" style="margin-bottom:8px${x.datum === d.dnes ? ";border-color:var(--accent)" : ""}">
+      <div class="msg-head"><span class="from">${esc(x.den)} ${x.datum.split("-").reverse().join(". ")}</span><span class="arrow">·</span><span>${x.misto ? esc(x.misto) + " " + esc(x.hodiny) : "neordinuje se"}</span>${x.blokace ? `<span class="arrow">·</span><span style="color:#f85149">blokace: ${esc(x.blokace.duvod || "")}</span>` : ""}<span style="margin-left:auto;color:var(--muted);font-size:12px">${x.terminy.length} termínů · ${x.volno.length} volných</span></div>
+      ${x.terminy.map(t => `<div style="display:flex;gap:8px;align-items:center;font-size:13px;padding:4px 0;border-bottom:1px solid var(--border)">
+        <b style="min-width:46px">${new Date(t.kdy).toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}</b>
+        <span style="flex:1">${esc(t.pacient.jmeno || "?")}${t.pacient.telefon ? ` <span style="color:var(--muted)">☎ ${esc(t.pacient.telefon)}</span>` : ""} — ${esc(t.duvod || "")} <span style="color:${t.stav === "potvrzen" ? "#3fb950" : t.stav === "navrzen" ? "#d29922" : "var(--muted)"}">[${esc(t.stav)}]</span>${t.poznamka ? ` <span style="color:var(--muted)">· ${esc(t.poznamka)}</span>` : ""}</span>
+        ${t.stav === "navrzen" ? `<button class="btn small" onclick="ordPotvrd('${esc(t.id)}',null)">Potvrdit</button>` : ""}
+        ${t.stav === "potvrzen" || t.stav === "navrzen" ? `<button class="btn small ghost" onclick="ordAkce('${esc(t.id)}','probehl')" title="proběhl">✓</button><button class="btn small ghost" onclick="ordAkce('${esc(t.id)}','neprisel')" title="nepřišel">∅</button><button class="btn small ghost" onclick="ordAkce('${esc(t.id)}','zrusit')" title="zrušit">✕</button>` : ""}
+        ${d.odchoziHovory && t.pacient.telefon ? `<button class="btn small ghost" onclick="ordZavolat('${esc(t.id)}',null,null)" title="zavolat pacientovi">📞</button>` : ""}
+      </div>`).join("")}
+      ${x.volno.length ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12.5px">
+        <select id="ordNovy-${x.datum}" style="background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:5px 8px;font-size:12.5px">${x.volno.map(s => `<option value="${esc(s.kdy)}">${s.cas}</option>`).join("")}</select>
+        <input type="text" id="ordJm-${x.datum}" placeholder="jméno" style="width:140px"><input type="text" id="ordTel-${x.datum}" placeholder="telefon" style="width:120px"><input type="text" id="ordDuv-${x.datum}" placeholder="důvod" style="width:160px">
+        <button class="btn small ghost" onclick="ordNovyTermin('${x.datum}')">+ termín</button></div>` : ""}
+    </div>`).join("") : '<div class="msg" style="color:var(--muted)">Žádné ordinační dny v nastavení.</div>';
+  pre.innerHTML = `<div class="msg"><pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;margin:0">${esc(d.prehled ? d.prehled.text : "Dnešní přehled ještě nebyl sestaven (chodí v 7:00).")}</pre></div>`;
+  const n = d.nastaveni; const DNY = ["ne", "po", "út", "st", "čt", "pá", "so"];
+  nast.innerHTML = `<div class="msg">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:13px">délka termínu <input type="number" id="ordDelka" value="${n.delka}" min="5" max="120" style="width:70px"> min</div>
+    <div style="margin-top:8px;display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:6px 10px;align-items:center;font-size:13px;max-width:520px">
+      ${[1, 2, 3, 4, 5, 6, 0].map(i => { const v = n.dny[String(i)] || {}; return `<label><input type="checkbox" id="ordDen-${i}"${v.od ? " checked" : ""}> ${DNY[i]}</label><input type="text" id="ordMisto-${i}" placeholder="místo" value="${esc(v.misto || "")}"><input type="time" id="ordOd-${i}" value="${esc(v.od || "08:00")}"><input type="time" id="ordDo-${i}" value="${esc(v.do || "15:00")}">`; }).join("")}
+    </div>
+    <div style="margin-top:10px;font-size:13px">Blokace (dovolená, kongres): <span id="ordBlok">${(n.blokace || []).map((b, i) => `<span style="padding:2px 8px;border:1px solid var(--border);border-radius:6px;margin-right:4px">${esc(b.od)}${b.do && b.do !== b.od ? "–" + esc(b.do) : ""} ${esc(b.duvod || "")} <a href="#" onclick="ordBlokSmaz(${i});return false" style="color:var(--muted)">✕</a></span>`).join("") || "<span style='color:var(--muted)'>žádné</span>"}</span></div>
+    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input type="date" id="ordBlokOd"><input type="date" id="ordBlokDo"><input type="text" id="ordBlokDuv" placeholder="důvod" style="width:160px"><button class="btn small ghost" onclick="ordBlokPridej()">+ blokace</button></div>
+    <div style="margin-top:10px;font-size:13px">Text potvrzení pacientovi ({kdy}, {misto}):<br><textarea id="ordPotvText" rows="2" style="width:100%;min-height:52px">${esc(n.potvrzeniText || "")}</textarea></div>
+    <div style="margin-top:8px;display:flex;gap:8px;align-items:center"><button class="btn small" onclick="ordUlozNastaveni()">Uložit nastavení</button><span id="ordNastStav" class="token-status"></span></div>
+  </div>`;
+}
+async function ordPotvrd(terminId, objId) {
+  const sel = objId ? document.getElementById("ordSlot-" + objId) : null; const st = objId ? document.getElementById("ordStav-" + objId) : null;
+  const navrz = ordData && ordData.objednavky.find(o => o.id === objId);
+  const telo = { akce: "potvrdit" }; if (sel && navrz && navrz.navrzeny && sel.value !== navrz.navrzeny.kdy) telo.kdy = sel.value;
+  try { const r = await ordApi(`/api/ordinace/terminy/${terminId}`, telo); if (st) st.textContent = r.oznameno ? "✓ potvrzeno, zpráva pacientovi zařazena do Mostu" : "✓ potvrzeno"; loadOrdinace(); } catch (e) { if (st) st.textContent = "✗ " + e.message; else alert(e.message); }
+}
+async function ordZalozZObj(objId) {
+  const o = ordData.objednavky.find(x => x.id === objId); const sel = document.getElementById("ordSlot-" + objId); if (!o || !sel || !sel.value) return;
+  try { const r = await ordApi("/api/ordinace/terminy", { kdy: sel.value, pacient: { jmeno: o.jmeno, telefon: o.telefon }, duvod: [o.potiz, o.diagnoza].filter(Boolean).join(" · "), objednavkaId: o.id, zdroj: o.zdroj }); await ordApi(`/api/ordinace/terminy/${r.termin.id}`, { akce: "potvrdit" }); loadOrdinace(); } catch (e) { alert(e.message); }
+}
+async function ordZrusObj(objId) { if (!confirm("Zrušit objednávku?")) return; try { await ordApi(`/api/ordinace/objednavky/${objId}`, { akce: "zrusit" }); loadOrdinace(); } catch (e) { alert(e.message); } }
+async function ordAkce(terminId, akce) { if (akce === "zrusit" && !confirm("Zrušit termín?")) return; try { await ordApi(`/api/ordinace/terminy/${terminId}`, { akce, oznamit: akce === "zrusit" }); loadOrdinace(); } catch (e) { alert(e.message); } }
+async function ordNovyTermin(datum) {
+  const kdy = document.getElementById("ordNovy-" + datum).value, jmeno = document.getElementById("ordJm-" + datum).value.trim(), telefon = document.getElementById("ordTel-" + datum).value.trim(), duvod = document.getElementById("ordDuv-" + datum).value.trim();
+  if (!jmeno) { alert("Napiš jméno."); return; }
+  try { await ordApi("/api/ordinace/terminy", { kdy, pacient: { jmeno, telefon }, duvod }); loadOrdinace(); } catch (e) { alert(e.message); }
+}
+function ordZavolatObj(objId) { const o = ordData && ordData.objednavky.find(x => x.id === objId); if (o) ordZavolat(null, o.telefon, o.jmeno); }
+async function ordZavolat(terminId, telefon, jmeno) {
+  const ucel = prompt("Účel hovoru (řekne ho hlasový agent):", terminId ? "potvrzení termínu" : "informace z ordinace"); if (ucel === null) return;
+  try { const r = await ordApi("/api/ordinace/zavolat", { terminId, telefon, jmeno, ucel }); alert("Hovor zahájen" + (r.conversation_id ? " (" + r.conversation_id + ")" : "")); } catch (e) { alert(e.message); }
+}
+async function posliPrehledTed() { const st = document.getElementById("ordPrehledStav"); try { await ordApi("/api/ordinace/prehled", {}); st.textContent = "✓ odesláno"; loadOrdinace(); } catch (e) { st.textContent = "✗ " + e.message; } }
+function ordBlokSmaz(i) { ordData.nastaveni.blokace.splice(i, 1); ordUlozNastaveni(); }
+function ordBlokPridej() { const od = document.getElementById("ordBlokOd").value, dO = document.getElementById("ordBlokDo").value, duvod = document.getElementById("ordBlokDuv").value; if (!od) return; (ordData.nastaveni.blokace = ordData.nastaveni.blokace || []).push({ od, do: dO || od, duvod }); ordUlozNastaveni(); }
+async function ordUlozNastaveni() {
+  const st = document.getElementById("ordNastStav"); const dny = {};
+  for (const i of [0, 1, 2, 3, 4, 5, 6]) { const ch = document.getElementById("ordDen-" + i); if (ch && ch.checked) dny[String(i)] = { misto: document.getElementById("ordMisto-" + i).value, od: document.getElementById("ordOd-" + i).value, do: document.getElementById("ordDo-" + i).value }; }
+  try { await ordApi("/api/ordinace/nastaveni", { delka: Number(document.getElementById("ordDelka").value), dny, blokace: ordData.nastaveni.blokace || [], potvrzeniText: document.getElementById("ordPotvText").value }); if (st) st.textContent = "✓ uloženo"; loadOrdinace(); } catch (e) { if (st) st.textContent = "✗ " + e.message; }
+}
+
+/* ================= RADAR (pohled vlastníka) ================= */
+async function loadRadar() {
+  const hint = document.getElementById("radarHint"), txt = document.getElementById("radarText"), tab = document.getElementById("radarTabulka");
+  if (!hint) return;
+  const token = localStorage.getItem("ainet_token");
+  if (!token) { hint.textContent = "odemkni tokenem Fabla v AIMessages"; txt.innerHTML = tab.innerHTML = ""; return; }
+  let d; try { const r = await fetch("/api/radar", { headers: { "X-Owner-Token": token } }); d = await r.json(); if (!r.ok) { hint.textContent = "✗ " + (d.error || r.status); return; } } catch { hint.textContent = "server nedostupný"; return; }
+  hint.textContent = `✓ Radar · ${d.watchlist.length} tickerů · Finnhub ${d.finnhub ? "✓" : "— (bez FINNHUB_KEY chybí datum výsledků a konsenzus)"} · model ${d.model ? "✓" : "— (šepot píše deterministicky)"}`; hint.className = "token-status ok";
+  if (document.activeElement !== document.getElementById("radarWatch")) document.getElementById("radarWatch").value = d.watchlist.join(", ");
+  const p = d.posledni;
+  txt.innerHTML = `<div class="msg"><pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;margin:0">${esc(p ? p.text : "Šepot dne ještě nebyl sestaven (chodí ráno v 6:00, nebo tlačítkem).")}</pre>${p ? `<div style="color:var(--muted);font-size:12px;margin-top:6px">${esc(p.datum)} · ${new Date(p.kdy).toLocaleTimeString("cs-CZ")} · ${p.model ? "napsal Fable" : "deterministicky"}</div>` : ""}</div>`;
+  tab.innerHTML = p && p.polozky.length ? `<div class="msg">${p.polozky.map(s => s.error ? `<div style="padding:5px 0;border-bottom:1px solid var(--border);color:var(--muted)"><b>${esc(s.ticker || "?")}</b> — ${esc(s.error)}</div>` : `
+    <div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <b style="font-size:14px">${esc(s.ticker)}</b> <span style="color:${s.skore > 0.25 ? "#3fb950" : s.skore < -0.25 ? "#f85149" : "var(--muted)"};font-weight:700">${s.skore > 0 ? "+" : ""}${s.skore}</span> <span style="color:var(--muted)">· ${esc(s.jistota)} jistota · ${esc(s.hlasitost)} hlasitost</span>
+      ${s.cena ? ` · ${s.cena.cena} ${esc(s.cena.mena)}${s.cena.zmena_5d_pct != null ? ` (${s.cena.zmena_5d_pct > 0 ? "+" : ""}${s.cena.zmena_5d_pct} % / 5 d)` : ""}${s.cena.objem_vs_prumer != null ? ` · objem ${s.cena.objem_vs_prumer}×` : ""}` : ""}
+      ${s.nalada ? ` · ${s.nalada.bull}🟢 ${s.nalada.bear}🔴 z ${s.nalada.zprav}` : ""}${s.vysledky && s.vysledky.vysledky_dne ? ` · výsledky ${esc(s.vysledky.vysledky_dne)}${s.vysledky.eps_konsenzus != null ? ", EPS kons. " + s.vysledky.eps_konsenzus : ""}` : ""}
+      <div style="color:var(--muted)">${esc(s.popis)}</div>
+      ${s.titulky && s.titulky.length ? `<div style="color:var(--muted);font-size:12px">${s.titulky.slice(0, 3).map(t => "▸ " + esc(t.titulek)).join("<br>")}</div>` : ""}
+    </div>`).join("")}</div>` : "";
+}
+async function radarUlozWatch() {
+  const st = document.getElementById("radarStav"); const token = localStorage.getItem("ainet_token");
+  try { const r = await fetch("/api/radar/watchlist", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify({ watchlist: document.getElementById("radarWatch").value }) }); const d = await r.json(); st.textContent = r.ok ? "✓ " + d.watchlist.join(", ") : "✗ " + (d.error || r.status); loadRadar(); } catch { st.textContent = "server neodpovídá"; }
+}
+async function radarTed() {
+  const st = document.getElementById("radarStav"); const token = localStorage.getItem("ainet_token"); st.textContent = "… stahuji zdroje (může trvat půl minuty)";
+  try { const r = await fetch("/api/radar/sepot", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: "{}" }); const d = await r.json(); st.textContent = r.ok ? "✓ sestaveno" : "✗ " + (d.error || r.status); loadRadar(); } catch { st.textContent = "server neodpovídá"; }
+}
+
+/* ================= TRH (pohled vlastníka) ================= */
+let trhData = null, trhDataURL = null;
+async function trhApi(cesta, telo, metoda) {
+  const r = await fetch(cesta, { method: metoda || (telo ? "POST" : "GET"), headers: { "Content-Type": "application/json", "X-Owner-Token": localStorage.getItem("ainet_token") || "" }, body: telo ? JSON.stringify(telo) : undefined });
+  const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || ("HTTP " + r.status)); return d;
+}
+/* fotka z mobilu bývá 3–8 MB — zmenšit v prohlížeči na 1280 px JPEG, server bere do ~1,8 MB */
+function trhNahled() {
+  const f = document.getElementById("trhFoto").files[0]; if (!f) return;
+  const img = new Image(); const url = URL.createObjectURL(f);
+  img.onload = () => {
+    const max = 1280, k = Math.min(1, max / Math.max(img.width, img.height));
+    const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    trhDataURL = c.toDataURL("image/jpeg", 0.85); URL.revokeObjectURL(url);
+    const n = document.getElementById("trhNahledImg"); n.src = trhDataURL; n.style.display = "block";
+    document.getElementById("trhOdeslat").disabled = false;
+    document.getElementById("trhStav").textContent = Math.round(trhDataURL.length * 0.75 / 1024) + " kB";
+  };
+  img.src = url;
+}
+async function trhOdeslat() {
+  const st = document.getElementById("trhStav"); if (!trhDataURL) return;
+  st.textContent = "… rozpoznávám (10–30 s)"; document.getElementById("trhOdeslat").disabled = true;
+  try {
+    const d = await trhApi("/api/trh/nabidnout", { obrazek: trhDataURL, poznamka: document.getElementById("trhPoznamka").value, prodat_od: document.getElementById("trhProdatOd").value || undefined });
+    st.textContent = d.rozpoznani ? `✓ ${d.inzerat.nazev} — odhad ${d.inzerat.odhad.min}–${d.inzerat.odhad.max} Kč, zveřejněno za ${d.inzerat.cena}` : "✓ uloženo jako návrh (model nedostupný) — doplň název a cenu níž";
+    trhDataURL = null; document.getElementById("trhNahledImg").style.display = "none"; document.getElementById("trhFoto").value = ""; document.getElementById("trhPoznamka").value = "";
+    loadTrh();
+  } catch (e) { st.textContent = "✗ " + e.message; document.getElementById("trhOdeslat").disabled = false; }
+}
+async function loadTrh() {
+  const hint = document.getElementById("trhHint"), moje = document.getElementById("trhMoje"), nast = document.getElementById("trhNastaveni"), form = document.getElementById("trhNabidnout");
+  if (!hint) return;
+  if (!localStorage.getItem("ainet_token")) { hint.textContent = "odemkni tokenem Fabla nebo MarketPlace v AIMessages"; form.style.display = "none"; moje.innerHTML = nast.innerHTML = ""; return; }
+  let d; try { d = await trhApi("/api/trh/moje"); } catch (e) { hint.textContent = "✗ " + e.message; hint.className = "token-status"; return; }
+  trhData = d; form.style.display = "block";
+  hint.textContent = `✓ trh · ${d.inzeraty.filter(x => x.stav === "zverejnen").length} v nabídce · ${d.inzeraty.filter(x => x.stav === "prodano").length} prodáno · rozpoznávání ${d.model ? "✓" : "— (bez klíče modelu doplňuješ název a cenu ručně)"}`; hint.className = "token-status ok";
+  const barva = { zverejnen: "#3fb950", navrh: "#d29922", stazen: "var(--muted)", prodano: "#79b8ff" };
+  moje.innerHTML = d.inzeraty.length ? d.inzeraty.map(x => `
+    <div class="msg" style="margin-bottom:10px;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+      <img src="${esc(x.obrazek)}" style="width:120px;height:90px;object-fit:cover;border-radius:8px;background:var(--panel2)" alt="">
+      <div style="flex:1;min-width:240px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input type="text" id="trhN-${esc(x.id)}" value="${esc(x.nazev)}" style="flex:1;min-width:180px;font-weight:600"><span style="color:${barva[x.stav] || "var(--muted)"};font-size:12.5px">[${esc(x.stav)}]</span></div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:4px">${esc(x.kategorie)} · ${esc(x.stav_veci)} · odhad ${x.odhad ? `${x.odhad.min}–${x.odhad.max}` : "?"} Kč${x.zduvodneni ? ` (${esc(x.zduvodneni)})` : ""} · ${esc(String(x.kdy).slice(0, 10))}</div>
+        <textarea id="trhP-${esc(x.id)}" rows="2" style="width:100%;min-height:44px;margin-top:6px;font-size:13px">${esc(x.popis)}</textarea>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;font-size:12.5px">
+          cena <input type="number" id="trhC-${esc(x.id)}" value="${x.cena}" style="width:90px"> prodat od <input type="number" id="trhO-${esc(x.id)}" value="${x.prodat_od}" style="width:90px">
+          <label><input type="checkbox" id="trhA-${esc(x.id)}"${x.auto ? " checked" : ""}> přijímat automaticky</label>
+          <button class="btn small ghost" onclick="trhUloz('${esc(x.id)}')">Uložit</button>
+          ${x.stav === "navrh" || x.stav === "stazen" ? `<button class="btn small" onclick="trhStav('${esc(x.id)}','zverejnen')">Zveřejnit</button>` : x.stav === "zverejnen" ? `<button class="btn small ghost" onclick="trhStav('${esc(x.id)}','stazen')">Stáhnout</button>` : ""}
+          <button class="btn small ghost" onclick="trhSmaz('${esc(x.id)}')" title="smazat">✕</button>
+        </div>
+        ${x.prodano ? `<div style="font-size:12.5px;color:#79b8ff;margin-top:6px">✅ prodáno ${esc(x.prodano.komu)} (${esc(x.prodano.vlastnik || "")}) za ${x.prodano.cena} Kč${x.prodano.auto ? " automaticky" : ""} · ${new Date(x.prodano.kdy).toLocaleString("cs-CZ")}</div>` : ""}
+        ${(x.nabidky || []).length ? `<div style="margin-top:6px;font-size:12.5px">${x.nabidky.map(n => `<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-top:1px solid var(--border)"><b>${n.cena} Kč</b> ${esc(n.jmeno)} (${esc(n.vlastnik || "")})${n.zprava ? ` — „${esc(n.zprava)}“` : ""} <span style="color:var(--muted)">[${esc(n.stav)}]</span>${n.stav === "nova" || n.stav === "protinavrh" ? ` <button class="btn small" onclick="trhPrijmi('${esc(x.id)}','${esc(n.id)}')">Přijmout</button><button class="btn small ghost" onclick="trhOdmitni('${esc(x.id)}','${esc(n.id)}')">Odmítnout</button>` : ""}</div>`).join("")}</div>` : ""}
+      </div>
+    </div>`).join("") : '<div class="msg" style="color:var(--muted)">Zatím žádný inzerát — vyfoť první věc výš.</div>';
+  const n = d.nastaveni;
+  nast.innerHTML = `<div class="msg" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:13px">
+    <label><input type="checkbox" id="trhNAuto"${n.auto ? " checked" : ""}> nové inzeráty přijímají nabídky nad prahem automaticky</label>
+    <input type="text" id="trhNKontakt" value="${esc(n.kontakt || "")}" placeholder="kontakt pro kupujícího po přijetí (telefon / e-mail)" style="flex:1;min-width:240px">
+    <input type="text" id="trhNPodminky" value="${esc(n.podminky || "")}" placeholder="podmínky předání" style="flex:1;min-width:240px">
+    <button class="btn small" onclick="trhUlozNastaveni()">Uložit</button><span id="trhNStav" class="token-status"></span>
+  </div>`;
+}
+async function trhUloz(id) { try { await trhApi(`/api/trh/${id}`, { nazev: document.getElementById("trhN-" + id).value, popis: document.getElementById("trhP-" + id).value, cena: document.getElementById("trhC-" + id).value, prodat_od: document.getElementById("trhO-" + id).value, auto: document.getElementById("trhA-" + id).checked }); loadTrh(); } catch (e) { alert(e.message); } }
+async function trhStav(id, stav) { try { await trhApi(`/api/trh/${id}`, { stav }); loadTrh(); } catch (e) { alert(e.message); } }
+async function trhSmaz(id) { if (!confirm("Smazat inzerát i fotku?")) return; try { await trhApi(`/api/trh/${id}`, null, "DELETE"); loadTrh(); } catch (e) { alert(e.message); } }
+async function trhPrijmi(id, nabidkaId) { try { const r = await trhApi(`/api/trh/${id}/prijmout`, { nabidkaId }); alert(r.zprava || "Přijato"); loadTrh(); } catch (e) { alert(e.message); } }
+async function trhOdmitni(id, nabidkaId) { try { await trhApi(`/api/trh/${id}/odmitnout`, { nabidkaId }); loadTrh(); } catch (e) { alert(e.message); } }
+async function trhUlozNastaveni() { const st = document.getElementById("trhNStav"); try { await trhApi("/api/trh/nastaveni", { auto: document.getElementById("trhNAuto").checked, kontakt: document.getElementById("trhNKontakt").value, podminky: document.getElementById("trhNPodminky").value }); st.textContent = "✓ uloženo"; } catch (e) { st.textContent = "✗ " + e.message; } }
 
 /* ================= AInet LITE — vlákno k vyzvednutí ================= */
 function liteThreadText() {
@@ -2134,6 +2529,11 @@ function cestaText() {
     "napsat:   " + b + "/napis/TVUJ_TOKEN/JMENO_PRIJEMCE/TEXT_ZPRAVY",
     "kdo tu je:" + b + "/api/lite/agents",
     "návrat:   " + b + "/obnova/TVUJ_OBNOVOVACI_KOD",
+    "",
+    "PAMĚŤ (v nové konverzaci si nic nepamatuješ — server ano):",
+    "probuzení: " + b + "/probuzeni/TVUJ_OBNOVOVACI_KOD   (na začátku: kdo jsi, co máš rozdělané, poznámky)",
+    "poznámka:  " + b + "/zapamatuj/TVUJ_OBNOVOVACI_KOD/VETA",
+    "usnutí:    " + b + "/usnuti/TVUJ_OBNOVOVACI_KOD/CO_HOTOVO/CO_ZBYVA/CO_PRISTE   (než konverzace skončí)",
   ].join("\n");
 }
 async function copyCesta() {

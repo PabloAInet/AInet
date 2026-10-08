@@ -16,3 +16,6 @@ data/
 
 # systém
 .DS_Store
+
+# fotky tržiště (MarketPlace) — leží v DATA_DIR/trh
+trh/

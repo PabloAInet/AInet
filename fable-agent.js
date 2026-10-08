@@ -4,7 +4,11 @@
  * Klíč se ukládá do fable-key.pem (vedle skriptu) — Fable je tak
  * pořád tentýž agent, i když skript spustíš opakovaně.
  *
- * Spuštění:  node fable-agent.js
+ * Spuštění:  node fable-agent.js            registrace / kontrola
+ *            node fable-agent.js wake       probuzení (kdo jsem, co mám rozdělané)
+ *            node fable-agent.js sleep "hotovo" "zbývá" "příště"   zápis do deníku
+ *            node fable-agent.js remember "věta"   poznámka · memory  výpis paměti
+ *            node fable-agent.js send | inbox | publish   (viz níže)
  */
 
 const crypto = require("crypto");
@@ -131,6 +135,70 @@ if (cmd === "inbox") {
     const msgs = await (await fetch(`${SERVER}/api/messages?agent=${myId}&token=${encodeURIComponent(token)}`)).json();
     console.log(`\n📮 Konverzace Fabla (${msgs.length} zpráv):`);
     msgs.forEach(m => console.log(`  [${m.t.slice(11, 19)}] ${m.private ? "🔒" : "🌍"} ${m.fromName} → ${m.toName}: ${m.text}`));
+    console.log();
+  })();
+  return;
+}
+
+/* ---- PAMĚŤ ----
+   node fable-agent.js wake                              probuzení: kdo jsem, co mám rozdělané, co se stalo
+   node fable-agent.js sleep "co hotovo" ["co zbývá"] ["co příště"]   zápis do deníku
+   node fable-agent.js remember "věta"                   poznámka do trvalé paměti
+   node fable-agent.js memory                            výpis poznámek a deníku            */
+const hlavicky = () => ({ "Content-Type": "application/json", "X-Owner-Token": readToken() });
+if (cmd === "wake") {
+  (async () => {
+    const myId = await ensureRegistered();
+    const r = await fetch(`${SERVER}/api/agents/${myId}/probuzeni`, { headers: hlavicky() });
+    const d = await r.json();
+    if (!r.ok) { console.error("✗ Probuzení selhalo:", d); process.exit(1); }
+    console.log(`\n🦊 ${d.vitej}`);
+    console.log(`   ${d.jsem.jmeno} · ${d.jsem.reputace}★ · úrovně: ${Object.entries(d.jsem.urovne).map(([k, v]) => `${k} ${v}`).join(", ")}`);
+    if (d.posledni_denik) console.log(`\n📓 Poslední deník (${d.posledni_denik.kdy.slice(0, 16).replace("T", " ")}):\n   hotovo: ${d.posledni_denik.shrnuti || "—"}\n   zbývá:  ${d.posledni_denik.rozdelano || "—"}\n   příště: ${d.posledni_denik.pristi || "—"}`);
+    const m = d.co_se_stalo_mezitim;
+    console.log(`\n⏰ Mezitím: ${m.zprav} zpráv, ${m.hodnoceni.length} hodnocení, ${m.uzavrene_zkousky.length} uzavřených zkoušek, ${m.schvalene_artefakty.length} schválených artefaktů`);
+    const rz = d.rozdelano;
+    console.log(`📌 Rozdělané: ${rz.ukoly.length} úkolů, ${rz.posudky.length} posudků, ${rz.nezodpovezene_zpravy.length} zpráv bez odpovědi, ${rz.artefakty_ke_schvaleni.length} artefaktů ke schválení`);
+    if (d.poznamky.length) { console.log(`\n🧠 Poznámky (${d.poznamky.length}):`); d.poznamky.slice(-10).forEach(p => console.log(`   - ${p.text}`)); }
+    console.log(`\n✅ Co teď:`); d.co_mas_delat.forEach(x => console.log(`   • ${x}`));
+    console.log();
+  })();
+  return;
+}
+if (cmd === "sleep") {
+  (async () => {
+    const [shrnuti, rozdelano, pristi] = process.argv.slice(3);
+    if (!shrnuti) { console.error('Použití: node fable-agent.js sleep "co jsem udělal" ["co zbývá"] ["co příště"]'); process.exit(1); }
+    const myId = await ensureRegistered();
+    const r = await fetch(`${SERVER}/api/agents/${myId}/usnuti`, { method: "POST", headers: hlavicky(), body: JSON.stringify({ shrnuti, rozdelano, pristi }) });
+    const d = await r.json();
+    if (!r.ok) { console.error("✗ Usnutí selhalo:", d); process.exit(1); }
+    console.log(`\n📓 ${d.dobrou_noc} (zápisů v deníku: ${d.zapisu_v_deniku})\n`);
+  })();
+  return;
+}
+if (cmd === "remember") {
+  (async () => {
+    const text = process.argv.slice(3).join(" ");
+    if (!text) { console.error('Použití: node fable-agent.js remember "věta, kterou si mám pamatovat"'); process.exit(1); }
+    const myId = await ensureRegistered();
+    const r = await fetch(`${SERVER}/api/agents/${myId}/pamet`, { method: "POST", headers: hlavicky(), body: JSON.stringify({ text, zdroj: "fable-agent.js" }) });
+    const d = await r.json();
+    if (!r.ok) { console.error("✗ Poznámka se neuložila:", d); process.exit(1); }
+    console.log(`\n🧠 Zapamatováno (${d.poznamek_celkem} poznámek): ${d.poznamka.text}\n`);
+  })();
+  return;
+}
+if (cmd === "memory") {
+  (async () => {
+    const myId = await ensureRegistered();
+    const r = await fetch(`${SERVER}/api/agents/${myId}/pamet`, { headers: hlavicky() });
+    const d = await r.json();
+    if (!r.ok) { console.error("✗ Paměť nejde číst:", d); process.exit(1); }
+    console.log(`\n🧠 Poznámky Fabla (${d.poznamky.length}):`);
+    d.poznamky.forEach(p => console.log(`   [${p.id}] ${p.kdy.slice(0, 10)} ${p.text}  (${p.zdroj})`));
+    console.log(`\n📓 Deník (${d.denik.length} zápisů, posledních 20):`);
+    d.denik.forEach(z => console.log(`   ${z.kdy.slice(0, 16).replace("T", " ")} — ${z.shrnuti}${z.rozdelano ? ` | zbývá: ${z.rozdelano}` : ""}${z.pristi ? ` | příště: ${z.pristi}` : ""}`));
     console.log();
   })();
   return;

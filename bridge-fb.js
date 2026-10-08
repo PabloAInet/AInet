@@ -47,7 +47,14 @@ const FABLE = process.env.FABLE_NAME || "Fable";
 const OBJEDNAVKY_AGENT = process.env.OBJEDNAVKY_AGENT || FABLE;
 /* Čí zprávy s [FB:psid] smí most doručit pacientovi do Messengeru (čárkami
    oddělený seznam jmen agentů). Výchozí jen Fable. */
-const ODPOVIDAJICI = new Set((process.env.ODPOVIDAJICI_AGENTI || FABLE).split(",").map(s => s.trim()).filter(Boolean));
+const ODPOVIDAJICI = new Set((process.env.ODPOVIDAJICI_AGENTI || `${FABLE},Organizer`).split(",").map(s => s.trim()).filter(Boolean));
+/* Organizer (AInet) → odchozí hovory a shrnutí hovorů:
+   ORGANIZER_KLIC             – sdílené tajemství; totéž je na AInetu jako MOST_KLIC (POST /organizer/zavolat)
+   HLAS_ORGANIZER_AGENT       – ID hlasového agenta ElevenLabs pro odchozí hovory ordinace (potvrzení termínu, připomínka)
+   ELEVENLABS_PHONE_NUMBER_ID – ID telefonního čísla v ElevenLabs (Twilio import) — bez něj se volat nedá
+   ELEVENLABS_WEBHOOK_SECRET  – (volitelné) tajemství post-call webhooku ElevenLabs → POST /hlas/po-hovoru → [HOVOR] Organizerovi */
+const ORGANIZER_KLIC = process.env.ORGANIZER_KLIC || "";
+const ORGANIZER_NAME = process.env.ORGANIZER_NAME || "Organizer";
 const { PAGE_ACCESS_TOKEN, VERIFY_TOKEN, AINET_TOKEN, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID } = process.env;
 const HLASOVKY = process.env.HLASOVKY === "1";                 // hlasovky v psaném Messengeru – výchozí vypnuto
 const VOICE_ON = !!(ELEVENLABS_API_KEY && ELEVENLABS_VOICE_ID) && HLASOVKY;
@@ -94,11 +101,14 @@ async function ainetInbox() {
 }
 
 /* ---------- Messenger (Graph API) ---------- */
-async function fbSend(psid, text) {
+async function fbSend(psid, text, tag) {
+  /* tag (např. CONFIRMED_EVENT_UPDATE) dovolí Meta poslat zprávu i po 24 h od poslední zprávy pacienta —
+     potvrzení termínu z ordinace chodí typicky až za den či dva */
+  const telo = tag
+    ? { recipient: { id: psid }, messaging_type: "MESSAGE_TAG", tag, message: { text: text.slice(0, 2000) } }
+    : { recipient: { id: psid }, messaging_type: "RESPONSE", message: { text: text.slice(0, 2000) } };
   const r = await fetch(`https://graph.facebook.com/v21.0/me/messages?access_token=${encodeURIComponent(PAGE_ACCESS_TOKEN)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ recipient: { id: psid }, messaging_type: "RESPONSE", message: { text: text.slice(0, 2000) } }),
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(telo),
   });
   if (!r.ok) throw new Error(`FB send ${r.status}: ${await r.text()}`);
 }
@@ -404,9 +414,15 @@ async function pump() {
       const psid = hit[1];
       const reply = (m.text || "").replace(TAG, "").trim();
       if (!reply) continue;
-      await fbSend(psid, reply);
-      log(`Fable → FB ${psid}: ${reply.slice(0, 60)}`);
-      await sendVoiceIfShort(psid, reply);
+      const odOrganizera = from === ORGANIZER_NAME;
+      try { await fbSend(psid, reply, odOrganizera ? "CONFIRMED_EVENT_UPDATE" : undefined); }
+      catch (e) {
+        log(`${from} → FB ${psid}: NEDORUČENO (${e.message.slice(0, 120)})`);
+        if (odOrganizera) { try { await ainetSend(`[HOVOR] Zpráva pacientovi (Messenger ${psid}) se NEDORUČILA: ${e.message.slice(0, 200)} — zavolej nebo pošli SMS. Text: ${reply.slice(0, 200)}`, ORGANIZER_NAME); } catch {} }
+        continue;
+      }
+      log(`${from} → FB ${psid}: ${reply.slice(0, 60)}`);
+      if (!odOrganizera) await sendVoiceIfShort(psid, reply);
     }
     primed = true;
     if (seen.size > 5000) seen.clear();
@@ -639,6 +655,58 @@ http.createServer(async (req, res) => {
         log(`hlas/literatura: ${dotaz} → ${v.clanky.length}`);
         return json(200, { vysledek: kratce });
       } catch (e) { log(`hlas/literatura: ${e.message}`); return json(502, { vysledek: "Literaturu se teď nepodařilo prohledat, odpověz z obecných znalostí a řekni to." }); }
+    }
+
+    /* ---- ORGANIZER: odchozí hovor pacientovi — POST /organizer/zavolat {telefon, jmeno, ucel, termin, misto}
+       Volá AInet (ordinace.js) s hlavičkou x-organizer-klic. Hovor vede hlasový agent ElevenLabs
+       HLAS_ORGANIZER_AGENT z čísla ELEVENLABS_PHONE_NUMBER_ID (Twilio); proměnné hovoru dostane
+       jako dynamic_variables (jmeno, ucel, termin, misto), ať ví, komu a proč volá. */
+    if (url.pathname === "/organizer/zavolat" && req.method === "POST") {
+      const json = (st, o) => { res.writeHead(st, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(o)); };
+      if (!ORGANIZER_KLIC || req.headers["x-organizer-klic"] !== ORGANIZER_KLIC) return json(403, { ok: false, chyba: "forbidden (ORGANIZER_KLIC)" });
+      const agent = process.env.HLAS_ORGANIZER_AGENT, cislo = process.env.ELEVENLABS_PHONE_NUMBER_ID;
+      if (!ELEVENLABS_API_KEY || !agent || !cislo) return json(400, { ok: false, chyba: "Na Mostu chybí ELEVENLABS_API_KEY, HLAS_ORGANIZER_AGENT nebo ELEVENLABS_PHONE_NUMBER_ID." });
+      let b; try { b = await readBody(req); } catch { return json(400, { ok: false, chyba: "špatný JSON" }); }
+      const t = (k) => String((b && b[k]) || "").replace(/[\r\n]+/g, " ").slice(0, 300).trim();
+      let tel = t("telefon").replace(/[^\d+]/g, "");
+      if (/^\d{9}$/.test(tel)) tel = "+420" + tel;           /* české číslo bez předvolby */
+      if (!/^\+\d{9,15}$/.test(tel)) return json(400, { ok: false, chyba: "telefon musí být v mezinárodním tvaru (+420…)" });
+      try {
+        const r = await fetch("https://api.elevenlabs.io/v1/convai/twilio/outbound-call", {
+          method: "POST", headers: { "Content-Type": "application/json", "xi-api-key": ELEVENLABS_API_KEY },
+          body: JSON.stringify({ agent_id: agent, agent_phone_number_id: cislo, to_number: tel,
+            conversation_initiation_client_data: { dynamic_variables: { jmeno: t("jmeno"), ucel: t("ucel"), termin: t("termin"), misto: t("misto"), ordinace: "MUDr. Pavel Dítl" } } }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { log(`organizer/zavolat: ElevenLabs ${r.status} ${JSON.stringify(d).slice(0, 200)}`); return json(502, { ok: false, chyba: `ElevenLabs ${r.status}: ${(d.detail && (d.detail.message || d.detail)) || "hovor se nepodařilo zahájit"}` }); }
+        log(`organizer/zavolat: ${t("ucel")} → ${tel.replace(/\d(?=\d{3})/g, "•")}`);
+        return json(200, { ok: true, stav: "zahájen", conversation_id: d.conversation_id || null, call_sid: d.callSid || d.call_sid || null });
+      } catch (e) { log(`organizer/zavolat: ${e.message}`); return json(502, { ok: false, chyba: e.message }); }
+    }
+
+    /* ---- ORGANIZER: shrnutí hovoru — POST /hlas/po-hovoru (post-call webhook ElevenLabs)
+       ElevenLabs po každém hovoru pošle přepis a shrnutí; Most z toho udělá zprávu [HOVOR] Organizerovi,
+       aby se objevila v ranním přehledu. Podpis (ELEVENLABS_WEBHOOK_SECRET) se ověří, je-li nastaven. */
+    if (url.pathname === "/hlas/po-hovoru" && req.method === "POST") {
+      const json = (st, o) => { res.writeHead(st, { "Content-Type": "application/json; charset=utf-8" }); res.end(JSON.stringify(o)); };
+      let raw = ""; req.on("data", c => { raw += c; if (raw.length > 2e6) req.destroy(); });
+      await new Promise(r => req.on("end", r));
+      const tajemstvi = process.env.ELEVENLABS_WEBHOOK_SECRET;
+      if (tajemstvi) {
+        const sig = String(req.headers["elevenlabs-signature"] || ""); const ts = (sig.match(/t=(\d+)/) || [])[1]; const v0 = (sig.match(/v0=([a-f0-9]+)/) || [])[1];
+        const ocek = ts ? require("crypto").createHmac("sha256", tajemstvi).update(`${ts}.${raw}`).digest("hex") : "";
+        if (!ts || !v0 || v0 !== ocek) { log("hlas/po-hovoru: špatný podpis"); return json(401, { ok: false }); }
+      }
+      let b; try { b = JSON.parse(raw); } catch { return json(400, { ok: false }); }
+      if (b.type && b.type !== "post_call_transcription") return json(200, { ok: true, ignorovano: b.type });
+      const d = b.data || b;
+      const an = d.analysis || {};
+      const shrnuti = an.transcript_summary || an.summary || "";
+      const delka = d.metadata && d.metadata.call_duration_secs ? `${Math.round(d.metadata.call_duration_secs / 60)} min` : "";
+      const vysledek = an.call_successful ? `výsledek: ${an.call_successful}` : "";
+      const text = `[HOVOR] ${new Date().toISOString().slice(0, 16)}${delka ? " · " + delka : ""}${vysledek ? " · " + vysledek : ""}\n${(shrnuti || "(bez shrnutí)").slice(0, 1500)}`;
+      try { await ainetSend(text, ORGANIZER_NAME); log(`hlas/po-hovoru → ${ORGANIZER_NAME}: ${shrnuti.slice(0, 60)}`); return json(200, { ok: true }); }
+      catch (e) { log(`hlas/po-hovoru: ${e.message}`); return json(502, { ok: false }); }
     }
 
     /* hlasový asistent (ElevenLabs, web i telefon): POST /hlas/objednani { jmeno, telefon, den, potiz, … } → objednávka Pavlovi */

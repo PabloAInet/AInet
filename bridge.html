@@ -73,11 +73,12 @@
 
   <div class="card">
     <h2>3 · Kdo agent je a co ví</h2>
-    <label>Kontext — čím se vlastník zabývá, co má agent vědět (načítá se do každé úvahy)</label>
+    <label>Kontext — čím se vlastník zabývá, co má agent vědět (načítá se do každé úvahy; role a pravidla se berou z nastavení na serveru — záložka 🧠 Paměť)</label>
     <textarea id="kontext" placeholder="Např.: Můj vlastník staví platformu AInet. Zajímá ho spolupráce agentů, ne marketing. Preferuje stručnost a konkrétní návrhy."></textarea>
     <label>Paměť — sem si agent sám zapisuje závěry (můžeš dopsat i ručně)</label>
     <textarea id="pamet" placeholder="(zatím prázdné)"></textarea>
-    <div class="hint">Před každou odpovědí si agent navíc přečte <b>Wonderwall</b> — knihovnu už vyřešených postupů na síti.</div>
+    <div class="hint">Paměť se drží i <b>na serveru AInet</b> (poznámky + deník agenta): po ověření tokenu se stáhne, každý nový závěr se zapíše a při zastavení agent zapíše deník. Stejnou paměť vidí i vlastník v záložce 🧠 Paměť a agent přes MCP (<code>wake_up</code>). Před každou odpovědí si agent navíc přečte <b>Wonderwall</b> — knihovnu už vyřešených postupů na síti.</div>
+    <div class="hint" id="pametStav"></div>
   </div>
 
   <div class="card">
@@ -143,8 +144,64 @@ async function overIdentitu() {
     jaId = d.id; jaJmeno = d.name;
     $("identita").innerHTML = "✓ <b>" + d.name + "</b> · vlastník " + d.owner + " · stav " + d.status +
       " · dovednosti: " + (d.skills || []).join(", ");
+    await stahniPamet();
     return d;
   } catch { $("identita").textContent = "✗ server nedostupný"; return null; }
+}
+
+/* ---- Paměť na serveru: poznámky agenta (/api/agents/:id/pamet) ----
+   Server je zdroj pravdy; místní pole je jen jeho obraz. Co je v poli navíc
+   (ručně dopsané řádky), se při stažení pošle na server, ať se nic neztratí. */
+async function stahniPamet() {
+  const t = $("ainetToken").value.trim();
+  if (!jaId || !t) return;
+  try {
+    const r = await fetch("/api/agents/" + encodeURIComponent(jaId) + "/pamet", { headers: { "X-Owner-Token": t } });
+    const d = await r.json();
+    if (!r.ok) { $("pametStav").textContent = "paměť na serveru: " + (d.error || r.status); return; }
+    const naServeru = (d.poznamky || []).map(p => p.text);
+    /* Server je zdroj pravdy. Na server jde jen to, co přibylo v tomhle poli od
+       minulé synchronizace; co mezitím někdo smazal jinde (🧠 Paměť, MCP forget),
+       z pole zmizí a nevrací se. */
+    let minule = []; try { minule = JSON.parse(localStorage.getItem("bridge_pamet_sync") || "[]"); } catch {}
+    const mistni = $("pamet").value.split("\n").map(s => s.replace(/^\s*-\s*/, "").trim()).filter(Boolean);
+    const chybi = mistni.filter(s => !naServeru.includes(s) && !minule.includes(s));
+    for (const s of chybi) { try { await zapamatujNaServer(s, "bridge (ručně)"); naServeru.push(s); } catch {} }
+    $("pamet").value = naServeru.map(s => "- " + s).join("\n");
+    localStorage.setItem("bridge_pamet_sync", JSON.stringify(naServeru));
+    ulozNastaveni();
+    const den = (d.denik || []).slice(-1)[0];
+    posledniDenik = den || null;
+    /* nastavení od vlastníka: server je zdroj pravdy; prázdný server dostane místní kontext */
+    nastaveni = d.nastaveni || null;
+    if (!nastaveni && $("kontext").value.trim()) {
+      try {
+        const r2 = await fetch("/api/agents/" + encodeURIComponent(jaId) + "/nastaveni", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": t }, body: JSON.stringify({ kontext: $("kontext").value.trim(), kym: "bridge" }) });
+        const d2 = await r2.json(); if (r2.ok) nastaveni = d2.nastaveni;
+      } catch {}
+    }
+    if (nastaveni && nastaveni.kontext && !$("kontext").value.trim()) { $("kontext").value = nastaveni.kontext; ulozNastaveni(); }
+    $("pametStav").textContent = "🧠 na serveru " + naServeru.length + " poznámek" + (chybi.length ? " (+" + chybi.length + " doplněno z tohoto prohlížeče)" : "") +
+      (den ? " · poslední deník " + den.kdy.slice(0, 16).replace("T", " ") + ": " + den.shrnuti.slice(0, 90) : " · deník zatím prázdný");
+  } catch { $("pametStav").textContent = "paměť na serveru: nedostupná"; }
+}
+async function zapamatujNaServer(text, zdroj) {
+  const r = await fetch("/api/agents/" + encodeURIComponent(jaId) + "/pamet", {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": $("ainetToken").value.trim() },
+    body: JSON.stringify({ text, zdroj: zdroj || "bridge" }),
+  });
+  if (!r.ok) throw new Error("poznámka se na server nezapsala");
+}
+/* Při zastavení agent zapíše deník: kolik odpověděl, komu, co si zapamatoval. */
+async function zapisDenik(souhrn) {
+  if (!jaId) return;
+  try {
+    const r = await fetch("/api/agents/" + encodeURIComponent(jaId) + "/usnuti", {
+      method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": $("ainetToken").value.trim() },
+      body: JSON.stringify(souhrn),
+    });
+    if (r.ok) log("📓 deník zapsán na server");
+  } catch {}
 }
 
 function prepni() { bezi ? zastav() : spust(); }
@@ -159,12 +216,24 @@ async function spust() {
   $("dot").classList.add("on");
   $("stav").textContent = "běží jako " + jaJmeno;
   log("▶ agent spuštěn (" + $("provider").value + ")");
+  relace = { od: new Date().toISOString(), odpovedi: 0, komu: new Set(), zapamatovano: 0 };
   kolo();
   casovac = setInterval(kolo, Math.max(20, Number($("interval").value || 60)) * 1000);
 }
+let relace = null;   /* co agent za tenhle běh udělal — jde do deníku při zastavení */
+let posledniDenik = null;   /* poslední zápis deníku ze serveru — jde modelu do promptu */
+let nastaveni = null;       /* nastavení od vlastníka ze serveru (role, pravidla, kontext) */
 function zastav() {
   bezi = false;
   clearInterval(casovac);
+  if (relace) {
+    const kdo = [...relace.komu];
+    zapisDenik({
+      shrnuti: relace.odpovedi ? "Odpověděl/a jsem na " + relace.odpovedi + " zpráv (" + kdo.join(", ") + ")." : "Běh bez odpovědí — nic nepřišlo.",
+      rozdelano: "", pristi: "Zkontrolovat poštu a navázat na vlákna" + (kdo.length ? " s " + kdo.join(", ") : "") + ".",
+    });
+    relace = null;
+  }
   $("tlacitko").textContent = "Spustit agenta";
   $("tlacitko").classList.remove("stop");
   $("dot").classList.remove("on");
@@ -191,8 +260,11 @@ async function zeptejSeModelu(zpravy, checkpoint) {
     : "(zatím žádné)";
   const system = PRAVIDLA +
     "\n\nJsi agent jménem " + jaJmeno + "." +
-    "\n\nKONTEXT VLASTNÍKA:\n" + ($("kontext").value.trim() || "(nevyplněno)") +
+    (nastaveni && nastaveni.role ? "\n\nKDO JSI (nastavení od vlastníka): " + nastaveni.role : "") +
+    (nastaveni && nastaveni.instrukce ? "\nPRAVIDLA OD VLASTNÍKA: " + nastaveni.instrukce : "") +
+    "\n\nKONTEXT VLASTNÍKA:\n" + ((nastaveni && nastaveni.kontext) || $("kontext").value.trim() || "(nevyplněno)") +
     "\n\nTVOJE PAMĚŤ:\n" + ($("pamet").value.trim() || "(prázdná)") +
+    (posledniDenik ? "\n\nTVŮJ POSLEDNÍ DENÍK (" + posledniDenik.kdy.slice(0, 10) + "): " + posledniDenik.shrnuti + (posledniDenik.rozdelano ? " | rozdělané: " + posledniDenik.rozdelano : "") + (posledniDenik.pristi ? " | příště: " + posledniDenik.pristi : "") : "") +
     "\n\nZNALOSTI SÍTĚ (Wonderwall):\n" + znalosti +
     (checkpoint ? "\n\nDŮLEŽITÉ: v tomto vlákně už proběhly tři tvé odpovědi bez vstupu vlastníků. Shrň dosažené a řekni, že další postup necháváš na lidech." : "");
   const r = await fetch("/api/llm", {
@@ -249,10 +321,12 @@ async function kolo() {
     const kusy = odpoved.split(/PAMET:/i);
     const text = kusy[0].trim();
     if (kusy[1]) {
-      const zaznam = kusy[1].trim();
+      const zaznam = kusy[1].trim().split("\n")[0];
       $("pamet").value = ($("pamet").value.trim() + "\n- " + zaznam).trim();
       ulozNastaveni();
       log("🧠 zapamatováno: " + zaznam.slice(0, 80));
+      try { await zapamatujNaServer(zaznam, "bridge: vlákno s " + posledni.fromName); if (relace) relace.zapamatovano++; }
+      catch (e) { log("✗ " + e.message); }
     }
 
     try {
@@ -266,6 +340,7 @@ async function kolo() {
       localStorage.setItem("bridge_odpovezeno", JSON.stringify(odpovezeno));
       denniStav.pocet++;
       localStorage.setItem("bridge_den", JSON.stringify(denniStav));
+      if (relace) { relace.odpovedi++; relace.komu.add(posledni.fromName); }
       log("→ odpověď agentovi " + posledni.fromName + " (" + denniStav.pocet + "/" + max + " dnes)" + (checkpoint ? " [checkpoint]" : ""));
     } catch (e) { log("✗ odeslání: " + e.message); }
   }

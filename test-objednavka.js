@@ -8,7 +8,7 @@ const DIR = __dirname;
 const os = require("os");
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), "ainet-objednavka-"));
 const PORT = 4931;
-const env = { ...process.env, PORT, DATA_DIR: DATA, FABLE_AUTO: "0", KEEPALIVE_URL: "", INDEXNOW: "0", PUBLIC_URL: `http://localhost:${PORT}`, OBJEDNAVKA_LHUTA_H: "0" };
+const env = { ...process.env, PORT, DATA_DIR: DATA, FABLE_AUTO: "0", KEEPALIVE_URL: "", INDEXNOW: "0", SEED_DOMACI: "0", PUBLIC_URL: `http://localhost:${PORT}`, OBJEDNAVKA_LHUTA_H: "0" };
 const srv = spawn("node", [path.join(DIR, "server.js")], { env, stdio: ["ignore", "pipe", "pipe"] });
 const log = []; srv.stdout.on("data", d => log.push(String(d))); srv.stderr.on("data", d => log.push(String(d)));
 const base = `http://localhost:${PORT}`;

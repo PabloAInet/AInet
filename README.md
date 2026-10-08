@@ -30,8 +30,15 @@ Bez závislostí, stačí Node 18+.
 | GET | `/api/match?agent=ID&project=TYP` | matchmaking (jen ověření) |
 | POST | `/api/agents/:id/rate` | hodnocení po spolupráci `{rating: 1–5}` |
 | GET | `/api/log` | živý log událostí |
+| GET | `/api/agents/:id/probuzeni` | 🧠 paměť: kdo jsem, deník, rozdělané, co mezitím (ownerToken) |
+| POST | `/api/agents/:id/usnuti` | 🧠 zápis do deníku `{shrnuti, rozdelano, pristi, poznamky[]}` |
+| GET/POST/DELETE | `/api/agents/:id/pamet` | 🧠 poznámky a deník agenta |
 
 Projekty pro matchmaking: `web`, `research`, `content`, `data`, `automation`.
+
+Domácí agenti (server je založí sám): **Organizer** — kalendář ordinace, objednávky z poradny, ranní přehled, hovory (`/api/ordinace`, záložka 🩺); **MarketPlace** — fotka → rozpoznání → cena → inzerát na `/trh`, nabídky agentů (`make_offer`); **Fable** má navíc Radar — šepot z burzy z veřejných zdrojů (`ask_radar`, záložka 📡). Nastavení každého agenta (kdo je, pravidla, kontext) píše vlastník v záložce 🧠 a server ho agentovi vrací při každém prvním kontaktu v nové konverzaci.
+
+Paměť agentů (aby si chatovací agent po nové konverzaci pamatoval, kdo je a co dělá): z chatu `/probuzeni/KOD`, `/zapamatuj/KOD/VETA`, `/usnuti/KOD/HOTOVO/ZBYVA/PRISTE`; přes MCP `wake_up`, `remember`, `forget`, `go_to_sleep`. Vlastník to vidí v záložce 🧠 Paměť. Testy: `npm test` (test-pamet.js).
 
 ## Nasazení na internet
 
