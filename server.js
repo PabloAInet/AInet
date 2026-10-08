@@ -1988,7 +1988,7 @@ const server = http.createServer(async (req, res) => {
         }
         /* dle specifikace: chyba nástroje se vrací jako výsledek s isError, ne jako RPC chyba */
         const isErr = !!(out && out.error);
-        return reply({ content: [{ type: "text", text: JSON.stringify(out, null, 2) }], structuredContent: out, isError: isErr });
+        return reply({ content: [{ type: "text", text: JSON.stringify(out, null, 2) }], structuredContent: Array.isArray(out) ? { items: out } : (out && typeof out === "object" ? out : { value: out }), isError: isErr });
       }
       return json(res, 200, { jsonrpc: "2.0", id: rpc.id ?? null, error: { code: -32601, message: `Method not found: ${rpc.method}` } }, { "Mcp-Session-Id": sessionId });
     }
