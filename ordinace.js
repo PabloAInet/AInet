@@ -13,8 +13,9 @@
  *     pacientovi jde přes FB-Most ([FB:psid] …), když přišel z Messengeru
  *   - RANNÍ PŘEHLED: v PREHLED_HODINA (výchozí 7:00 Praha) Organizer sepíše
  *     program dne, co čeká na potvrzení, co přišlo z poradny a co je bez
- *     odpovědi; uloží ho, pošle do schránky Organizera a Fabla a — je-li
- *     ORGANIZER_FB_PSID — i vlastníkovi do Messengeru přes FB-Most
+ *     odpovědi; uloží ho, pošle do schránky Organizera a — je-li
+ *     ORGANIZER_FB_PSID — i vlastníkovi do Messengeru přes FB-Most.
+ *     Fable (finance) ordinační hlášení nedostává — dělba rolí vlastníka.
  *   - HOVORY: zprávy [HOVOR] (shrnutí z ElevenLabs přes Most) se ukládají
  *     a jdou do přehledu; odchozí hovor pacientovi spouští vlastník
  *     (POST /api/ordinace/zavolat → Most → ElevenLabs/Twilio)
@@ -154,7 +155,8 @@ module.exports = function (ctx) {
       const out = { id: crypto.randomUUID(), from: organizer.id, to: most.id, fromName: organizer.card.name, toName: most.card.name, text, visibility: "private", t: new Date().toISOString() };
       ulozZpravu(out, most, msg.id);
     }
-    const kam = [organizer, agentJmenem(FABLE_NAME)].filter(Boolean);
+    /* hlášení jen Organizerovi — Fable je finance, ordinaci nevede */
+    const kam = [organizer].filter(Boolean);
     for (const a of kam) systemovaZprava(a.id, "Ordinace", `📋 Nová objednávka (${p.zdroj}): ${p.jmeno || "?"}${p.vek ? `, ${p.vek}` : ""} — ${p.potiz || p.diagnoza || "?"}${p.triage ? ` · triage ${p.triage}` : ""}. ${navrh.length ? `Navržen ${hezky(navrh[0].kdy)} (${navrh[0].misto}).` : "Žádný volný termín — vyber ručně."} Potvrď v záložce 🩺 Ordinace.`);
     return obj;
   }
@@ -252,8 +254,8 @@ module.exports = function (ctx) {
     const p = praha(); datum = datum || p.datum;
     const text = sestavPrehled(datum, extra);
     o.prehledy[datum] = { kdy: new Date().toISOString(), text };
-    const org = agentJmenem(ORGANIZER_NAME), fable = agentJmenem(FABLE_NAME);
-    for (const a of [org, fable].filter(Boolean)) systemovaZprava(a.id, "Ranní přehled", text);
+    const org = agentJmenem(ORGANIZER_NAME);   /* jen Organizer — Fable (finance) ordinaci nedostává */
+    if (org) systemovaZprava(org.id, "Ranní přehled", text);
     if (ORGANIZER_FB_PSID && org) poslatPacientovi(ORGANIZER_FB_PSID, text, org);
     const klice = Object.keys(o.prehledy).sort(); if (klice.length > 60) for (const k of klice.slice(0, klice.length - 60)) delete o.prehledy[k];
     logEvent(`ORDINACE: ranní přehled ${datum} sestaven${ORGANIZER_FB_PSID ? " a poslán do Messengeru vlastníka" : ""}`);

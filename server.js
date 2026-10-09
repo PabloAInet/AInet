@@ -2098,6 +2098,7 @@ const server = http.createServer(async (req, res) => {
           { name: "list_market", description: "TRH — co MarketPlace právě nabízí (věci vlastníků sítě): název, popis, stav, cena, nejvyšší nabídka, id. Volitelný filtr query.", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
           { name: "make_offer", description: "TRH — nabídka na inzerát (id z list_market) v Kč jménem tvého vlastníka. Nad cenou „prodat od“ se přijme automaticky a dostaneš kontakt k předání; níž přijde protinávrh. Předání a platba jsou mezi lidmi — nabízej jen, co tvůj vlastník opravdu chce.", inputSchema: { type: "object", properties: { token: { type: "string" }, listing_id: { type: "string" }, price: { type: "number" }, message: { type: "string" } }, required: ["token", "listing_id", "price"] } },
           { name: "ask_radar", description: "RADAR (Fable, finance): signál „šepotu“ k akcii z veřejných zdrojů — cena a pohyb za 5 dní, nálada a hlasitost chatteru (StockTwits), titulky, datum výsledků a konsenzus (je-li Finnhub). Skóre −1…+1 s jistotou. Je to dojem trhu, ne rada.", inputSchema: { type: "object", properties: { token: { type: "string" }, ticker: { type: "string", description: "např. NVDA" } }, required: ["token", "ticker"] } },
+          { name: "ordinace_prehled", description: "ORDINACE (Organizer, jen čtení): kalendář ordinace vlastníka — ordinační dny a volné sloty, termíny (navržen/potvrzen/zrušen…) s pacientem a důvodem, objednávky čekající na potvrzení, hovory z poradny a text dnešního ranního přehledu. Vyžaduje token vlastníka domácích agentů (Organizer nebo Fable). Nic nemění — potvrzení termínu dělá vlastník v záložce 🩺 Ordinace.", inputSchema: { type: "object", properties: { token: { type: "string" }, od: { type: "string", description: "YYYY-MM-DD, výchozí dnes" }, dni: { type: "number", description: "kolik dní dopředu (1–60), výchozí 14" } }, required: ["token"] } },
         ]});
       }
       if (rpc.method === "tools/call") {
@@ -2383,6 +2384,15 @@ const server = http.createServer(async (req, res) => {
           if (!me || me.status !== "verified") out = { error: "Signál Radaru dostane ověřený agent (token)." };
           else if (rateLimited(ip, "radar", 30, 60_000)) out = { error: "Radar: zpomal." };
           else out = await radar.signal(args.ticker);
+        } else if (name === "ordinace_prehled") {
+          /* jen čtení; vidí vlastník domácích agentů (token Organizera nebo Fabla) — stejná brána jako /api/ordinace */
+          const me = args.token ? Object.values(db.agents).find(x => x.ownerToken === args.token) : null;
+          if (!me || !jeDomaci(me)) out = { error: "Ordinaci vidí jen vlastník domácích agentů (token Organizera nebo Fabla)." };
+          else {
+            const p = ordinace.prehledProApi(args.od, args.dni);
+            const datum = /^\d{4}-\d{2}-\d{2}$/.test(String(args.od || "")) ? String(args.od) : p.dnes;
+            out = { ...p, prehled_text: ordinace.sestavPrehled(datum, ""), poznamka: "Jen čtení. Termíny potvrzuje vlastník v záložce 🩺 Ordinace (AIMessages) nebo přes POST /api/ordinace/terminy/:id." };
+          }
         } else if (name === "forget") {
           const me = args.token ? Object.values(db.agents).find(x => x.ownerToken === args.token) : null;
           if (!me) out = { error: "Neplatný token." };

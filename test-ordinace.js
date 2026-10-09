@@ -12,8 +12,9 @@
  *      cizí token ne. Potvrzení termínu pošle pacientovi zprávu přes Most,
  *      přesun hlídá kolize, ruční termín obsadí slot, zrušení ho uvolní.
  *   4. Nastavení ordinace (dny, délka, blokace) ovlivní sloty.
- *   5. Ranní přehled: sestaví se, uloží, jde Organizerovi i Fablovi; model
- *      hlášení [OBJEDNANI]/[HOVOR] nedostane; hovor [HOVOR] se uloží.
+ *   5. Ranní přehled: sestaví se, uloží, jde jen Organizerovi (Fable = finance);
+ *      model hlášení [OBJEDNANI]/[HOVOR] nedostane; hovor [HOVOR] se uloží.
+ *      MCP nástroj ordinace_prehled (jen čtení) vidí vlastník domácích agentů.
  *   6. Odchozí hovor bez nastavení vrátí srozumitelnou chybu.
  *
  * Nepotřebuje síť ani klíče — spustí si vlastní server na volném portu.
@@ -80,7 +81,20 @@ const dalsiDen = (den) => { const d = new Date(); do { d.setUTCDate(d.getUTCDate
   const fInbox = (await get(`/api/messages?agent=${fable.id}`, { "X-Owner-Token": fable.tok })).data;
   const puv = fInbox.find(m => /^\[OBJEDNANI\]/.test(m.text));
   ok(puv && puv.status === "answered", "původní objednávka u Fabla je vyřízená (Sentinel ji neurguje)", puv && puv.status);
-  ok(fInbox.some(m => m.fromName === "Ordinace" && /Jan Novák/.test(m.text)), "Fable dostal hlášení o nové objednávce", null);
+  const oInbox = (await get(`/api/messages?agent=${org.id}`, { "X-Owner-Token": org.ownerToken })).data;
+  ok(oInbox.some(m => m.fromName === "Ordinace" && /Jan Novák/.test(m.text)), "Organizer dostal hlášení o nové objednávce", null);
+  ok(!fInbox.some(m => m.fromName === "Ordinace"), "Fable (finance) hlášení o objednávce nedostal — dělba rolí", fInbox.filter(m => m.fromName === "Ordinace").length);
+
+  console.log("\n1b) MCP ordinace_prehled — jen čtení, jen vlastník domácích agentů");
+  const mcp = async (name, a) => { const r = await post("/mcp", { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: a } }); const t = r.data.result && r.data.result.content && r.data.result.content[0]; return t ? JSON.parse(t.text) : r.data; };
+  const mp = await mcp("ordinace_prehled", { token: org.ownerToken });
+  ok(mp.objednavky && mp.objednavky.some(x => x.jmeno === "Jan Novák") && mp.dny && typeof mp.prehled_text === "string" && /Ranní přehled/.test(mp.prehled_text), "ordinace_prehled vrací objednávky, dny i text přehledu (token Organizera)", mp.error || Object.keys(mp));
+  const mpF = await mcp("ordinace_prehled", { token: fable.tok });
+  ok(mpF.objednavky && mpF.objednavky.length === 1, "ordinace_prehled funguje i s tokenem Fabla (týž vlastník)", mpF.error);
+  const mpC = await mcp("ordinace_prehled", { token: cizi.tok });
+  ok(mpC.error && /vlastník/.test(mpC.error), "cizí token ordinaci nevidí", mpC);
+  const tl = await post("/mcp", { jsonrpc: "2.0", id: 2, method: "tools/list" });
+  ok(tl.data.result && tl.data.result.tools.some(t => t.name === "ordinace_prehled"), "tools/list obsahuje ordinace_prehled");
 
   console.log("\n2) Triage");
   const ct = dalsiDen(4);
@@ -142,7 +156,8 @@ const dalsiDen = (den) => { const d = new Date(); do { d.setUTCDate(d.getUTCDate
   const prG = (await get("/api/ordinace/prehled", { "X-Owner-Token": org.ownerToken })).data;
   ok(prG.ulozeny && prG.ulozeny.text === pr.data.text, "přehled je uložený pod dnešním datem");
   const dbB = cti();
-  ok(dbB.messages.filter(m => m.fromName === "Ranní přehled").length === 2, "přehled šel Organizerovi i Fablovi", dbB.messages.filter(m => m.fromName === "Ranní přehled").map(m => m.toName));
+  const prehledy = dbB.messages.filter(m => m.fromName === "Ranní přehled");
+  ok(prehledy.length === 1 && prehledy[0].toName === "Organizer", "přehled šel jen Organizerovi (Fable je finance)", prehledy.map(m => m.toName));
   ok(dbB.ordinace.hovory.length >= 1 && /Dvořák/.test(dbB.ordinace.hovory[0].text), "hovor uložen v ordinaci");
 
   console.log("\n5b) Bezpečnost: cizí agent kalendář neplní, domácí nespí, kódy se nehádají");
