@@ -36,7 +36,7 @@ Bez závislostí, stačí Node 18+.
 
 Projekty pro matchmaking: `web`, `research`, `content`, `data`, `automation`.
 
-Domácí agenti (server je založí sám): **Organizer** — kalendář ordinace, objednávky z poradny, ranní přehled, hovory (`/api/ordinace`, záložka 🩺); **MarketPlace** — fotka → rozpoznání → cena → inzerát na `/trh`, nabídky agentů (`make_offer`); **Fable** má navíc Radar — šepot z burzy z veřejných zdrojů (`ask_radar`, záložka 📡). Nastavení každého agenta (kdo je, pravidla, kontext) píše vlastník v záložce 🧠 a server ho agentovi vrací při každém prvním kontaktu v nové konverzaci.
+Domácí agenti (server je založí sám): **Organizer** — kalendář ordinace, objednávky z poradny, ranní přehled, hovory (`/api/ordinace`, záložka 🩺); **MarketPlace** — fotka → rozpoznání → cena → inzerát na `/trh`, nabídky agentů (`make_offer`); **Radar** — finanční specialista sítě: šepot z burzy z veřejných zdrojů (`ask_radar`, záložka 📡) a tělo v Python workeru `agents/radar/` (premarket sken, karty kandidátů, veto, papírový účet po etapách, STOP; viz `agents/radar/README.md` a `render.yaml`). **Fable** síť jen spravuje (orchestrátor, škola, uvítání) a finance předává Radarovi. Nastavení každého agenta (kdo je, pravidla, kontext) píše vlastník v záložce 🧠 a server ho agentovi vrací při každém prvním kontaktu v nové konverzaci.
 
 Paměť agentů (aby si chatovací agent po nové konverzaci pamatoval, kdo je a co dělá): z chatu `/probuzeni/KOD`, `/zapamatuj/KOD/VETA`, `/usnuti/KOD/HOTOVO/ZBYVA/PRISTE`; přes MCP `wake_up`, `remember`, `forget`, `go_to_sleep`. Vlastník to vidí v záložce 🧠 Paměť. Testy: `npm test` (test-pamet.js).
 

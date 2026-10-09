@@ -109,10 +109,45 @@ async function zalozLite(name, skills = "chat") {
   ok(w.status === 200 && JSON.stringify(w.data.watchlist) === JSON.stringify(["NVDA", "AAPL", "XXXX"]), "watchlist se normalizuje a odduplikuje", w.data);
   const sd = await post("/api/radar/sepot", {}, { "X-Owner-Token": fable.tok });
   ok(sd.status === 200 && sd.data.polozky.length === 3 && sd.data.model === false && /Šepot dne/.test(sd.data.text) && /NVDA 110 USD/.test(sd.data.text), "šepot dne sestaven deterministicky pro 3 tickery", sd.data.text);
+  /* Radar je domácí agent založený serverem; worker se k němu dostane přesně takhle: obnovovací kód → /obnova/KOD → token */
+  const dbSoubor = JSON.parse(fs.readFileSync(path.join(DIR, "agents.json"), "utf8"));
+  const radarZaznam = Object.values(dbSoubor.agents).find(a => a.card.name === "Radar");
+  ok(radarZaznam && radarZaznam.domaci && /^d-[0-9a-f]{24}$/.test(radarZaznam.recoveryCode) && radarZaznam.card.skills.includes("analysis"), "server založil Radara jako domácího agenta s dlouhým kódem a dovedností analysis", radarZaznam && radarZaznam.card);
+  const ob = await get(`/obnova/${radarZaznam.recoveryCode}`);
+  const radar = { id: ob.data.id, tok: ob.data.token };
+  ok(ob.status === 200 && radar.tok === radarZaznam.ownerToken && ob.data.probuzeni && /Radar — finanční specialista/.test(ob.data.probuzeni.nastaveni.role), "worker: /obnova/KOD vrátí token Radara i jeho nastavení (role finančního specialisty)", ob.data.probuzeni && ob.data.probuzeni.nastaveni);
+  const rInbox = (await get(`/api/messages?agent=${radar.id}`, { "X-Owner-Token": radar.tok })).data;
+  ok(rInbox.some(m => m.fromName === "Šepot z burzy" && /Šepot dne/.test(m.text)), "šepot šel do schránky Radara (odesílatel „Šepot z burzy“, ne Radar sám sobě)");
   const fInbox = (await get(`/api/messages?agent=${fable.id}`, { "X-Owner-Token": fable.tok })).data;
-  ok(fInbox.some(m => m.fromName === "Radar" && /Šepot dne/.test(m.text)), "šepot šel Fablovi do schránky");
+  ok(!fInbox.some(m => /Šepot dne/.test(m.text)), "Fablovi šepot nechodí — není už finanční specialista");
   const rg = (await get("/api/radar", { "X-Owner-Token": fable.tok })).data;
-  ok(rg.posledni && rg.posledni.polozky.length === 3 && rg.finnhub === true, "GET /api/radar vrací poslední šepot", Object.keys(rg));
+  ok(rg.posledni && rg.posledni.polozky.length === 3 && rg.finnhub === true && rg.specialista === "Radar" && rg.stop === false, "GET /api/radar vrací poslední šepot, specialistu Radar a STOP vypnutý", Object.keys(rg));
+
+  console.log("\n2b) Worker Radara: stav, hlášení, STOP");
+  const stAja = await get("/api/radar/stav", { "X-Owner-Token": aja.tok });
+  ok(stAja.status === 403, "stav workeru vidí jen domácí (cizí agent 403)");
+  const st0 = (await get("/api/radar/stav", { "X-Owner-Token": radar.tok })).data;
+  ok(st0.stop === false && st0.uroven_analysis === 0 && st0.smi_papir === false && st0.smi_zivy === false && st0.radar_id === radar.id && st0.worker === null, "stav: STOP vypnutý, učeň (analysis 0) → papír ani živě nesmí, worker se ještě nehlásil", st0);
+  const hl = await post("/api/radar/worker", { etapa: 1, smycka: "rano", zprava: "2 kandidátů", ucet: "papir" }, { "X-Owner-Token": radar.tok });
+  ok(hl.status === 200 && hl.data.stop === false, "worker nahlásil smyčku rano");
+  const rg2 = (await get("/api/radar", { "X-Owner-Token": fable.tok })).data;
+  ok(rg2.worker && rg2.worker.smycka === "rano" && rg2.worker.etapa === 1 && rg2.worker.ucet === "papir", "GET /api/radar nese poslední hlášení workeru (etapa 1, papír)", rg2.worker);
+  const stopZprava = await post("/api/messages", { from: fable.id, to: radar.id, text: "STOP — dnes nic, mám schůzku", visibility: "private" }, { "X-Owner-Token": fable.tok });
+  ok(stopZprava.status === 201, "vlastník napsal Radarovi STOP (jako Fable)");
+  const st1 = (await get("/api/radar/stav", { "X-Owner-Token": radar.tok })).data;
+  ok(st1.stop === true && /zpráva STOP od Fable/.test(st1.stop_duvod), "zpráva STOP od domácího agenta worker zastaví", st1);
+  await post("/api/messages", { from: aja.id, to: radar.id, text: "START", visibility: "private" }, { "X-Owner-Token": aja.tok });
+  ok((await get("/api/radar/stav", { "X-Owner-Token": radar.tok })).data.stop === true, "START od cizího agenta (Aja) STOP nezruší");
+  await post("/api/messages", { from: fable.id, to: radar.id, text: "START", visibility: "private" }, { "X-Owner-Token": fable.tok });
+  ok((await get("/api/radar/stav", { "X-Owner-Token": radar.tok })).data.stop === false, "START od vlastníka STOP zruší");
+  const stopApi = await post("/api/radar/stop", { stop: true, duvod: "zkouška tlačítka" }, { "X-Owner-Token": fable.tok });
+  ok(stopApi.status === 200 && stopApi.data.stop === true && (await get("/api/radar/stav", { "X-Owner-Token": radar.tok })).data.stop_duvod === "zkouška tlačítka", "POST /api/radar/stop zastaví s důvodem");
+  const hl2 = await post("/api/radar/worker", { etapa: 1, smycka: "kandidati", zprava: "0 kandidátů" }, { "X-Owner-Token": radar.tok });
+  ok(hl2.data.stop === true, "hlášení workeru vrací STOP, ať worker ví hned");
+  await post("/api/radar/stop", { stop: false }, { "X-Owner-Token": fable.tok });
+  ok((await get("/api/radar/stav", { "X-Owner-Token": radar.tok })).data.stop === false, "STOP zrušen přes API");
+  const stopAja = await post("/api/radar/stop", { stop: true }, { "X-Owner-Token": aja.tok });
+  ok(stopAja.status === 403, "cizí agent STOP přes API nedá");
   const org = (await get("/api/agents")).data.find(a => a.name === "Organizer");
   const pre = await post("/api/ordinace/prehled", {}, { "X-Owner-Token": fable.tok });
   ok(/📡 Radar: NVDA \+/.test(pre.data.text), "ranní přehled Organizera nese řádek Radaru", pre.data.text.split("\n").pop());
@@ -121,18 +156,22 @@ async function zalozLite(name, skills = "chat") {
   const tl = await post("/mcp", { jsonrpc: "2.0", id: 1, method: "tools/list" });
   ok((tl.data.result.tools || []).some(t => t.name === "ask_radar"), "tools/list nabízí ask_radar");
 
-  console.log("\n3) S modelem: Fable šepot napíše sám a při dotazu dostane data Radaru");
+  console.log("\n3) S modelem: Radar šepot napíše sám a při dotazu dostane data Radaru");
   await stopServer();
   await startServer({ OPENAI_API_KEY: "test", LLM_PROVIDER: "openai", LLM_API_URL: `http://127.0.0.1:${atrapa.address().port}/v1/chat/completions` });
   const sd2 = await post("/api/radar/sepot", {}, { "X-Owner-Token": fable.tok });
   ok(sd2.status === 200 && sd2.data.model === true && /silném kvartálu/.test(sd2.data.text), "šepot dne napsal model", sd2.data.text);
-  ok(/Data Radaru/.test(posledniSystem) === false && volaniModelu >= 1, "model dostal systémový prompt Fabla-specialisty", posledniSystem.slice(0, 120));
-  const dotaz = await post("/api/messages", { from: aja.id, to: fable.id, text: "Fable, co si trh šeptá o $NVDA před výsledky?", visibility: "private" }, { "X-Owner-Token": aja.tok });
-  ok(dotaz.status === 201, "Aja se zeptala Fabla na $NVDA");
+  ok(/^Jsi Radar, finanční specialista/.test(posledniSystem) && /Data Radaru/.test(posledniSystem) === false && volaniModelu >= 1, "model dostal systémový prompt Radara-specialisty", posledniSystem.slice(0, 120));
+  const dotaz = await post("/api/messages", { from: aja.id, to: radar.id, text: "Radare, co si trh šeptá o $NVDA před výsledky?", visibility: "private" }, { "X-Owner-Token": aja.tok });
+  ok(dotaz.status === 201, "Aja se zeptala Radara na $NVDA");
   let odp = null;
-  for (let i = 0; i < 40 && !odp; i++) { await new Promise(r => setTimeout(r, 150)); const msgs = (await get(`/api/messages?agent=${aja.id}`, { "X-Owner-Token": aja.tok })).data; odp = Array.isArray(msgs) ? msgs.find(m => m.from === fable.id && m.to === aja.id) : null; }
-  ok(!!odp, "Fable odpověděl ze serveru");
-  ok(/RADAR \(čerstvá data/.test(posledniSystem) && /NVDA: cena 110 USD/.test(posledniSystem) && /KDO JSI: Fable — orchestrátor sítě AInet a její finanční specialista/.test(posledniSystem), "prompt nesl data Radaru k $NVDA i finanční roli z nastavení", posledniSystem.slice(-500));
+  for (let i = 0; i < 40 && !odp; i++) { await new Promise(r => setTimeout(r, 150)); const msgs = (await get(`/api/messages?agent=${aja.id}`, { "X-Owner-Token": aja.tok })).data; odp = Array.isArray(msgs) ? msgs.find(m => m.from === radar.id && m.to === aja.id) : null; }
+  ok(!!odp, "Radar odpověděl ze serveru (je mezi auto agenty)");
+  ok(/RADAR \(čerstvá data/.test(posledniSystem) && /NVDA: cena 110 USD/.test(posledniSystem) && /KDO JSI: Radar — finanční specialista sítě AInet/.test(posledniSystem), "prompt nesl data Radaru k $NVDA i roli finančního specialisty z nastavení", posledniSystem.slice(-500));
+  const dotazF = await post("/api/messages", { from: aja.id, to: fable.id, text: "Fable, co říkáš na $NVDA?", visibility: "private" }, { "X-Owner-Token": aja.tok });
+  let odpF = null;
+  for (let i = 0; i < 40 && !odpF; i++) { await new Promise(r => setTimeout(r, 150)); const msgs = (await get(`/api/messages?agent=${aja.id}`, { "X-Owner-Token": aja.tok })).data; odpF = Array.isArray(msgs) ? msgs.find(m => m.from === fable.id && m.to === aja.id) : null; }
+  ok(dotazF.status === 201 && !!odpF && /KDO JSI: Fable — orchestrátor a správce sítě/.test(posledniSystem) && !/RADAR \(čerstvá data/.test(posledniSystem), "Fable je správce sítě: odpoví, ale data Radaru do promptu nedostane (finance předává Radarovi)", posledniSystem.slice(-300));
 
   await stopServer(); atrapa.close();
   fs.rmSync(DIR, { recursive: true, force: true });

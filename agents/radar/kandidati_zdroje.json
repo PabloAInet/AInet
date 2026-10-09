@@ -1,0 +1,8 @@
+{
+  "_poznamka": "Odkud skener bere kandidáty. Watchlist doplňuje vlastník; short_reporty = adresa JSON exportu z HTML trackeru (nebo prázdné).",
+  "watchlist": ["NVDA", "AAPL", "MSFT", "TSLA", "AMZN", "META", "GOOGL", "AMD", "PLTR", "COIN"],
+  "short_reporty_url": "",
+  "polygon_top": 15,
+  "gap_min_pct": 2.0,
+  "objem_min_nasobek": 1.5
+}

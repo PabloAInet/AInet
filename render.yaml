@@ -1,0 +1,43 @@
+# Render Blueprint — worker Radara (Python) vedle webu AInet.
+#
+# Web AInet (Node, https://ainet-1e2y.onrender.com) už na Renderu běží a tenhle
+# soubor ho NEPŘEDEFINOVÁVÁ — jinak by Blueprint založil druhý web se stejným
+# jménem. Definuje jen nového workera. Postup: Render → New → Blueprint → tento
+# repozitář → potvrdit; pak doplnit tajné proměnné (sync: false) ručně.
+#
+# Worker na Renderu nemá bezplatný tarif (Starter ≈ 7 $/měs.). Zdarma jde totéž
+# na Mac mini: `python3 agents/radar/radar.py` (viz agents/radar/README.md).
+services:
+  - type: worker
+    name: ainet-radar
+    runtime: python
+    plan: starter
+    region: frankfurt
+    branch: main
+    buildCommand: pip install -r agents/radar/requirements.txt
+    startCommand: python agents/radar/radar.py
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: AINET_BASE
+        value: https://ainet-1e2y.onrender.com
+      - key: RADAR_NAME
+        value: Radar
+      - key: RADAR_ETAPA            # 1 = jen sken/karty/zprávy · 3 = papír (tovaryš) · 4 = živě (mistr)
+        value: "1"
+      - key: RADAR_LIVE             # živý účet jen s "1" — a i pak rozhoduje režim v limity.json
+        value: "0"
+      - key: RADAR_VLASTNIK_AGENT   # komu chodí Ráno/Kandidáti/Večer (vlastník je čte ve schránce Fabla)
+        value: Fable
+      - key: RADAR_OPONENTI         # týdenní zpráva soukromě; více jmen oddělit čárkou
+        value: Aja
+      - key: RADAR_OBNOVOVACI_KOD   # kód d-… ze zprávy „Server založil domácího agenta Radar“ ve schránce Fabla
+        sync: false
+      - key: ALPACA_PAPER_KEY       # až pro etapu 3 (papír); do té doby může zůstat prázdné
+        sync: false
+      - key: ALPACA_PAPER_SECRET
+        sync: false
+      - key: POLYGON_KEY            # volitelné — bez něj sken jen z watchlistu přes Alpacu (IEX)
+        sync: false
+      # ALPACA_LIVE_KEY / ALPACA_LIVE_SECRET se přidávají až v etapě 4, ručně, po podpisu brány.

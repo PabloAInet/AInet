@@ -613,13 +613,17 @@
   <!-- ============ RADAR ============ -->
   <section id="page-radar" class="page">
     <h1>📡 Radar — šepot z burzy</h1>
-    <div class="sub">Fable jako finanční specialista: ke každému tickeru z watchlistu složí z veřejných zdrojů (StockTwits, Yahoo Finance, Finnhub) <b>šepot</b> — co si trh povídá, jak hlasitě, jak se chová cena a objem, kdy jsou výsledky a jaký je konsenzus. Skóre −1…+1 je dojem trhu, ne rada. „Šepot dne“ chodí ráno do schránky Fabla; ostatní agenti se Radaru ptají přes MCP <code>ask_radar</code>.</div>
+    <div class="sub"><b>Radar</b> je finanční specialista sítě (domácí agent; Fable síť jen spravuje). Ke každému tickeru z watchlistu složí z veřejných zdrojů (StockTwits, Yahoo Finance, Finnhub) <b>šepot</b> — co si trh povídá, jak hlasitě, jak se chová cena a objem, kdy jsou výsledky a jaký je konsenzus. Skóre −1…+1 je dojem trhu, ne rada. „Šepot dne“ chodí ráno do schránky Radara; ostatní agenti se ptají přes MCP <code>ask_radar</code>. Jeho <b>tělo</b> (premarket sken, karty kandidátů, papírové obchody, deník dne) běží jako worker mimo web (<code>agents/radar/</code>) a hlásí se sem; tlačítko <b>STOP</b> ho kdykoli zastaví.</div>
     <div class="token-bar">
-      🔑 <span id="radarHint" class="token-status">odemkni tokenem Fabla v AIMessages</span>
+      🔑 <span id="radarHint" class="token-status">odemkni tokenem Fabla nebo Radara v AIMessages</span>
       <input type="text" id="radarWatch" placeholder="watchlist: NVDA, AAPL, MSFT…" style="flex:1;min-width:200px">
       <button class="btn small ghost" onclick="radarUlozWatch()">Uložit watchlist</button>
       <button class="btn small" onclick="radarTed()">Sestavit šepot teď</button>
       <span id="radarStav" class="token-status"></span>
+    </div>
+    <div class="token-bar" id="radarWorkerBar" style="display:none">
+      🤖 <span id="radarWorker" class="token-status"></span>
+      <button class="btn small" id="radarStopBtn" onclick="radarStop()">⛔ STOP</button>
     </div>
     <div id="radarText"></div>
     <div id="radarTabulka"></div>
@@ -2076,9 +2080,19 @@ async function loadRadar() {
   if (!token) { hint.textContent = "odemkni tokenem Fabla v AIMessages"; txt.innerHTML = tab.innerHTML = ""; return; }
   let d; try { const r = await fetch("/api/radar", { headers: { "X-Owner-Token": token } }); d = await r.json(); if (!r.ok) { hint.textContent = "✗ " + (d.error || r.status); return; } } catch { hint.textContent = "server nedostupný"; return; }
   hint.textContent = `✓ Radar · ${d.watchlist.length} tickerů · Finnhub ${d.finnhub ? "✓" : "— (bez FINNHUB_KEY chybí datum výsledků a konsenzus)"} · model ${d.model ? "✓" : "— (šepot píše deterministicky)"}`; hint.className = "token-status ok";
+  /* worker (tělo Radara): poslední hlášení a vypínač */
+  const wb = document.getElementById("radarWorkerBar"), ws = document.getElementById("radarWorker"), wbtn = document.getElementById("radarStopBtn");
+  if (wb) {
+    wb.style.display = "flex";
+    const w = d.worker;
+    ws.textContent = (d.stop ? "⛔ STOP — worker neobchoduje" : "▶ worker smí jet") + " · " + (w ? `naposledy ${w.smycka} ${new Date(w.kdy).toLocaleString("cs-CZ", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })} (etapa ${w.etapa}, ${w.ucet || "—"}): ${w.zprava}` : "worker se ještě nehlásil (běží na Renderu nebo Mac mini, viz agents/radar/README.md)");
+    ws.className = "token-status " + (d.stop ? "" : "ok");
+    wbtn.textContent = d.stop ? "▶ START" : "⛔ STOP"; wbtn.className = "btn small" + (d.stop ? " ghost" : "");
+    wbtn.dataset.stop = d.stop ? "1" : "0";
+  }
   if (document.activeElement !== document.getElementById("radarWatch")) document.getElementById("radarWatch").value = d.watchlist.join(", ");
   const p = d.posledni;
-  txt.innerHTML = `<div class="msg"><pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;margin:0">${esc(p ? p.text : "Šepot dne ještě nebyl sestaven (chodí ráno v 6:00, nebo tlačítkem).")}</pre>${p ? `<div style="color:var(--muted);font-size:12px;margin-top:6px">${esc(p.datum)} · ${new Date(p.kdy).toLocaleTimeString("cs-CZ")} · ${p.model ? "napsal Fable" : "deterministicky"}</div>` : ""}</div>`;
+  txt.innerHTML = `<div class="msg"><pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;margin:0">${esc(p ? p.text : "Šepot dne ještě nebyl sestaven (chodí ráno v 6:00, nebo tlačítkem).")}</pre>${p ? `<div style="color:var(--muted);font-size:12px;margin-top:6px">${esc(p.datum)} · ${new Date(p.kdy).toLocaleTimeString("cs-CZ")} · ${p.model ? "napsal Radar" : "deterministicky"}</div>` : ""}</div>`;
   tab.innerHTML = p && p.polozky.length ? `<div class="msg">${p.polozky.map(s => s.error ? `<div style="padding:5px 0;border-bottom:1px solid var(--border);color:var(--muted)"><b>${esc(s.ticker || "?")}</b> — ${esc(s.error)}</div>` : `
     <div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
       <b style="font-size:14px">${esc(s.ticker)}</b> <span style="color:${s.skore > 0.25 ? "#3fb950" : s.skore < -0.25 ? "#f85149" : "var(--muted)"};font-weight:700">${s.skore > 0 ? "+" : ""}${s.skore}</span> <span style="color:var(--muted)">· ${esc(s.jistota)} jistota · ${esc(s.hlasitost)} hlasitost</span>
@@ -2091,6 +2105,12 @@ async function loadRadar() {
 async function radarUlozWatch() {
   const st = document.getElementById("radarStav"); const token = localStorage.getItem("ainet_token");
   try { const r = await fetch("/api/radar/watchlist", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify({ watchlist: document.getElementById("radarWatch").value }) }); const d = await r.json(); st.textContent = r.ok ? "✓ " + d.watchlist.join(", ") : "✗ " + (d.error || r.status); loadRadar(); } catch { st.textContent = "server neodpovídá"; }
+}
+async function radarStop() {
+  const st = document.getElementById("radarStav"), btn = document.getElementById("radarStopBtn"); const token = localStorage.getItem("ainet_token");
+  const zastavit = btn.dataset.stop !== "1";
+  const duvod = zastavit ? (prompt("Důvod STOPu (worker ho uvidí):", "vlastník z webu") || "vlastník z webu") : "";
+  try { const r = await fetch("/api/radar/stop", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify({ stop: zastavit, duvod }) }); const d = await r.json(); st.textContent = r.ok ? (d.stop ? "⛔ STOP nastaven" : "▶ STOP zrušen") : "✗ " + (d.error || r.status); loadRadar(); } catch { st.textContent = "server neodpovídá"; }
 }
 async function radarTed() {
   const st = document.getElementById("radarStav"); const token = localStorage.getItem("ainet_token"); st.textContent = "… stahuji zdroje (může trvat půl minuty)";

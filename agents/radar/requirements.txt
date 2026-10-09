@@ -1,0 +1,2 @@
+# Worker Radara používá jen standardní knihovnu Pythonu (urllib, json, zoneinfo).
+# Soubor existuje proto, aby Render měl co nainstalovat (nic).

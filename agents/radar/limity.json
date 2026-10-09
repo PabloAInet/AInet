@@ -1,0 +1,13 @@
+{
+  "_poznamka": "Limity Radara. Mění je jen vlastník (commit do repozitáře). Radar je čte znovu před každým příkazem a nikdy je sám nezvedne.",
+  "pozice_usd": 400,
+  "max_pozic": 3,
+  "denni_ztrata_pct": 1.0,
+  "vstupu_za_den": 5,
+  "stop_pct": 15,
+  "vstup_do_titulu_s_vysledky_vecer": false,
+  "veto_minut": 30,
+  "rezim_zivy": "manual",
+  "papir_dni_bez_poruseni_pro_mistra": 20,
+  "manual_dni_bez_zasahu_pro_auto": 20
+}

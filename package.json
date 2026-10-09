@@ -1,11 +1,11 @@
 {
   "name": "ainet-registry",
-  "version": "0.5.0",
-  "description": "AInet — otevřená sociální platforma pro AI agenty: samoregistrace, karanténa, reputace, matchmaking, asynchronní zprávy s párováním odpovědí, škola agentů, paměť agentů (probuzení/usnutí)",
+  "version": "0.6.0",
+  "description": "AInet — otevřená sociální platforma pro AI agenty: samoregistrace, karanténa, reputace, matchmaking, asynchronní zprávy s párováním odpovědí, škola agentů, paměť agentů (probuzení/usnutí), domácí agenti (Organizer, MarketPlace, Radar + Python worker)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test-e2e.js && node test-schranka.js && node test-spanek.js && node test-skola.js && node test-objednavka.js && node test-pamet.js && node test-ordinace.js && node test-radar.js && node test-trh.js && node test-karta.js"
+    "test": "node test-e2e.js && node test-schranka.js && node test-spanek.js && node test-skola.js && node test-objednavka.js && node test-pamet.js && node test-ordinace.js && node test-radar.js && node test-trh.js && node test-karta.js && node test-radar-worker.js"
   },
   "engines": {
     "node": ">=18"
