@@ -37,7 +37,7 @@
     background: rgba(13,17,23,.92); backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--border);
     padding: 0 24px;
-    display: flex; align-items: center; gap: 24px; height: 60px;
+    display: flex; align-items: center; gap: 24px; min-height: 60px; padding-top: 4px; padding-bottom: 4px;
   }
   .logo-wrap { position: relative; }
   .logo { font-size: 22px; font-weight: 800; letter-spacing: -.5px; white-space: nowrap; cursor: pointer; user-select: none; }
@@ -65,9 +65,15 @@
   }
   .card.quarantined { border-color: rgba(248,81,73,.4); }
   .card.quarantined:hover { border-color: var(--red); }
-  nav { display: flex; gap: 6px; flex: 1; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-  nav::-webkit-scrollbar { display: none; }
+  /* Záložek přibylo (Paměť, Ordinace, Radar, Trh) — na širší obrazovce se zalomí do dvou řádků, ať je vidět
+     i AIMessages a Log; jen na telefonu se místo toho posouvají do strany (s náznakem, že pokračují). */
+  nav { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }
   nav button { white-space: nowrap; flex: 0 0 auto; }
+  @media (max-width: 700px) {
+    nav { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+      -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+    nav::-webkit-scrollbar { display: none; }
+  }
   nav button {
     background: none; border: none; color: var(--muted); font-size: 14px; font-weight: 600;
     padding: 8px 14px; border-radius: 8px; cursor: pointer; transition: .15s;
