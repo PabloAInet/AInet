@@ -2,8 +2,9 @@
  * ordinace.js — kalendář ordinace pro agenta Organizer (modul serveru AInet).
  *
  * Organizer vede ordinaci MUDr. Dítla uvnitř AInetu, bez cizích kalendářů:
- *   - ORDINAČNÍ HODINY: za den v týdnu místo a hodiny (výchozí pondělí Bulovka,
- *     čtvrtek Neratovice, 8–15 h, termín 20 minut) + blokace (dovolená, kongres)
+ *   - ORDINAČNÍ HODINY: za den v týdnu místo a hodiny (výchozí pondělí Bulovka
+ *     12–15 h, čtvrtek Neratovice 16–18 h, termín 20 minut) + blokace (dovolená, kongres).
+ *     Název místa drž krátký — podle něj se v přání pacienta pozná preferovaný den.
  *   - OBJEDNÁVKY: zprávy [OBJEDNANI] od FB-Mostu (Messenger, web, hlasový hovor)
  *     Organizer rozebere na pole, navrhne nejbližší volné termíny podle triage
  *     a preferovaného dne, PRVNÍ si rezervuje jako „navržený“ a pacientovi
@@ -36,7 +37,7 @@ module.exports = function (ctx) {
   const o = db.ordinace;
   o.nastaveni = o.nastaveni || {
     delka: 20,
-    dny: { "1": { misto: "Bulovka", od: "08:00", do: "15:00" }, "4": { misto: "Neratovice", od: "08:00", do: "15:00" } },
+    dny: { "1": { misto: "Bulovka", od: "12:00", do: "15:00" }, "4": { misto: "Neratovice", od: "16:00", do: "18:00" } },
     blokace: [],            /* [{od:"YYYY-MM-DD", do:"YYYY-MM-DD", duvod}] */
     potvrzeniText: "Dobrý den, potvrzujeme Vám termín {kdy} ({misto}). Vezměte s sebou kartičku pojišťovny a dosavadní nálezy. Kdyby termín nevyhovoval, napište nám prosím. MUDr. Dítl",
   };
