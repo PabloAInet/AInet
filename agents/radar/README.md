@@ -64,12 +64,9 @@ Vždy: STOP → nic. Titul s výsledky dnes večer → bez výslovného ano nevs
 **Render (worker):** `render.yaml` v kořeni repozitáře → Render → New → Blueprint → tento repozitář.
 Worker nemá bezplatný tarif (Starter ≈ 7 $/měs.). Pak doplnit tajné proměnné.
 
-**Mac mini (zdarma, běží pořád):**
-```
-cd ~/Documents/GitHub/AInet
-RADAR_OBNOVOVACI_KOD=d-… python3 agents/radar/radar.py
-```
-Jedna smyčka hned, na zkoušku: `python3 agents/radar/radar.py rano`.
+**Mac mini (zdarma, běží pořád):** ve Finderu dvojklik na `agents/radar/start-mac.command` (poprvé se zeptá na kód
+a uloží ho do `~/.ainet-radar.env`), nebo v Terminálu `bash agents/radar/start-mac.command`. Okno nechat otevřené.
+Jedna smyčka hned, na zkoušku: `bash agents/radar/start-mac.command rano`.
 
 **Test:** `python3 agents/radar/test_radar.py` (nebo `npm test`, který ho volá, když je python3).
 
