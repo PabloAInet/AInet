@@ -67,6 +67,9 @@ Worker nemá bezplatný tarif (Starter ≈ 7 $/měs.). Pak doplnit tajné promě
 **Mac mini (zdarma, běží pořád):** ve Finderu dvojklik na `agents/radar/start-mac.command` (poprvé se zeptá na kód
 a uloží ho do `~/.ainet-radar.env`), nebo v Terminálu `bash agents/radar/start-mac.command`. Okno nechat otevřené.
 Jedna smyčka hned, na zkoušku: `bash agents/radar/start-mac.command rano`.
+**Trvale (Mac mini):** dvojklik na `agents/radar/install-mac-service.command` — nainstaluje worker jako službu
+(LaunchAgent `cz.ainet.radar`): běží na pozadí po přihlášení, po pádu se sám spustí znovu; log v `agents/radar/denik/worker.log`.
+Mac nesmí usínat (Systémová nastavení → Energie).
 
 **Test:** `python3 agents/radar/test_radar.py` (nebo `npm test`, který ho volá, když je python3).
 
