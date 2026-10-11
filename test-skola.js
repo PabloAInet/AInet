@@ -8,8 +8,9 @@
  *      jedna rozdělaná na dovednost, cíl = další úroveň.
  *   3. Odevzdání → hodnocení: oponent přidělen, posudek smí psát jen on,
  *      známku potvrdí jen vlastník žáka (nebo správce), lhůta běží.
- *   4. Složená zkouška sama nestačí — tovaryš chce 3 lidsky hodnocené úkoly
- *      a schválený artefakt; vysvědčení říká, co chybí; s důkazy úroveň roste.
+ *   4. Složená zkouška sama nestačí — osvědčený chce praxi (3 lidsky hodnocené
+ *      úkoly s průměrem ≥ 4); vysvědčení říká, co chybí; s důkazy úroveň roste.
+ *      Úrovně jsou od 11. 10. 2026 jen dvě: ověřený a osvědčený.
  *   5. Sentinel: po lhůtě platí návrh jen pro úroveň 1; archivace snižuje
  *      úroveň o stupeň.
  *   6. MCP: request_exam a review_exam.
@@ -99,7 +100,8 @@ async function zaloz(name, skills, bezTestu) {
   const uA = prehled.agenti.find(a => a.jmeno === "Alfa").dovednosti;
   ok(uA.analysis && uA.analysis.uroven === 1, "Alfa je po testu dovednosti v analysis „ověřený“ (1)", uA);
   ok(prehled.agenti.find(a => a.jmeno === "Delta").dovednosti.marketing.uroven === 0, "Delta bez testu je v marketingu nováček (0)");
-  ok(prehled.kurikulum.analysis && prehled.kurikulum.analysis.length === 3, "kurikulum analysis má tři lekce (Obchodování 1–3)", prehled.kurikulum);
+  ok(prehled.kurikulum.analysis && prehled.kurikulum.analysis.length === 2, "kurikulum analysis má dvě lekce (Obchodování 1–2)", prehled.kurikulum);
+  ok(JSON.stringify(prehled.urovne || []) === JSON.stringify(["nováček", "ověřený", "osvědčený"]), "úrovně jsou jen tři stupně: nováček, ověřený, osvědčený", prehled.urovne);
   ok(prehled.lhuta_h === 48, "lhůta na lidskou známku je 48 h", prehled.lhuta_h);
   const kur = (await get("/api/skola/analysis")).data;
   ok(/Obchodování 2/.test(kur.lekce[1].nazev) && Array.isArray(kur.lekce[1].rubrika), "GET /api/skola/analysis vrací lekce s rubrikou");
@@ -107,7 +109,7 @@ async function zaloz(name, skills, bezTestu) {
   console.log("\n2) Žádost o zkoušku");
   const z = await post("/api/skola/zkouska", { dovednost: "analysis" }, { "X-Owner-Token": alfa.tok });
   ok(z.status === 201 && z.data.ok, "Alfa dostala zkoušku", z.data);
-  ok(z.data.cil_uroven === 2 && /Obchodování 2/.test(z.data.zkouska), "cíl je tovaryš a zadání je Obchodování 2 — Vyhodnocení", z.data);
+  ok(z.data.cil_uroven === 2 && z.data.cil_nazev === "osvědčený" && /Obchodování 2/.test(z.data.zkouska), "cíl je osvědčený a zadání je Obchodování 2 — Praxe", z.data);
   ok(Array.isArray(z.data.rubrika) && z.data.rubrika.length === 5, "zkouška nese rubriku o pěti bodech");
   const t = (await get(`/api/tasks/${z.data.task_id}`)).data;
   ok(t.zkouska === true && t.stav === "rezervovan" && t.drzitel === "Alfa" && t.zkouskaStav === "probiha", "zkouška je úkol rezervovaný žákovi", t);
@@ -134,8 +136,8 @@ async function zaloz(name, skills, bezTestu) {
   ok(cizíZn.status === 403, "známku nepotvrdí cizí vlastník");
   const zn = await post(`/api/tasks/${z.data.task_id}/hodnoceni`, { znamka: 4, komentar: "Souhlasím s oponentem." }, { "X-Owner-Token": alfa.tok });
   ok(zn.status === 200 && zn.data.stav === "slozena", "vlastník žáka známku potvrdil — zkouška složena", zn.data);
-  ok(zn.data.uroven === 1, "úroveň zůstává 1: zkouška sama na tovaryše nestačí", zn.data);
-  ok(zn.data.chybi_k_postupu.some(x => /úkol/.test(x)) && zn.data.chybi_k_postupu.some(x => /artefakt/.test(x)), "odpověď říká, co chybí (úkoly hodnocené lidmi, artefakt)", zn.data.chybi_k_postupu);
+  ok(zn.data.uroven === 1, "úroveň zůstává 1: zkouška sama na osvědčeného nestačí", zn.data);
+  ok(zn.data.chybi_k_postupu.some(x => /praxe/.test(x) && /úkol/.test(x)), "odpověď říká, co chybí (praxe: úkoly hodnocené lidmi)", zn.data.chybi_k_postupu);
   const v1 = (await get(`/api/agents/${alfa.id}/vysvedceni`)).data;
   ok(v1.vysvedceni.analysis.dukazy.slozene_zkousky.includes(2) && v1.vysvedceni.analysis.dukazy.hodnocene_ukoly === 1, "vysvědčení eviduje složenou zkoušku a jeden lidsky hodnocený úkol", v1.vysvedceni.analysis.dukazy);
   const zakInbox = (await get("/api/messages?agent=" + alfa.id, { "X-Owner-Token": alfa.tok })).data;
@@ -152,9 +154,11 @@ async function zaloz(name, skills, bezTestu) {
   }
   await startServer();
   const v2 = (await get(`/api/agents/${alfa.id}/vysvedceni`)).data;
-  ok(v2.vysvedceni.analysis.uroven === 2 && v2.vysvedceni.analysis.nazev === "tovaryš", "se 3 hodnocenými úkoly a artefaktem je Alfa tovaryš", v2.vysvedceni.analysis);
-  ok(v2.vysvedceni.analysis.prava.some(p => /oponent/.test(p)), "tovaryš má právo být oponentem", v2.vysvedceni.analysis.prava);
-  ok(v2.vysvedceni.analysis.chybi_k_postupu.some(x => /zkoušku na úroveň 3/.test(x)), "na mistra teď chybí zkouška na úroveň 3", v2.vysvedceni.analysis.chybi_k_postupu);
+  ok(v2.vysvedceni.analysis.uroven === 2 && v2.vysvedceni.analysis.nazev === "osvědčený", "se 3 lidsky hodnocenými úkoly (Ø ≥ 4) je Alfa osvědčená", v2.vysvedceni.analysis);
+  ok(v2.vysvedceni.analysis.prava.some(p => /oponent/.test(p)), "osvědčený má právo být oponentem", v2.vysvedceni.analysis.prava);
+  ok(v2.vysvedceni.analysis.chybi_k_postupu.length === 0, "výš žebřík nevede (nic nechybí)", v2.vysvedceni.analysis.chybi_k_postupu);
+  const vys = await post("/api/skola/zkouska", { dovednost: "analysis" }, { "X-Owner-Token": alfa.tok });
+  ok(vys.status === 400 && /osvědčený/.test(vys.data.error) && /vlastník/.test(vys.data.error), "osvědčená si další zkoušku neřekne — větší práva dává vlastník výslovně", vys.data);
 
   console.log("\n5) MCP: request_exam a review_exam");
   const mz = await mcp("request_exam", { token: gama.tok, skill: "analysis" });
@@ -195,11 +199,11 @@ async function zaloz(name, skills, bezTestu) {
   const vD = (await get(`/api/agents/${delta.id}/vysvedceni`)).data;
   ok(vD.vysvedceni.marketing.uroven === 1, "Delta je v marketingu ověřená (1)", vD.vysvedceni.marketing);
   const tG2 = (await get(`/api/tasks/${mz.task_id}`)).data;
-  ok(tG2.zkouskaStav === "hodnoceni", "cíl tovaryš: po lhůtě zkouška dál čeká na lidský podpis", tG2.zkouskaStav);
+  ok(tG2.zkouskaStav === "hodnoceni", "cíl osvědčený: po lhůtě zkouška dál čeká na lidský podpis", tG2.zkouskaStav);
   const sent = (await get("/api/sentinel")).data;
   ok((sent.nalezy || []).some(n => n.typ === "čeká_na_známku"), "Sentinel to hlásí jako nález čeká_na_známku", sent.nalezy);
   const vA = (await get(`/api/agents/${alfa.id}/vysvedceni`)).data;
-  ok(vA.vysvedceni.analysis.uroven === 1, "archivace po 40 dnech ticha snížila Alfu z tovaryše na ověřeného", vA.vysvedceni.analysis);
+  ok(vA.vysvedceni.analysis.uroven === 1, "archivace po 40 dnech ticha snížila Alfu z osvědčené na ověřenou", vA.vysvedceni.analysis);
   const katA = (await get("/api/agents?vse=1")).data.find(a => a.name === "Alfa");
   ok(katA && katA.archived === true, "Alfa je v archivu (jméno i klíč rezervované)", katA && katA.archived);
 

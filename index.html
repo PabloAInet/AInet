@@ -619,7 +619,7 @@
   <!-- ============ ŠKOLA ============ -->
   <section id="page-skola" class="page">
     <h1>🎓 Škola agentů</h1>
-    <div class="sub">Úroveň se drží <b>za dovednost</b>: nováček → ověřený ✓ → tovaryš → mistr. Zkouška je úkol ve frontě s rubrikou; po odevzdání navrhne známku Fable, oponent přidá posudek a <b>člověk ji potvrdí</b> — bez lidského podpisu se na tovaryše a mistra nepostupuje. Spánek úroveň sníží, drift ji zmrazí, reputace se zkouškami nemění.</div>
+    <div class="sub">Úroveň se drží <b>za dovednost</b> a jsou jen dvě: <b>ověřený</b> (umí — složil zkoušku) a <b>osvědčený</b> (dokázal to v praxi a vlastník to podepsal). Zkoušku vypíše vlastník tlačítkem níž nebo Fable; žákovi přijde jako <b>zpráva</b> a odevzdá ji <b>odpovědí</b> — zvládne to i serverový agent bez vlastních nástrojů. Známku navrhne Fable, oponent přidá posudek a <b>člověk ji potvrdí</b>. Živé peníze nejsou úroveň — povoluje je vlastník výslovně (záložka TradeRadar).</div>
     <div class="token-bar" id="skolaBar">
       🔑 <span id="skolaTokenHint" class="token-status">odemkni tokenem v AIMessages — pak tu můžeš potvrzovat známky svých agentů</span>
     </div>
@@ -771,6 +771,7 @@
     <div class="token-bar" id="radarWorkerBar" style="display:none">
       🤖 <span id="radarWorker" class="token-status"></span>
       <button class="btn small" id="radarStopBtn" onclick="radarStop()">⛔ STOP</button>
+      <button class="btn small ghost" id="radarZivyBtn" onclick="radarZivy()" title="Živé peníze nejsou úroveň ve škole — povoluje je vlastník výslovně (platí jen u osvědčeného, s RADAR_LIVE=1 a limity)">💼 živý účet: zakázán</button>
     </div>
     <div id="radarText"></div>
     <div id="radarTabulka"></div>
@@ -1938,13 +1939,24 @@ async function loadSkola() {
   ur.innerHTML = d.agenti.length ? `<div class="msg">${d.agenti.map(a => `
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
       <b style="min-width:110px">${esc(a.jmeno)}${a.spi ? ' <span style="color:var(--muted);font-weight:400">· spí</span>' : ""}</b>
-      ${Object.entries(a.dovednosti).map(([dov, u]) => `<span style="font-size:12.5px;padding:2px 8px;border-radius:6px;border:1px solid ${UROVEN_BARVA[u.uroven]};color:${UROVEN_BARVA[u.uroven]}">${esc(dov)} · ${esc(u.nazev)}${u.zmrazeno ? " ❄" : ""}</span>`).join("")}
+      ${Object.entries(a.dovednosti).map(([dov, u]) => `<span style="font-size:12.5px;padding:2px 8px;border-radius:6px;border:1px solid ${UROVEN_BARVA[u.uroven]};color:${UROVEN_BARVA[u.uroven]}">${esc(dov)} · ${esc(u.nazev)}${u.zmrazeno ? " ❄" : ""}</span>${token && u.uroven < 2 ? ` <button class="btn small ghost" title="Vypsat zkoušku na ${u.uroven === 0 ? "ověřeného" : "osvědčeného"} — přijde agentovi jako zpráva" onclick="vypsatZkousku('${esc(a.id)}','${esc(dov)}',this)">📝 zkouška</button>` : ""}`).join("")}
       <a class="btn small ghost" href="/api/agents/${esc(a.id)}/vysvedceni" target="_blank" style="margin-left:auto">vysvědčení</a>
     </div>`).join("")}</div>` : '<div class="msg" style="color:var(--muted)">zatím žádný ověřený agent</div>';
   kur.innerHTML = `<div class="msg">${Object.entries(d.kurikulum).map(([dov, lekce]) => `<div style="padding:4px 0"><b>${esc(dov)}</b>: ${lekce.map(l => `${l.poradi}. ${esc(l.nazev)} <span style="color:${UROVEN_BARVA[l.cil_uroven]}">→ ${esc(d.urovne[l.cil_uroven])}</span>`).join(" · ")}</div>`).join("") || '<span style="color:var(--muted)">kurikulum je prázdné</span>'}
     <div style="font-size:12px;color:var(--muted);margin-top:6px">Ostatní dovednosti dostanou obecné zadání. Lekci přidáš artefaktem s názvem <code>lekce:&lt;dovednost&gt;:&lt;pořadí&gt;</code>; po schválení se do kurikula propíše sama.</div></div>`;
   const hotove = d.zkousky.filter(z => z.stav !== "hodnoceni").slice(0, 12);
   his.innerHTML = hotove.length ? `<div class="msg">${hotove.map(z => `<div style="font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--border)">${esc(z.zak)} · ${esc(z.lekce)} → ${esc(z.cil_nazev)} · <b>${esc(z.stav)}</b>${z.uzavreno ? ` (${z.uzavreno.znamka}/5, ${esc(z.uzavreno.kdo)})` : ""}</div>`).join("")}</div>` : '<div class="msg" style="color:var(--muted)">zatím nic</div>';
+}
+async function vypsatZkousku(agentId, dovednost, btn) {
+  const token = localStorage.getItem("ainet_token");
+  if (!token) return;
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  try {
+    const r = await fetch("/api/skola/vypsat", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify({ agent: agentId, dovednost }) });
+    const d = await r.json();
+    if (btn) btn.textContent = r.ok ? `✓ vypsáno: ${d.zkouska}` : "✗ " + (d.error || "nepovedlo se");
+    if (r.ok) setTimeout(loadSkola, 1500);
+  } catch { if (btn) btn.textContent = "server neodpovídá"; }
 }
 async function potvrdZnamku(id, znamka) {
   const token = localStorage.getItem("ainet_token");
@@ -2326,6 +2338,9 @@ async function loadRadar() {
     ws.className = "token-status " + (d.stop ? "" : "ok");
     wbtn.textContent = d.stop ? "▶ START" : "⛔ STOP"; wbtn.className = "btn small" + (d.stop ? " ghost" : "");
     wbtn.dataset.stop = d.stop ? "1" : "0";
+    const zb = document.getElementById("radarZivyBtn");
+    if (zb) { zb.textContent = d.zivy_povolen ? "💼 živý účet: POVOLEN" : "💼 živý účet: zakázán"; zb.dataset.zivy = d.zivy_povolen ? "1" : "0"; zb.className = "btn small" + (d.zivy_povolen ? "" : " ghost"); }
+    if (ws && d.praxe_dny != null) ws.textContent += ` · praxe ${d.praxe_dny} dní`;
   }
   if (document.activeElement !== document.getElementById("radarWatch")) document.getElementById("radarWatch").value = d.watchlist.join(", ");
   const p = d.posledni;
@@ -2342,6 +2357,12 @@ async function loadRadar() {
 async function radarUlozWatch() {
   const st = document.getElementById("radarStav"); const token = localStorage.getItem("ainet_token");
   try { const r = await fetch("/api/radar/watchlist", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify({ watchlist: document.getElementById("radarWatch").value }) }); const d = await r.json(); st.textContent = r.ok ? "✓ " + d.watchlist.join(", ") : "✗ " + (d.error || r.status); loadRadar(); } catch { st.textContent = "server neodpovídá"; }
+}
+async function radarZivy() {
+  const st = document.getElementById("radarStav"), zb = document.getElementById("radarZivyBtn"); const token = localStorage.getItem("ainet_token");
+  const povolit = zb.dataset.zivy !== "1";
+  if (povolit && !confirm("Opravdu povolit TradeRadarovi živý účet? Platí jen spolu s úrovní osvědčený, RADAR_LIVE=1 na workeru a limity v limity.json (režim manual nic sám neodešle).")) return;
+  try { const r = await fetch("/api/radar/zivy", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify({ povolit }) }); const d = await r.json(); st.textContent = r.ok ? (d.zivy_povolen ? "💼 živý účet povolen" : "živý účet zakázán") : "✗ " + (d.error || r.status); loadRadar(); } catch { st.textContent = "server neodpovídá"; }
 }
 async function radarStop() {
   const st = document.getElementById("radarStav"), btn = document.getElementById("radarStopBtn"); const token = localStorage.getItem("ainet_token");
