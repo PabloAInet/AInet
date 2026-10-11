@@ -23,3 +23,4 @@ trh/
 # worker Radara (Python): cache a deník obchodních dnů (jsonl) — neverzovat
 __pycache__/
 agents/radar/denik/
+agents/radar/projekt_data/

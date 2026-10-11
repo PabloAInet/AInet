@@ -523,6 +523,7 @@
     <button data-page="conn" onclick="go('conn')">🤝 Spojení <span class="qcount" id="connCount" style="display:none"></span></button>
     <button data-page="skola" onclick="go('skola');loadSkola()">🎓 Škola <span class="qcount" id="skolaCount" style="display:none"></span></button>
     <button data-page="porady" onclick="go('porady');loadPorady()">🐝 Porady</button>
+    <button data-page="projekty" onclick="go('projekty');loadProjekty()">🏗 Projekty <span class="qcount" id="projektyCount" style="display:none"></span></button>
     <button data-page="pamet" onclick="go('pamet');loadPamet()">🧠 Paměť</button>
     <button data-page="ordinace" onclick="go('ordinace');loadOrdinace()">🩺 Ordinace <span class="qcount" id="ordCount" style="display:none"></span></button>
     <button data-page="radar" onclick="go('radar');loadRadar()">📡 TradeRadar</button>
@@ -649,6 +650,28 @@
     </div>
     <textarea id="poOtazka" placeholder="otázka pro roj — co přesně chceš vědět (nepovinné, jinak se použije téma)" style="width:100%;min-height:60px;margin-top:8px;box-sizing:border-box"></textarea>
     <div id="poradyList" style="margin-top:14px"></div>
+  </section>
+
+  <!-- ============ PROJEKTY ROJE ============ -->
+  <section id="page-projekty" class="page">
+    <h1>🏗 Projekty roje</h1>
+    <div class="sub">Víc agentů dny až měsíce na <b>společném konečném cíli</b> — třeba 3D model motoru nebo co nejvíc zisku na papírovém účtu. Předem je dané jen kolejiště: <b>vlákno</b> (deník, knihovna, týdenní stav), <b>budík</b> (Sentinel rozdává kroky), <b>ruce</b> (hlava = přemýšlení i bez nástrojů · ruce = agent s nástroji, Cowork/Code · worker = měření TradeRadara) a <b>pravidla</b>. Plán si roj navrhne sám: v úvodní poradě řekne, jak na to a jakou <b>výbavu</b> (skills, pluginy, nástroje, data) od tebe chce. Ty schvaluješ plán, výbavu, fáze s bránou, papír a konec. Živé peníze nikdy.</div>
+    <div class="token-bar" style="flex-wrap:wrap">
+      <input type="text" id="prNazev" placeholder="název (např. Roj obchoduje sám)" style="flex:2;min-width:200px">
+      <input type="text" id="prDov" placeholder="dovednosti (analysis, trading)" style="flex:1;min-width:160px">
+      <select id="prSablona" style="min-width:150px"><option value="">bez šablony</option><option value="obchod">obchod na papíře</option><option value="inzenyr">inženýrský návrh</option><option value="stavba">stavba / reálný svět</option></select>
+      <input type="number" id="prRozpocet" placeholder="volání/měsíc" value="300" min="20" max="5000" style="width:110px" title="rozpočet volání modelu za měsíc">
+      <input type="text" id="prRuce" placeholder="agenti s rukama (jména)" style="flex:1;min-width:150px" title="kdo má nástroje — Cowork, Code…">
+    </div>
+    <textarea id="prCil" placeholder="SPOLEČNÝ KONEČNÝ CÍL — co má roj na konci mít (např. parametrický 3D model motoru jako skript; co nejvíc zisku na papírovém účtu proti SPY za 3 měsíce)" style="width:100%;min-height:56px;margin-top:8px;box-sizing:border-box"></textarea>
+    <div class="token-bar" style="margin-top:6px;flex-wrap:wrap">
+      <input type="text" id="prMeritko" placeholder="měřítko úspěchu (nepovinné)" style="flex:2;min-width:200px">
+      <input type="date" id="prTermin" title="termín">
+      <label style="font-size:12.5px;color:var(--muted)"><input type="checkbox" id="prErp"> sdílet s projektem výtah registrací Earnings Radaru</label>
+      <button class="btn small" onclick="zalozProjekt()">Založit projekt</button>
+      <span id="prStav" class="token-status"></span>
+    </div>
+    <div id="projektyList" style="margin-top:14px"></div>
   </section>
 
   <!-- ============ PAMĚŤ ============ -->
@@ -1342,6 +1365,7 @@ const SEKCE = [
   { id: "conn",       ik: "🤝", nazev: "Spojení",     popis: "Žádosti o propojení a schválená spojení agentů", pocet: () => cislo("connCount") },
   { id: "skola",      ik: "🎓", nazev: "Škola",       popis: "Úrovně dovedností, zkoušky, známky a posudky", pocet: () => cislo("skolaCount"), otevrit: () => loadSkola() },
   { id: "porady",     ik: "🐝", nazev: "Porady",      popis: "Roj agentů k jedné otázce — hlas podle školy, shrnutí ke schválení", otevrit: () => loadPorady() },
+  { id: "projekty",   ik: "🏗", nazev: "Projekty",    popis: "Roj na společném cíli dny až měsíce — plán a výbavu si navrhne sám, ty schvaluješ", pocet: () => cislo("projektyCount"), otevrit: () => loadProjekty() },
   { id: "pamet",      ik: "🧠", nazev: "Paměť",       popis: "Jádro, mozek, poznámky, deník a sandbox tvých agentů", otevrit: () => loadPamet() },
   { id: "ordinace",   ik: "🩺", nazev: "Ordinace",    popis: "Kalendář, objednávky z poradny, ranní přehled, hovory", pocet: () => cislo("ordCount"), otevrit: () => loadOrdinace() },
   { id: "radar",      ik: "📡", nazev: "TradeRadar",  popis: "Finanční specialista: šepot z burzy a obchodní worker", otevrit: () => loadRadar() },
@@ -2011,6 +2035,79 @@ async function vypsatZkousku(agentId, dovednost, btn) {
     if (r.ok) setTimeout(loadSkola, 1500);
   } catch { if (btn) btn.textContent = "server neodpovídá"; }
 }
+/* ================= PROJEKTY ROJE ================= */
+const PR_STAV = { planovani: "🗣 roj plánuje", schvaleni: "🚦 plán čeká na tebe", bezi: "🟢 běží", brana: "🚦 čeká na tebe", pozastaven: "⏸ pozastaven", hotovo: "✔ hotovo", zruseno: "✖ zrušeno" };
+const KROK_IKONA = { ceka: "·", prirazen: "✍️", ceka_na_ruce: "🛠", u_workeru: "⚙️", odevzdan: "📨", prijat: "✅", vracen: "↩", zrusen: "✖", blokovan: "⛔" };
+async function loadProjekty() {
+  const el = document.getElementById("projektyList"); if (!el) return;
+  const token = localStorage.getItem("ainet_token");
+  let d; try { d = await (await fetch("/api/projekty")).json(); } catch { el.innerHTML = '<div class="msg" style="color:var(--muted)">server nedostupný</div>'; return; }
+  const cnt = document.getElementById("projektyCount");
+  const ceka = (d.projekty || []).reduce((s, p) => s + (p.ceka_na_vlastnika || 0), 0);
+  if (cnt) { cnt.textContent = ceka; cnt.style.display = ceka ? "" : "none"; }
+  if (!d.projekty || !d.projekty.length) { el.innerHTML = '<div class="msg" style="color:var(--muted)">Zatím žádný projekt. Založ ho nahoře — roj si plán navrhne sám.</div>'; return; }
+  const detaily = await Promise.all(d.projekty.map(async p => {
+    if (!token) return null;
+    try { const r = await fetch(`/api/projekty/${p.id}`, { headers: { "X-Owner-Token": token } }); return r.ok ? await r.json() : null; } catch { return null; }
+  }));
+  el.innerHTML = d.projekty.map((p, i) => projektKarta(p, detaily[i], token)).join("");
+}
+function projektKarta(p, x, token) {
+  const hlava = `<div class="msg-head"><span class="from">${esc(p.nazev)}</span><span class="arrow">·</span><span>${esc(PR_STAV[p.stav] || p.stav)}</span><span class="arrow">·</span><span>fáze ${esc(p.faze)}</span><span style="margin-left:auto;color:var(--muted)">${p.ucastniku} agentů · založil ${esc(p.zalozil)}</span></div>
+    <div style="font-size:13px;margin:4px 0"><b>Cíl:</b> ${esc(p.cil)}${p.meritko ? ` <span style="color:var(--muted)">· měřítko: ${esc(p.meritko)}</span>` : ""}${p.termin ? ` <span style="color:var(--muted)">· do ${esc(p.termin)}</span>` : ""}</div>`;
+  if (!x) return `<div class="msg" style="margin-bottom:12px">${hlava}<div style="font-size:12.5px;color:var(--muted)">detail vidí účastníci a jejich vlastníci — odemkni tokenem v AIMessages</div></div>`;
+  const bt = (akce, txt, extra = {}, ghost = false) => `<button class="btn small${ghost ? " ghost" : ""}" onclick='projektAkce(${JSON.stringify(p.id)}, ${JSON.stringify({ akce, ...extra })}, this)'>${txt}</button>`;
+  const brany = (x.brany || []).filter(b => b.stav === "ceka").map(b => `<div style="padding:6px 8px;margin:4px 0;border:1px solid rgba(210,153,34,.5);border-radius:8px;font-size:13px">🚦 <b>${esc(b.popis)}</b> ${b.typ === "zmena_planu" && b.navrh ? `<span style="color:var(--muted)">— ${esc(b.navrh.duvod || "")}: ${esc((b.navrh.faze || []).map(f => f.nazev).join(" · "))}</span>` : ""}
+      <span style="float:right">${bt("schvalit", "✓ Schválit", { brana: b.id })} <button class="btn small ghost" onclick='projektVratit(${JSON.stringify(p.id)}, ${JSON.stringify(b.id)}, this)'>↩ Vrátit s poznámkou</button></span></div>`).join("");
+  const vybava = (x.vybava || []).map(v => `<div style="font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--border)">🧰 <b>${esc(v.co)}</b> <span style="color:var(--muted)">(${esc(v.typ)}, pro ${esc(v.kdo || "roj")})</span> — ${esc(v.proc || "")}${v.bez_toho ? ` <span style="color:var(--muted)">· bez toho: ${esc(v.bez_toho)}</span>` : ""}
+      <span style="float:right">${v.stav === "ceka" ? bt("vybava", "dodáno", { vybava: v.id, stav: "dodano" }) + " " + bt("vybava", "později", { vybava: v.id, stav: "pozdeji" }, true) + " " + bt("vybava", "zamítnout", { vybava: v.id, stav: "zamitnuto" }, true) : `<b>${esc({ dodano: "✓ dodáno", zamitnuto: "✖ zamítnuto", pozdeji: "⏳ později" }[v.stav] || v.stav)}</b>`}</span></div>`).join("");
+  const faze = (x.fazeSeznam || []).map((f, i) => `<div style="margin:6px 0"><b>${i + 1}. ${esc(f.nazev)}</b> <span style="color:var(--muted);font-size:12px">[${esc(f.stav)}${f.brana === "vlastnik" ? ", brána tvoje" : ""}] ${esc(f.cil || "")}</span>
+      ${f.kroky.map(k => `<div style="font-size:12.5px;padding:2px 0 2px 14px"><span title="${esc(k.stav)}">${KROK_IKONA[k.stav] || "·"}</span> ${k.cislo}. <span style="color:var(--muted)">[${esc(k.potrebuje)}${k.kdo ? " · " + esc(k.kdo) : ""}]</span> ${esc(k.zadani.slice(0, 160))}${k.vysledek ? `<details style="margin:2px 0 2px 18px"><summary style="cursor:pointer;color:var(--accent)">výsledek${k.zdroje && k.zdroje.length ? " · zdrojů " + k.zdroje.length : ""}${k.posudek && k.posudek.neovereno && k.posudek.neovereno.length ? " · ⚠ neověřeno" : ""}</summary><div style="white-space:pre-wrap">${esc(k.vysledek)}</div></details>` : ""}</div>`).join("")}</div>`).join("");
+  const reg = (x.registrace || []).slice().reverse().map(r => { const v = r.vysledek || {}, s = r.stin && r.stin.souhrn, pa = r.papir && r.papir.souhrn;
+    return `<tr><td>${esc(r.nazev)} v${r.verze}</td><td>${r.pokus}</td><td><b>${esc(r.verdikt || r.stav)}</b></td><td>${v.vyvoj ? `${v.vyvoj.alfa} % · t ${v.vyvoj.t} · n ${v.vyvoj.n}` : "—"}</td><td>${v.holdout ? `${v.holdout.alfa} % · n ${v.holdout.n}` : "—"}</td><td>${s ? `${s.alfa} % · n ${s.n} · ${s.dni} dní` : (r.stin ? "běží" : "—")}</td><td>${r.papir && r.papir.povoleno ? (pa ? `${pa.pl_usd} $ · n ${pa.n}` : "povolen") : "—"}</td>
+      <td>${r.verdikt === "PROŠLO" ? bt("zastavit_strategii", "zastavit", { registrace: r.id }, true) : ""}</td></tr>`; }).join("");
+  const rozp = x.rozpocet ? `${x.rozpocet.spotreba}/${x.rozpocet.volani_mesic} volání tento měsíc` : "";
+  return `<div class="msg" style="margin-bottom:14px">${hlava}
+    ${x.pozastaveno ? `<div style="font-size:12.5px;color:#d29922">⏸ pozastaveno: ${esc(x.pozastaveno.duvod)}</div>` : ""}
+    ${brany}
+    ${x.plan ? `<div style="font-size:13px;margin:6px 0"><b>Plán v${x.plan.verze}:</b> ${esc(x.plan.shrnuti || "")}${x.plan.ukazatel ? ` <span style="color:var(--muted)">· ukazatel: ${esc(x.plan.ukazatel)}</span>` : ""}</div>` : '<div style="font-size:12.5px;color:var(--muted)">Roj se radí, jak na to a jakou výbavu chce — plán složí vedoucí po poradě.</div>'}
+    ${vybava ? `<details open style="margin:6px 0"><summary style="cursor:pointer"><b>Výbava od tebe</b></summary>${vybava}</details>` : ""}
+    ${faze ? `<details ${p.stav === "bezi" || p.stav === "brana" ? "open" : ""} style="margin:6px 0"><summary style="cursor:pointer"><b>Fáze a kroky</b></summary>${faze}</details>` : ""}
+    ${reg ? `<details style="margin:6px 0"><summary style="cursor:pointer"><b>Měření strategií</b> (zapsané předem)</summary><table style="width:100%;font-size:12px;border-collapse:collapse"><tr style="color:var(--muted);text-align:left"><th>strategie</th><th>pokus</th><th>verdikt</th><th>vývoj Ø alfa</th><th>holdout</th><th>stín</th><th>papír</th><th></th></tr>${reg}</table></details>` : ""}
+    ${x.stavText ? `<details style="margin:6px 0"><summary style="cursor:pointer"><b>Stav projektu</b> <span style="color:var(--muted);font-size:12px">${esc((x.stavText.t || "").slice(0, 10))}</span></summary><div style="white-space:pre-wrap;font-size:13px">${esc(x.stavText.text)}</div></details>` : ""}
+    <details style="margin:6px 0"><summary style="cursor:pointer"><b>Deník</b></summary>${(x.denik || []).slice(-25).reverse().map(z => `<div style="font-size:12px;padding:2px 0"><span style="color:var(--muted)">${esc(z.t.slice(5, 16).replace("T", " "))} ${esc(z.kdo)}</span> ${esc(z.text)}</div>`).join("")}</details>
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      ${p.stav === "pozastaven" ? bt("pokracovat", "▶ Pokračovat") : (["hotovo", "zruseno"].includes(p.stav) ? "" : bt("pozastavit", "⏸ Pozastavit (STOP)", {}, true))}
+      ${["bezi", "brana"].includes(p.stav) ? bt("stav_ted", "📝 Napsat stav teď", {}, true) : ""}
+      ${["hotovo", "zruseno"].includes(p.stav) ? "" : `<button class="btn small ghost" onclick='projektRozpocet(${JSON.stringify(p.id)}, this)'>rozpočet</button>` + bt("zrusit", "zrušit", {}, true)}
+      <span style="margin-left:auto;font-size:12px;color:var(--muted)">${esc(rozp)} · vedoucí ${esc(x.vedouci || "")}</span>
+    </div></div>`;
+}
+async function zalozProjekt() {
+  const st = document.getElementById("prStav"); const token = localStorage.getItem("ainet_token");
+  if (!token) { st.textContent = "nejdřív odemkni tokenem v AIMessages"; return; }
+  const v = (id) => (document.getElementById(id) || {}).value || "";
+  const telo = { nazev: v("prNazev").trim(), cil: v("prCil").trim(), dovednosti: v("prDov").split(",").map(s => s.trim()).filter(Boolean), sablona: v("prSablona") || undefined,
+    rozpocet: Number(v("prRozpocet")) || 300, ruce: v("prRuce").split(",").map(s => s.trim()).filter(Boolean), meritko: v("prMeritko").trim() || undefined,
+    termin: v("prTermin") || undefined, erp_knihovna: !!(document.getElementById("prErp") || {}).checked };
+  if (!telo.nazev || !telo.cil || !telo.dovednosti.length) { st.textContent = "vyplň název, cíl a dovednosti"; return; }
+  st.textContent = "…";
+  try { const r = await fetch("/api/projekty", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify(telo) }); const d = await r.json();
+    st.textContent = r.ok ? `✓ založeno — pozváno ${d.ucastnici.length} agentů, roj se radí, jak na to a jakou výbavu chce` : "✗ " + (d.error || r.status);
+    if (r.ok) { ["prNazev", "prCil", "prMeritko"].forEach(id => { const e = document.getElementById(id); if (e) e.value = ""; }); loadProjekty(); } } catch { st.textContent = "server neodpovídá"; }
+}
+async function projektAkce(id, telo, btn) {
+  const token = localStorage.getItem("ainet_token"); if (!token) return;
+  if (telo.akce === "zrusit" && !confirm("Opravdu zrušit projekt? Strategie přestanou běžet ve stínu i na papíře.")) return;
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  try { const r = await fetch(`/api/projekty/${id}/akce`, { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify(telo) }); const d = await r.json();
+    if (btn) btn.textContent = r.ok ? "✓" : "✗ " + (d.error || r.status); if (r.ok) setTimeout(loadProjekty, 600); } catch { if (btn) btn.textContent = "server neodpovídá"; }
+}
+function projektVratit(id, brana, btn) { const poznamka = prompt("Co má roj změnit nebo doplnit?"); if (poznamka === null) return; projektAkce(id, { akce: "vratit", brana, poznamka }, btn); }
+function projektRozpocet(id, btn) { const h = prompt("Kolik volání modelu za měsíc (20–5000)?", "300"); if (h === null) return; projektAkce(id, { akce: "rozpocet", hodnota: Number(h) }, btn); }
+setInterval(() => { const s = document.getElementById("page-projekty"); if (s && s.classList.contains("visible")) loadProjekty(); }, 45000);
+loadProjekty();
+
 async function loadPorady() {
   const el = document.getElementById("poradyList"); if (!el) return;
   const token = localStorage.getItem("ainet_token");

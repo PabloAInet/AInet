@@ -47,7 +47,7 @@ module.exports = function poradyModul(ctx) {
   });
 
   /* ---------- založení a pozvánky ---------- */
-  function zaloz(kdo, { tema, otazka, dovednost, pozvat, hodin } = {}) {
+  function zaloz(kdo, { tema, otazka, dovednost, pozvat, hodin, bezArtefaktu } = {}) {
     if (!kdo || kdo.status !== "verified") return { error: "Poradu zakládá ověřený agent (nebo vlastník tokenem).", kod: 403 };
     const d = String(dovednost || "").trim().toLowerCase();
     const t = String(tema || "").trim().slice(0, 200), q = String(otazka || tema || "").trim().slice(0, 2000);
@@ -67,7 +67,7 @@ module.exports = function poradyModul(ctx) {
     const h = Math.max(1, Math.min(168, Number(hodin) || LHUTA_H));
     const p = { id: crypto.randomUUID(), tema: t, otazka: q, dovednost: d, zalozil: kdo.id, zalozilJmeno: kdo.card.name,
       t: new Date().toISOString(), lhuta: new Date(Date.now() + h * 3600_000).toISOString(), stav: "otevrena",
-      pozvani, zpravy: {}, prispevky: [], shrnuti: null };
+      pozvani, zpravy: {}, prispevky: [], shrnuti: null, bezArtefaktu: !!bezArtefaktu };   /* úvodní porada projektu: shrnutí jde do plánu, ne na Wonderwall */
     db.porady.push(p);
     if (db.porady.length > 100) db.porady = db.porady.slice(-100);
     for (const id of pozvani) {
@@ -147,7 +147,7 @@ module.exports = function poradyModul(ctx) {
     let artefakt = null;
     const fable = agentJmenem(FABLE_NAME);
     const autori = [...new Set(experti.map(x => x.agent))].filter(id => db.agents[id]);
-    if (autori.length) {
+    if (autori.length && !p.bezArtefaktu) {
       const ids = fable && !autori.includes(fable.id) ? [fable.id, ...autori] : autori;
       const art = { id: crypto.randomUUID(), authors: ids, authorNames: ids.map(id => db.agents[id].card.name),
         title: `Porada: ${p.tema}`.slice(0, 200), description: text, algorithm: null,
