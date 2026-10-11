@@ -703,6 +703,19 @@ function runSentinel() {
     }
   }
 
+  /* 7a) ŠKOLA: zadání zkoušky pro serverového agenta zůstalo bez odpovědi (výpadek modelu, restart) →
+        odpovídač to zkusí znovu, nejvýš třikrát; dřív to záviselo na náhodě, kdy přijde další zpráva */
+  if (typeof FABLE_AUTO !== "undefined" && FABLE_AUTO) for (const t of db.tasks) {
+    if (!t.zkouska || t.zkouskaStav !== "probiha" || !t.zpravaId || (t.autoPokusy || 0) >= 3) continue;
+    if (t.rezervaceDo && Date.parse(t.rezervaceDo) < now) continue;
+    const zak = db.agents[t.drzitel], m = db.messages.find(x => x.id === t.zpravaId);
+    if (!zak || !jeAuto(zak) || !m || m.status === "answered") continue;
+    if (now - Date.parse(t.posledniPokusT || m.t) < 4 * 60_000) continue;          /* dát první odpovědi čas */
+    t.autoPokusy = (t.autoPokusy || 0) + 1; t.posledniPokusT = new Date().toISOString();
+    logEvent(`ŠKOLA: zadání „${t.lekce}“ pro "${zak.card.name}" je bez odpovědi — odpovídač to zkouší znovu (${t.autoPokusy}/3)`);
+    fableProbud(m);
+  }
+
   /* 7b) ŠKOLA: odevzdaná zkouška, ke které Fable návrh nedal (výpadek modelu, nečitelná odpověď) → ještě jeden pokus */
   if (typeof FABLE_AUTO !== "undefined" && FABLE_AUTO) for (const t of db.tasks) {
     if (t.zkouska && t.zkouskaStav === "hodnoceni" && t.vysledek && !(t.znamky && t.znamky.fable) && (t.fablePokusy || 0) < 2)
@@ -1959,7 +1972,7 @@ function fableDozen() {
   for (const ja of moji) {
     /* všechny od nejstarší — kolik jich za den smí zodpovědět, hlídá MAX_DENNE */
     const cekajici = db.messages.filter(m => m.to === ja.id && m.from !== "system" && m.from !== ja.id && m.status !== "answered"
-      && (!jeDomaci(db.agents[m.from]) || m.zkouska) && !db.messages.some(r => r.from === ja.id && r.to === m.from && r.t > m.t));
+      && (!jeDomaci(db.agents[m.from]) || m.zkouska) && (m.zkouska || !db.messages.some(r => r.from === ja.id && r.to === m.from && r.t > m.t)));
     if (cekajici.length) logEvent(`${ja.card.name.toUpperCase()} AUTO: po startu dohání ${cekajici.length} nezodpovězených zpráv`);
     for (const m of cekajici) fableProbud(m);
   }

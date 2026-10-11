@@ -30,6 +30,7 @@ async function pockejNa(fn, ms = 6000) { const t0 = Date.now(); while (Date.now(
 /* atrapa modelu: zkoušející dostane JSON se známkou, zkouška text práce, jinak krátká odpověď */
 const volani = [];
 let rozbitaZnamka = true;   /* první odpověď hodnotitele nečitelná → server musí zkusit znovu */
+let zkouskaSelze = false;   /* výpadek modelu u zkoušky → zadání zůstane bez odpovědi */
 const atrapa = http.createServer((rq, rs) => {
   let d = ""; rq.on("data", c => d += c);
   rq.on("end", () => {
@@ -48,6 +49,7 @@ const atrapa = http.createServer((rq, rs) => {
       rs.writeHead(400, { "Content-Type": "application/json" });
       return rs.end(JSON.stringify({ error: { message: '"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" instead.' } }));
     }
+    if (zkouskaSelze && /TOHLE JE ZKOUŠKA ŠKOLY/.test(sys)) { rs.writeHead(500, { "Content-Type": "application/json" }); return rs.end(JSON.stringify({ error: { message: "overloaded" } })); }
     let text = "Odpověď.";
     if (/Jsi zkoušející školy AInet/.test(sys)) {
       if (rozbitaZnamka) { rozbitaZnamka = false; text = 'Hodnotím podle rubriky: {"znamka": 4.4, "body": [4, 5'; }
@@ -59,12 +61,12 @@ const atrapa = http.createServer((rq, rs) => {
   });
 });
 
-async function startServer() {
+async function startServer(soubor) {
   const port = await volnyPort(); BASE = `http://127.0.0.1:${port}`;
   const env = { ...process.env, PORT: String(port), DATA_DIR: DIR, PUBLIC_URL: BASE, INDEXNOW: "0", KEEPALIVE_URL: "0", SEED_DOMACI: "1", PREHLED: "0", RADAR: "0",
     ANTHROPIC_API_KEY: "test", LLM_PROVIDER: "anthropic", LLM_API_URL: `http://127.0.0.1:${atrapa.address().port}/v1/messages` };
   delete env.OPENAI_API_KEY; delete env.LLM_MODEL; delete env.RADAR_NAME;
-  server = spawn(process.execPath, [path.join(__dirname, "server.js")], { env, stdio: ["ignore", "pipe", "pipe"] });
+  server = spawn(process.execPath, [soubor || path.join(__dirname, "server.js")], { env, stdio: ["ignore", "pipe", "pipe"] });
   server.stderr.on("data", d => process.stderr.write("[server] " + d));
   for (let i = 0; i < 50; i++) { try { if ((await fetch(BASE + "/healthz")).ok) return; } catch {} await pockej(100); }
   throw new Error("server nenaběhl");
@@ -177,7 +179,30 @@ const posta = async (a) => (await get(`/api/messages?agent=${a.id}`, { "X-Owner-
   await post("/api/radar/zivy", { povolit: false }, { "X-Owner-Token": fable.tok });
   ok((await get("/api/radar/stav", { "X-Owner-Token": fable.tok })).data.smi_zivy === false, "zákaz platí hned");
 
-  console.log("\n5) Migrace ze tří úrovní");
+  console.log("\n5) Zadání bez odpovědi (výpadek modelu) — Sentinel to zkusí znovu");
+  zkouskaSelze = true;
+  const zTr = await post("/api/skola/vypsat", { agent: "TradeRadar", dovednost: "trading" }, { "X-Owner-Token": fable.tok });
+  await pockej(1500);
+  ok(zTr.status === 201 && (await get(`/api/tasks/${zTr.data.task_id}`)).data.zkouskaStav === "probiha", "model u zkoušky selhal — zadání visí bez odpovědi", zTr.data);
+  zkouskaSelze = false;
+  await stopServer();
+  {
+    const db = cti(); const pred = new Date(Date.now() - 10 * 60_000).toISOString();
+    const m = db.messages.find(x => x.zkouska === zTr.data.task_id); if (m) m.t = pred;
+    zapis(db);
+    const kod = fs.readFileSync(path.join(__dirname, "server.js"), "utf8").replace("5 * 60_000);", "1500);");
+    fs.writeFileSync(path.join(DIR, "server-rychly.js"), kod);
+    for (const mod of ["ordinace.js", "radar.js", "trh.js", "sandbox.js", "oauth.js", "klient-ip.js"]) fs.copyFileSync(path.join(__dirname, mod), path.join(DIR, mod));
+  }
+  await startServer(path.join(DIR, "server-rychly.js"));
+  const dohnano = await pockejNa(async () => (await get(`/api/tasks/${zTr.data.task_id}`)).data.zkouskaStav === "hodnoceni", 9000);
+  ok(dohnano, "po startu / Sentinelem odpovídač zadání vypracoval a odevzdal");
+  const logy = (await get("/api/log")).data;
+  ok(Array.isArray(logy), "server běží dál");
+  await stopServer();
+  await startServer();
+
+  console.log("\n6) Migrace ze tří úrovní");
   await stopServer();
   {
     const db = cti();
