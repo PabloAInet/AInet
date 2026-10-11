@@ -1,5 +1,5 @@
 """
-alpaca_client.py — jediná cesta Radara k penězům. Server AInet na Alpacu nikdy nesahá.
+alpaca_client.py — jediná cesta TradeRadara k penězům. Server AInet na Alpacu nikdy nesahá.
 
 Dva účty, dva páry klíčů (jen v prostředí Renderu):
   ALPACA_PAPER_KEY / ALPACA_PAPER_SECRET   papírový účet (etapa 3)

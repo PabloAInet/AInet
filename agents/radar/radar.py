@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-radar.py — tělo Radara: plánovač a osm smyček obchodního dne.
+radar.py — tělo TradeRadara: plánovač a osm smyček obchodního dne.
 
-Radar je agent sítě AInet (identita, paměť, škola a pošta jsou na serveru);
+TradeRadar je agent sítě AInet (identita, paměť, škola a pošta jsou na serveru);
 tohle je jeho worker na Renderu. Každý obchodní den podle času v New Yorku:
 
   7:00   RÁNO        premarket sken (gapy, objem, zprávy, short reporty, SPY)  → zpráva „Ráno“
@@ -16,7 +16,7 @@ tohle je jeho worker na Renderu. Každý obchodní den podle času v New Yorku:
 
 Brány (etapy) — bez nich se peníze nedotknou:
   RADAR_ETAPA=1  sken, karty, zprávy, deník; ŽÁDNÉ příkazy (ani papír)
-  RADAR_ETAPA=3  papírový účet — jen když je Radar ve škole aspoň tovaryš (analysis ≥ 2)
+  RADAR_ETAPA=3  papírový účet — jen když je TradeRadar ve škole aspoň tovaryš (analysis ≥ 2)
   RADAR_ETAPA=4  živý účet — jen mistr (analysis ≥ 3), RADAR_LIVE=1 a režim z limity.json
   STOP od vlastníka (zpráva STOP v AIMessages, /api/radar/stop) nebo RADAR_LIVE=0 → nic.
 
@@ -392,7 +392,7 @@ class Radar:
         obchody = [o for r in vsechny for o in (r.get("obchody") or [])]
         pl = [o["pl_pct"] for o in obchody if o.get("pl_pct") is not None]
         kladne = sum(1 for x in pl if x > 0)
-        text = (f"📒 Týdenní zpráva Radara (týden do {dnes.isoformat()}, etapa {ETAPA}): {len(obchody)} obchodů"
+        text = (f"📒 Týdenní zpráva TradeRadara (týden do {dnes.isoformat()}, etapa {ETAPA}): {len(obchody)} obchodů"
                 + (f", průměr {sum(pl) / len(pl):.2f} %, kladných {kladne}/{len(pl)}" if pl else ", bez uzavřených obchodů")
                 + ". Posíláno soukromě vlastníkovi a oponentům, ne na Wonderwall.")
         self.zapis_denik({"smycka": "tyden", "obchodu": len(obchody), "pl": pl})
@@ -415,7 +415,7 @@ def obchodni_den(d: datetime) -> bool:
 
 def planovac(radar: Radar) -> None:
     """Minutový plánovač v čase New Yorku. Každá smyčka jednou denně; po restartu se nedohání (burza nečeká)."""
-    log(f"worker Radara běží — etapa {ETAPA}, {'ŽIVÝ účet' if ZIVY else 'papír/suché'}, vlastník přes {VLASTNIK_AGENT}, oponenti {OPONENTI}")
+    log(f"worker TradeRadara běží — etapa {ETAPA}, {'ŽIVÝ účet' if ZIVY else 'papír/suché'}, vlastník přes {VLASTNIK_AGENT}, oponenti {OPONENTI}")
     hotovo: set[str] = set()
     while True:
         ted = datetime.now(NY)

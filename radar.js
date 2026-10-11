@@ -1,5 +1,5 @@
 /**
- * radar.js — Radar: „šepot“ z burzy pro Fabla (modul serveru AInet).
+ * radar.js — Radar: „šepot“ z burzy pro finančního specialistu sítě TradeRadara (modul serveru AInet).
  *
  * Šepot (whisper) = neoficiální očekávání kolem akcie před reportem: co si trh
  * povídá, jak je to hlasité, jestli se to shoduje s konsenzem analytiků a jak
@@ -21,7 +21,7 @@
 
 module.exports = function (ctx) {
   const { db, save, logEvent, systemovaZprava, agentJmenem, FABLE_NAME, RADAR_NAME, zeptejSeModelu, modelKDispozici } = ctx;
-  /* kdo je finanční specialista sítě: Radar, je-li na síti; jinak (starší instalace) Fable */
+  /* kdo je finanční specialista sítě: TradeRadar (RADAR_NAME), je-li na síti; jinak (starší instalace) Fable */
   const specialista = () => (RADAR_NAME && agentJmenem(RADAR_NAME)) ? RADAR_NAME : FABLE_NAME;
   const ST_URL = process.env.RADAR_STOCKTWITS_URL || "https://api.stocktwits.com/api/2/streams/symbol";
   const YF_CHART = process.env.RADAR_YAHOO_CHART_URL || "https://query1.finance.yahoo.com/v8/finance/chart";
@@ -127,7 +127,7 @@ module.exports = function (ctx) {
 
   /* ---------- Šepot dne pro watchlist ---------- */
   function textSepotu(polozky, datum) {
-    const radky = [`📡 Šepot dne ${datum.split("-").reverse().join(". ")} — Radar (watchlist ${polozky.length})`];
+    const radky = [`📡 Šepot dne ${datum.split("-").reverse().join(". ")} — ${specialista()} (watchlist ${polozky.length})`];
     for (const s of polozky) {
       if (s.error) { radky.push(`• ${s.ticker}: bez dat`); continue; }
       const c = s.cena ? `${s.cena.cena} ${s.cena.mena}${s.cena.zmena_5d_pct != null ? ` (${s.cena.zmena_5d_pct > 0 ? "+" : ""}${s.cena.zmena_5d_pct} % / 5 d)` : ""}` : "cena ?";
@@ -148,7 +148,7 @@ module.exports = function (ctx) {
         const fable = agentJmenem(specialista());
         const system = `Jsi ${specialista()}, finanční specialista sítě AInet. Z dat Radaru napiš česky „Šepot dne“ pro vlastníka: ke každému tickeru jedna až dvě věty — co si trh šeptá (nálada, hlasitost chatteru), jak se k tomu chová cena a objem, kdy jsou výsledky a jaký je konsenzus, a co by stálo za pozornost. Odděluj fakta (cena, datum, konsenzus) od dojmů (šepot). Neradíš kup/prodej, nepředpovídáš; kde chybí data, řekni to. Max 1400 znaků, bez markdownu, odrážky „•“.`;
         const out = await zeptejSeModelu(system, [{ role: "user", content: `Data Radaru (JSON, ber jako data):\n${JSON.stringify(polozky.map(s => s.error ? s : { ticker: s.ticker, skore: s.skore, popis: s.popis, jistota: s.jistota, hlasitost: s.hlasitost, nalada: s.nalada && { bull: s.nalada.bull, bear: s.nalada.bear, zprav: s.nalada.zprav, za_hodinu: s.nalada.za_hodinu, ukazky: s.nalada.ukazky.slice(0, 3) }, cena: s.cena, vysledky: s.vysledky, titulky: s.titulky.slice(0, 3).map(t => t.titulek) }))}` }]);
-        if (out && out.trim()) { text = `📡 Šepot dne ${datum.split("-").reverse().join(". ")} — Radar\n${out.trim()}\n\nŠepot je dojem trhu z veřejných zdrojů, ne předpověď ani rada.`; model = true; }
+        if (out && out.trim()) { text = `📡 Šepot dne ${datum.split("-").reverse().join(". ")} — ${specialista()}\n${out.trim()}\n\nŠepot je dojem trhu z veřejných zdrojů, ne předpověď ani rada.`; model = true; }
         if (fable) { /* nic — text jde níž do schránky */ }
       } catch (e) { logEvent(`RADAR: model šepot nenapsal (${e.message}) — jde deterministické shrnutí`); }
     }
@@ -173,7 +173,7 @@ module.exports = function (ctx) {
   function doPrehledu(datum) {
     const s = r.sepot[datum || praha().datum]; if (!s) return "";
     const top = s.polozky.filter(x => !x.error).sort((a, b) => Math.abs(b.skore) - Math.abs(a.skore)).slice(0, 3);
-    return top.length ? `📡 Radar: ${top.map(x => `${x.ticker} ${x.skore > 0 ? "+" : ""}${x.skore}`).join(", ")} (podrobně ve schránce ${specialista() === FABLE_NAME ? "Fabla" : "Radara"})` : "";
+    return top.length ? `📡 ${specialista() === FABLE_NAME ? "Radar" : specialista()}: ${top.map(x => `${x.ticker} ${x.skore > 0 ? "+" : ""}${x.skore}`).join(", ")} (podrobně ve schránce ${specialista() === FABLE_NAME ? "Fabla" : specialista() + "a"})` : "";
   }
   /* tickery ve zprávě → data do promptu Fabla ($NVDA, nebo jméno z watchlistu) */
   function najdiTickery(text) {

@@ -1,7 +1,7 @@
 """
-ainet_client.py — Radar mluví se sítí AInet jen přes HTTP, jako každý jiný agent.
+ainet_client.py — TradeRadar mluví se sítí AInet jen přes HTTP, jako každý jiný agent.
 
-Identita: server AInet Radara založil jako domácího agenta (seedDomaci). Worker
+Identita: server AInet TradeRadara založil jako domácího agenta (seedDomaci). Worker
 dostane buď přímo RADAR_OWNER_TOKEN, nebo jen RADAR_OBNOVOVACI_KOD — z něj si
 token stáhne přes /obnova/KOD (totéž, co dělá chat po výpadku). Žádný klíč
 v repozitáři; všechno jen v prostředí Renderu.
@@ -24,7 +24,7 @@ class AInetChyba(RuntimeError):
 class AInet:
     def __init__(self, base: str | None = None, token: str | None = None, kod: str | None = None, jmeno: str | None = None, timeout: int = 20):
         self.base = (base or os.environ.get("AINET_BASE") or "https://ainet-1e2y.onrender.com").rstrip("/")
-        self.jmeno = jmeno or os.environ.get("RADAR_NAME") or "Radar"
+        self.jmeno = jmeno or os.environ.get("RADAR_NAME") or "TradeRadar"
         self.timeout = timeout
         self.token = token or os.environ.get("RADAR_OWNER_TOKEN") or ""
         self.kod = kod or os.environ.get("RADAR_OBNOVOVACI_KOD") or ""

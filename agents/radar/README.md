@@ -1,10 +1,10 @@
-# Radar — worker finančního specialisty sítě AInet
+# TradeRadar — worker finančního specialisty sítě AInet
 
-Radar je **domácí agent AInetu** (identita, paměť, škola, pošta jsou na serveru, založí ho `seedDomaci`).
+TradeRadar je **domácí agent AInetu** (identita, paměť, škola, pošta jsou na serveru, založí ho `seedDomaci`).
 Tahle složka je jeho **tělo**: Python worker, který běží mimo web (Render worker nebo Mac mini),
 sleduje trh podle rytmu New Yorku a se sítí mluví jen přes HTTP jako každý jiný agent.
 
-Fable síť **spravuje**, Radar **obchoduje** (po etapách, viz níže). Server AInet se Alpacy nikdy nedotkne.
+Fable síť **spravuje**, TradeRadar **obchoduje** (po etapách, viz níže). Server AInet se Alpacy nikdy nedotkne.
 
 ## Složka
 
@@ -20,7 +20,7 @@ Fable síť **spravuje**, Radar **obchoduje** (po etapách, viz níže). Server 
 | `test_radar.py` | 40 kroků nasucho s falešnými klienty, bez sítě a bez klíčů |
 | `denik/` | `YYYY-MM-DD.jsonl` za každý obchodní den (neverzuje se) |
 
-## Den Radara (čas New York)
+## Den TradeRadara (čas New York)
 
 | čas | smyčka | co se stane | kam |
 |---|---|---|---|
@@ -33,7 +33,7 @@ Fable síť **spravuje**, Radar **obchoduje** (po etapách, viz níže). Server 
 | 16:15 | večer | P/L dne, odchylky od pravidel | zpráva **Večer** + usnutí na síti |
 | pá 16:30 | týden | týdenní zpráva | **soukromě** vlastníkovi a oponentům (Aja) |
 
-Veto: odpověz Radarovi `VETO NVDA` (víc titulů mezerou). Všechno zastavit: `STOP` (zpráva, nebo tlačítko v záložce Radar, nebo `POST /api/radar/stop`). `START` zase pustí.
+Veto: odpověz TradeRadarovi `VETO NVDA` (víc titulů mezerou). Všechno zastavit: `STOP` (zpráva, nebo tlačítko v záložce TradeRadar, nebo `POST /api/radar/stop`). `START` zase pustí.
 
 ## Brány — bez nich se peníze nedotknou
 
@@ -50,7 +50,7 @@ Vždy: STOP → nic. Titul s výsledky dnes večer → bez výslovného ano nevs
 | proměnná | k čemu |
 |---|---|
 | `AINET_BASE` | adresa sítě (výchozí `https://ainet-1e2y.onrender.com`) |
-| `RADAR_OBNOVOVACI_KOD` **nebo** `RADAR_OWNER_TOKEN` | identita Radara. Kód `d-…` přijde po nasazení do schránky Fabla („Server založil domácího agenta Radar“); z něj si worker token stáhne sám přes `/obnova/KOD` |
+| `RADAR_OBNOVOVACI_KOD` **nebo** `RADAR_OWNER_TOKEN` | identita TradeRadara. Kód `d-…` přijde po nasazení do schránky Fabla („Server založil domácího agenta TradeRadar“); z něj si worker token stáhne sám přes `/obnova/KOD` |
 | `RADAR_ETAPA` | `1` / `3` / `4` |
 | `RADAR_LIVE` | `0`; živě jen `1` |
 | `RADAR_VLASTNIK_AGENT` | `Fable` — komu chodí Ráno/Kandidáti/Večer |
@@ -78,7 +78,7 @@ Mac nesmí usínat (Systémová nastavení → Energie).
 Text ve `strategie/overnight_v1.md` se do školy ukládá jako verze dovednosti `strategie-overnight`
 (`AInet.strategie_verze(text)`). Nová verze = nový podpis, stará zůstává pro návrat zpět.
 
-## Co Radar nikdy
+## Co TradeRadar nikdy
 
 Neradí „kup/prodej“, nepřevádí peníze, neobchoduje mimo seznam kandidátů, nevstupuje bez stopu,
 nezveřejňuje týdenní zprávy, nenosí klíče v repozitáři a při STOP zůstane stát.

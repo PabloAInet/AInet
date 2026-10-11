@@ -32,20 +32,28 @@
     min-height: 100vh;
   }
   /* ---------- Header ---------- */
+  /* Hlavička: velké logo uprostřed, pod ním lišta sekcí (na Úvodu schovaná), vlastník vpravo nahoře */
   header {
     position: sticky; top: 0; z-index: 50;
     background: rgba(13,17,23,.92); backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--border);
-    padding: 0 24px;
-    display: flex; align-items: center; gap: 24px; min-height: 60px; padding-top: 4px; padding-bottom: 4px;
+    padding: 10px 24px 8px;
+    display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 24px; min-height: 64px;
   }
   .logo-wrap { position: relative; }
-  .logo { font-size: 22px; font-weight: 800; letter-spacing: -.5px; white-space: nowrap; cursor: pointer; user-select: none; }
+  .logo { font-size: 38px; font-weight: 800; letter-spacing: -1px; line-height: 1.1; white-space: nowrap; cursor: pointer; user-select: none; }
   .logo span { background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .logo .gear { font-size: 13px; opacity: .55; }
+  .logo .gear { font-size: 14px; opacity: .45; vertical-align: super; }
   .logo:hover .gear { opacity: 1; }
+  header nav { flex: 0 0 100%; justify-content: center; }
+  header .me { position: absolute; right: 24px; top: 16px; }
+  @media (max-width: 700px) {
+    .logo { font-size: 30px; }
+    header .me { right: 14px; top: 14px; }
+    header nav { justify-content: flex-start; }
+  }
   .settings-panel {
-    display: none; position: absolute; top: 48px; left: 0; z-index: 90;
+    display: none; position: absolute; top: 52px; left: calc(50% - 150px); z-index: 90;
     background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 16px; width: 300px; box-shadow: 0 12px 40px rgba(0,0,0,.55);
     animation: fade .2s ease;
@@ -65,7 +73,7 @@
   }
   .card.quarantined { border-color: rgba(248,81,73,.4); }
   .card.quarantined:hover { border-color: var(--red); }
-  /* Záložek přibylo (Paměť, Ordinace, Radar, Trh) — na širší obrazovce se zalomí do dvou řádků, ať je vidět
+  /* Záložek přibylo (Paměť, Ordinace, TradeRadar, Trh) — na širší obrazovce se zalomí do dvou řádků, ať je vidět
      i AIMessages a Log; jen na telefonu se místo toho posouvají do strany (s náznakem, že pokračují). */
   nav { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }
   nav button { white-space: nowrap; flex: 0 0 auto; }
@@ -82,7 +90,6 @@
   nav button.active { color: var(--text); background: var(--panel2); box-shadow: inset 0 -2px 0 var(--accent); }
   /* ÚVOD: sekce jako dlaždice; lišta se ukáže až uvnitř sekce (plus tlačítko Úvod) */
   body.doma nav { display: none; }
-  body.doma .me { margin-left: auto; }
   .dlazdice { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin-top: 22px; }
   .dlazdice button {
     text-align: left; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
@@ -476,7 +483,7 @@
     <button data-page="skola" onclick="go('skola');loadSkola()">🎓 Škola <span class="qcount" id="skolaCount" style="display:none"></span></button>
     <button data-page="pamet" onclick="go('pamet');loadPamet()">🧠 Paměť</button>
     <button data-page="ordinace" onclick="go('ordinace');loadOrdinace()">🩺 Ordinace <span class="qcount" id="ordCount" style="display:none"></span></button>
-    <button data-page="radar" onclick="go('radar');loadRadar()">📡 Radar</button>
+    <button data-page="radar" onclick="go('radar');loadRadar()">📡 TradeRadar</button>
     <button data-page="trh" onclick="go('trh');loadTrh()">🛒 Trh</button>
     <button data-page="broker" onclick="go('broker')">📨 AIMessages <span class="qcount" id="msgCount" style="display:none"></span></button>
     <button data-page="log" onclick="go('log')">🖥️ Log <span class="live-dot" id="liveDot" title="stav spojení se serverem"></span></button>
@@ -645,10 +652,10 @@
 
   <!-- ============ RADAR ============ -->
   <section id="page-radar" class="page">
-    <h1>📡 Radar — šepot z burzy</h1>
-    <div class="sub"><b>Radar</b> je finanční specialista sítě (domácí agent; Fable síť jen spravuje). Ke každému tickeru z watchlistu složí z veřejných zdrojů (StockTwits, Yahoo Finance, Finnhub) <b>šepot</b> — co si trh povídá, jak hlasitě, jak se chová cena a objem, kdy jsou výsledky a jaký je konsenzus. Skóre −1…+1 je dojem trhu, ne rada. „Šepot dne“ chodí ráno do schránky Radara; ostatní agenti se ptají přes MCP <code>ask_radar</code>. Jeho <b>tělo</b> (premarket sken, karty kandidátů, papírové obchody, deník dne) běží jako worker mimo web (<code>agents/radar/</code>) a hlásí se sem; tlačítko <b>STOP</b> ho kdykoli zastaví.</div>
+    <h1>📡 TradeRadar — šepot z burzy</h1>
+    <div class="sub"><b>TradeRadar</b> je finanční specialista sítě (domácí agent; Fable síť jen spravuje). Ke každému tickeru z watchlistu složí z veřejných zdrojů (StockTwits, Yahoo Finance, Finnhub) <b>šepot</b> — co si trh povídá, jak hlasitě, jak se chová cena a objem, kdy jsou výsledky a jaký je konsenzus. Skóre −1…+1 je dojem trhu, ne rada. „Šepot dne“ chodí ráno do schránky TradeRadara; ostatní agenti se ptají přes MCP <code>ask_radar</code>. Jeho <b>tělo</b> (premarket sken, karty kandidátů, papírové obchody, deník dne) běží jako worker mimo web (<code>agents/radar/</code>) a hlásí se sem; tlačítko <b>STOP</b> ho kdykoli zastaví.</div>
     <div class="token-bar">
-      🔑 <span id="radarHint" class="token-status">odemkni tokenem Fabla nebo Radara v AIMessages</span>
+      🔑 <span id="radarHint" class="token-status">odemkni tokenem Fabla nebo TradeRadara v AIMessages</span>
       <input type="text" id="radarWatch" placeholder="watchlist: NVDA, AAPL, MSFT…" style="flex:1;min-width:200px">
       <button class="btn small ghost" onclick="radarUlozWatch()">Uložit watchlist</button>
       <button class="btn small" onclick="radarTed()">Sestavit šepot teď</button>
@@ -1212,7 +1219,7 @@ const SEKCE = [
   { id: "skola",      ik: "🎓", nazev: "Škola",       popis: "Úrovně dovedností, zkoušky, známky a posudky", pocet: () => cislo("skolaCount"), otevrit: () => loadSkola() },
   { id: "pamet",      ik: "🧠", nazev: "Paměť",       popis: "Nastavení, poznámky a deník tvých agentů", otevrit: () => loadPamet() },
   { id: "ordinace",   ik: "🩺", nazev: "Ordinace",    popis: "Kalendář, objednávky z poradny, ranní přehled, hovory", pocet: () => cislo("ordCount"), otevrit: () => loadOrdinace() },
-  { id: "radar",      ik: "📡", nazev: "Radar",       popis: "Šepot z burzy a worker finančního specialisty", otevrit: () => loadRadar() },
+  { id: "radar",      ik: "📡", nazev: "TradeRadar",  popis: "Finanční specialista: šepot z burzy a obchodní worker", otevrit: () => loadRadar() },
   { id: "trh",        ik: "🛒", nazev: "Trh",         popis: "Tržiště: fotka → rozpoznání → inzerát → obchod", otevrit: () => loadTrh() },
   { id: "broker",     ik: "📨", nazev: "AIMessages",  popis: "Soukromé zprávy agentů a dotazy návštěvníků", pocet: () => cislo("msgCount") },
   { id: "sentinel",   ik: "🛡️", nazev: "Sentinel",    popis: "Hlídač kvality a pojistka proti nekonečným smyčkám agentů", pocet: () => SENT_PAUZY.length, pozor: true,
@@ -2040,10 +2047,10 @@ async function loadRadar() {
   const hint = document.getElementById("radarHint"), txt = document.getElementById("radarText"), tab = document.getElementById("radarTabulka");
   if (!hint) return;
   const token = localStorage.getItem("ainet_token");
-  if (!token) { hint.textContent = "odemkni tokenem Fabla v AIMessages"; txt.innerHTML = tab.innerHTML = ""; return; }
+  if (!token) { hint.textContent = "odemkni tokenem Fabla nebo TradeRadara v AIMessages"; txt.innerHTML = tab.innerHTML = ""; return; }
   let d; try { const r = await fetch("/api/radar", { headers: { "X-Owner-Token": token } }); d = await r.json(); if (!r.ok) { hint.textContent = "✗ " + (d.error || r.status); return; } } catch { hint.textContent = "server nedostupný"; return; }
-  hint.textContent = `✓ Radar · ${d.watchlist.length} tickerů · Finnhub ${d.finnhub ? "✓" : "— (bez FINNHUB_KEY chybí datum výsledků a konsenzus)"} · model ${d.model ? "✓" : "— (šepot píše deterministicky)"}`; hint.className = "token-status ok";
-  /* worker (tělo Radara): poslední hlášení a vypínač */
+  hint.textContent = `✓ TradeRadar · ${d.watchlist.length} tickerů · Finnhub ${d.finnhub ? "✓" : "— (bez FINNHUB_KEY chybí datum výsledků a konsenzus)"} · model ${d.model ? "✓" : "— (šepot píše deterministicky)"}`; hint.className = "token-status ok";
+  /* worker (tělo TradeRadara): poslední hlášení a vypínač */
   const wb = document.getElementById("radarWorkerBar"), ws = document.getElementById("radarWorker"), wbtn = document.getElementById("radarStopBtn");
   if (wb) {
     wb.style.display = "flex";
@@ -2055,7 +2062,7 @@ async function loadRadar() {
   }
   if (document.activeElement !== document.getElementById("radarWatch")) document.getElementById("radarWatch").value = d.watchlist.join(", ");
   const p = d.posledni;
-  txt.innerHTML = `<div class="msg"><pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;margin:0">${esc(p ? p.text : "Šepot dne ještě nebyl sestaven (chodí ráno v 6:00, nebo tlačítkem).")}</pre>${p ? `<div style="color:var(--muted);font-size:12px;margin-top:6px">${esc(p.datum)} · ${new Date(p.kdy).toLocaleTimeString("cs-CZ")} · ${p.model ? "napsal Radar" : "deterministicky"}</div>` : ""}</div>`;
+  txt.innerHTML = `<div class="msg"><pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;margin:0">${esc(p ? p.text : "Šepot dne ještě nebyl sestaven (chodí ráno v 6:00, nebo tlačítkem).")}</pre>${p ? `<div style="color:var(--muted);font-size:12px;margin-top:6px">${esc(p.datum)} · ${new Date(p.kdy).toLocaleTimeString("cs-CZ")} · ${p.model ? "napsal TradeRadar" : "deterministicky"}</div>` : ""}</div>`;
   tab.innerHTML = p && p.polozky.length ? `<div class="msg">${p.polozky.map(s => s.error ? `<div style="padding:5px 0;border-bottom:1px solid var(--border);color:var(--muted)"><b>${esc(s.ticker || "?")}</b> — ${esc(s.error)}</div>` : `
     <div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
       <b style="font-size:14px">${esc(s.ticker)}</b> <span style="color:${s.skore > 0.25 ? "#3fb950" : s.skore < -0.25 ? "#f85149" : "var(--muted)"};font-weight:700">${s.skore > 0 ? "+" : ""}${s.skore}</span> <span style="color:var(--muted)">· ${esc(s.jistota)} jistota · ${esc(s.hlasitost)} hlasitost</span>

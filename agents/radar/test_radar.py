@@ -45,7 +45,7 @@ def ok(podminka, text):
 # ---------- falešní klienti ----------
 class FakeAInet:
     def __init__(self, stav=None):
-        self.id, self.jmeno = "radar-id", "Radar"
+        self.id, self.jmeno = "radar-id", "TradeRadar"
         self.odeslane: list[tuple[str, str]] = []
         self.hlaseni_log: list[tuple] = []
         self.posta_box: list[dict] = []
@@ -276,4 +276,4 @@ ok(R.obchodni_den(datetime(2026, 10, 9, 12, tzinfo=R.NY)) and not R.obchodni_den
 ok([n for _, _, n in R.SMYCKY] == ["rano", "kontrola", "vystup", "vyhodnoceni", "kandidati", "vstupy", "vecer"] and R.TYDENNI[0] == 4, "osm smyček v pořadí dne, týdenní v pátek")
 ok((R.SMYCKY[5][0] * 60 + R.SMYCKY[5][1]) - (R.SMYCKY[4][0] * 60 + R.SMYCKY[4][1]) == 30, "mezi kandidáty a vstupy je 30 minut na veto")
 
-print(f"\nRadar worker: {KROKU} kroků OK (deník testu v {tmp})")
+print(f"\nTradeRadar worker: {KROKU} kroků OK (deník testu v {tmp})")

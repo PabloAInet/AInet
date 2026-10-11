@@ -1,4 +1,4 @@
-# Render Blueprint — worker Radara (Python) vedle webu AInet.
+# Render Blueprint — worker TradeRadara (Python) vedle webu AInet.
 #
 # Web AInet (Node, https://ainet-1e2y.onrender.com) už na Renderu běží a tenhle
 # soubor ho NEPŘEDEFINOVÁVÁ — jinak by Blueprint založil druhý web se stejným
@@ -23,7 +23,7 @@ services:
       - key: AINET_BASE
         value: https://ainet-1e2y.onrender.com
       - key: RADAR_NAME
-        value: Radar
+        value: TradeRadar
       - key: RADAR_ETAPA            # 1 = jen sken/karty/zprávy · 3 = papír (tovaryš) · 4 = živě (mistr)
         value: "1"
       - key: RADAR_LIVE             # živý účet jen s "1" — a i pak rozhoduje režim v limity.json
@@ -32,7 +32,7 @@ services:
         value: Fable
       - key: RADAR_OPONENTI         # týdenní zpráva soukromě; více jmen oddělit čárkou
         value: Aja
-      - key: RADAR_OBNOVOVACI_KOD   # kód d-… ze zprávy „Server založil domácího agenta Radar“ ve schránce Fabla
+      - key: RADAR_OBNOVOVACI_KOD   # kód d-… ze zprávy „Server založil domácího agenta TradeRadar“ (dřív Radar) ve schránce Fabla
         sync: false
       - key: ALPACA_PAPER_KEY       # až pro etapu 3 (papír); do té doby může zůstat prázdné
         sync: false

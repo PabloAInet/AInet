@@ -1,6 +1,6 @@
 """
 polygon_client.py — premarket data (minutové svíčky, gainers/losers) z Polygonu.
-Volitelné: bez POLYGON_KEY Radar jede jen z Alpacy (IEX) a skener je slabší.
+Volitelné: bez POLYGON_KEY TradeRadar jede jen z Alpacy (IEX) a skener je slabší.
 Čistý urllib, bez závislostí.
 """
 from __future__ import annotations
