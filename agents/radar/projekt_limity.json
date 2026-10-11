@@ -1,0 +1,7 @@
+{
+  "_poznamka": "Limity papírového účtu PROJEKTŮ ROJE (samostatný účet, klíče ALPACA_PROJEKT_KEY/SECRET). Mění je jen vlastník commitem; worker je čte před každým příkazem a nikdy je sám nezvedne. Živý účet projekty nemají.",
+  "pozice_usd": 300,
+  "max_pozic": 6,
+  "vstupu_za_den": 4,
+  "denni_ztrata_pct": 2.0
+}

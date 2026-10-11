@@ -26,6 +26,11 @@ plánovaném výstupu je SÁM dopočítá ze svých dat (close vstupu → close 
 a zpracovaný den nahlásí jako den praxe — 20 dní praxe je podmínka úrovně osvědčený. Nic neobchoduje.
   STOP od vlastníka (zpráva STOP v AIMessages, /api/radar/stop) nebo RADAR_LIVE=0 → nic.
 
+PROJEKTY ROJE (od 12. 10. 2026, projekty_worker.py): worker je zároveň RUCE ROJE — každých 10 min si vezme
+joby (backtest zapsané strategie, události EDGAR…), v 18:30 doplní panel a dopočte stín, a strategie, které
+vlastník schválil na papír, obchoduje na SAMOSTATNÉM papírovém účtu projektů (9:00 vstupy/výstupy OPG,
+9:45 kontrola plnění a stopy, 15:30 výstupy CLS). Vypnout: PROJEKTY=0.
+
 Spuštění:  python agents/radar/radar.py            (plánovač, běží pořád)
            python agents/radar/radar.py rano       (jedna smyčka hned, pro zkoušku)
 Čistá standardní knihovna. Klíče jen v prostředí (viz README v této složce).
@@ -47,6 +52,8 @@ sys.path.insert(0, str(SLOZKA))
 from ainet_client import AInet, AInetChyba  # noqa: E402
 from alpaca_client import Alpaca, AlpacaChyba  # noqa: E402
 from polygon_client import Polygon, PolygonChyba  # noqa: E402
+from alpaca_client import AlpacaProjekt  # noqa: E402
+from projekty_worker import ProjektyWorker  # noqa: E402
 
 NY = ZoneInfo("America/New_York")
 ETAPA = int(os.environ.get("RADAR_ETAPA", "1"))
@@ -61,6 +68,7 @@ SMYCKY = [  # (hh, mm, název, jen obchodní dny)
     (15, 15, "kandidati"), (15, 45, "vstupy"), (16, 15, "vecer"), (16, 20, "stin"),
 ]
 TYDENNI = (4, 16, 30, "tyden")   # pátek
+SMYCKY_PROJEKTY = [(9, 0, "projekty_rano"), (9, 45, "projekty_kontrola"), (15, 30, "projekty_zavreni"), (18, 30, "projekty_vecer")]
 
 
 def log(m: str) -> None:
@@ -75,8 +83,10 @@ def nacti_json(soubor: str, vychozi: dict) -> dict:
 
 
 class Radar:
-    def __init__(self, ainet: AInet | None = None, alpaca: Alpaca | None = None, polygon: Polygon | None = None, suche: bool = False):
+    def __init__(self, ainet: AInet | None = None, alpaca: Alpaca | None = None, polygon: Polygon | None = None, suche: bool = False,
+                 projekty: ProjektyWorker | None = None):
         self.ainet = ainet or AInet()
+        self.projekty = projekty
         self.alpaca = alpaca
         self.polygon = polygon
         self.suche = suche                      # suché = nic neposílá na Alpacu (testy, etapa 1)
@@ -507,7 +517,29 @@ class Radar:
         self.zprava_oponentum(text)
         return text
 
-    SMYCKA = {"rano": rano, "kontrola": kontrola, "vystup": vystup, "vyhodnoceni": vyhodnoceni, "kandidati": kandidati, "vstupy": vstupy, "vecer": vecer, "stin": stin, "tyden": tyden}
+    # ---------- projekty roje (ruce roje: měření, stín, papír na samostatném účtu) ----------
+    def projekty_rano(self) -> str:
+        return self.projekty.rano() if self.projekty else "projekty vypnuté"
+
+    def projekty_kontrola(self) -> str:
+        return self.projekty.kontrola() if self.projekty else "projekty vypnuté"
+
+    def projekty_zavreni(self) -> str:
+        return self.projekty.zavreni() if self.projekty else "projekty vypnuté"
+
+    def projekty_vecer(self) -> str:
+        if not self.projekty:
+            return "projekty vypnuté"
+        return "večer projektů běží na pozadí" if self.projekty.na_pozadi(self.projekty.vecer) else "ZANEPRÁZDNĚNO"
+
+    def projekty_joby(self) -> str:
+        if not self.projekty:
+            return "projekty vypnuté"
+        return "joby na pozadí" if self.projekty.na_pozadi(self.projekty.joby) else "ZANEPRÁZDNĚNO"
+
+    SMYCKA = {"rano": rano, "kontrola": kontrola, "vystup": vystup, "vyhodnoceni": vyhodnoceni, "kandidati": kandidati, "vstupy": vstupy, "vecer": vecer, "stin": stin, "tyden": tyden,
+              "projekty_rano": projekty_rano, "projekty_kontrola": projekty_kontrola, "projekty_zavreni": projekty_zavreni,
+              "projekty_vecer": projekty_vecer, "projekty_joby": projekty_joby}
 
     def spust(self, nazev: str) -> str:
         fn = self.SMYCKA.get(nazev)
@@ -524,6 +556,7 @@ def planovac(radar: Radar) -> None:
     """Minutový plánovač v čase New Yorku. Každá smyčka jednou denně; po restartu se nedohání (burza nečeká)."""
     log(f"worker TradeRadara běží — etapa {ETAPA}, {'ŽIVÝ účet' if ZIVY else 'papír/suché'}, vlastník přes {VLASTNIK_AGENT}, oponenti {OPONENTI}")
     hotovo: set[str] = set()
+    posledni_joby = 0.0
     while True:
         ted = datetime.now(NY)
         klic_dne = ted.strftime("%Y-%m-%d")
@@ -532,15 +565,28 @@ def planovac(radar: Radar) -> None:
             plan = [(h, m, n) for h, m, n in SMYCKY]
             if ted.weekday() == TYDENNI[0]:
                 plan.append((TYDENNI[1], TYDENNI[2], TYDENNI[3]))
+            if radar.projekty:
+                plan += SMYCKY_PROJEKTY
             for hh, mm, nazev in plan:
                 klic = f"{klic_dne}:{nazev}"
-                if klic in hotovo or (ted.hour, ted.minute) != (hh, mm):
+                pozde = nazev == "projekty_vecer" and (ted.hour, ted.minute) > (hh, mm) and ted.hour < 23   # večer projektů smí počkat, až doběhne job
+                if klic in hotovo or ((ted.hour, ted.minute) != (hh, mm) and not pozde):
                     continue
-                hotovo.add(klic)
                 try:
-                    log(f"→ {nazev}: {radar.spust(nazev)[:160]}")
+                    vysl = radar.spust(nazev)
+                    if vysl == "ZANEPRÁZDNĚNO":
+                        continue                     # vlákno projektů ještě měří — zkusí se za chvíli
+                    hotovo.add(klic)
+                    log(f"→ {nazev}: {vysl[:160]}")
                 except Exception as e:   # smyčka nesmí shodit plánovač
+                    hotovo.add(klic)
                     log(f"✗ {nazev}: {e}\n{traceback.format_exc()[-600:]}")
+        if radar.projekty and time.time() - posledni_joby >= 600:   # joby od roje každých 10 minut, i o víkendu
+            posledni_joby = time.time()
+            try:
+                radar.spust("projekty_joby")
+            except Exception as e:
+                log(f"✗ projekty_joby: {e}")
         time.sleep(20)
 
 
@@ -560,7 +606,19 @@ def main() -> None:
             log("Alpaca: bez klíčů — jen sken ze seznamu, žádné ceny ani příkazy")
     except AlpacaChyba as e:
         log(f"Alpaca: {e}")
-    radar = Radar(ainet, alpaca, Polygon(), suche=ETAPA < 3)
+    projekty = None
+    if os.environ.get("PROJEKTY", "1") != "0":
+        papir = None
+        try:
+            papir = AlpacaProjekt()
+            if not papir.ma_klice:
+                log("Projekty roje: bez ALPACA_PROJEKT_KEY/SECRET — měří a stínuje, papír nejede")
+                papir = None
+        except AlpacaChyba as e:
+            log(f"Projekty roje: {e}"); papir = None
+        projekty = ProjektyWorker(ainet, alpaca if alpaca and alpaca.ma_klice else None, papir)
+        projekty.na_pozadi(projekty.ohlas)
+    radar = Radar(ainet, alpaca, Polygon(), suche=ETAPA < 3, projekty=projekty)
     if len(sys.argv) > 1:
         print(radar.spust(sys.argv[1]))
         return

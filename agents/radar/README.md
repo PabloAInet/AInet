@@ -91,3 +91,31 @@ TradeRadar proto **stínuje živý odraz Earnings Radaru**: každý obchodní de
 a po plánovaném výstupu je **sám** dopočítá ze svých dat (close vstupu → close výstupu, stop gap-through, proti SPY). Nic neobchoduje.
 Zpracovaný den nahlásí serveru jako **den praxe**; 20 dní praxe + zkouška Obchodování 2 = úroveň osvědčený. Týdenní souhrn stínu jde do zprávy
 i do sandboxu (zápisky, ze kterých vychází při zkoušce Praxe).
+
+## Ruce projektů roje (od 12. 10. 2026)
+
+Worker je zároveň **ruce roje** pro projekty na serveru (`projekty.js`, záložka 🏗 Projekty). Server drží plán, kroky,
+brány vlastníka a **registrace strategií** (zapsané s kritériem PŘED měřením); worker jen měří a po bráně obchoduje na papíře.
+
+| soubor | co dělá |
+|---|---|
+| `strategie_dsl.py` | strategie v pevném formátu (pole bez dívání dopředu, události EDGAR, výsledky), backtest: vývoj do 2025-07-01 + holdout do dne zápisu, stín po zápisu, signály dne |
+| `panel.py` | vlastní panel denních svíček z Alpacy (`adjustment=all`, SIP se zpožděním) v `projekt_data/`; od Earnings Radaru jen **čte** vesmír titulů, kalendář výsledků a knihu podání EDGAR |
+| `projekty_worker.py` | joby od serveru (backtest, události EDGAR, výtah registrací ERP), večerní stín, papír na samostatném účtu |
+| `projekt_limity.json` | limity papíru projektů (300 $/pozice, 6 pozic, 4 vstupy/den, 2 % denní ztráta) — mění jen vlastník commitem |
+| `test_projekty.py` | 57 kroků nasucho (formát, dívání dopředu, panel, joby, stín, papír, STOP, limity) |
+
+| čas NY | smyčka | co se stane |
+|---|---|---|
+| každých 10 min | `projekty_joby` | převezme joby od roje a změří je (vlákno na pozadí — nezdrží obchodní den) |
+| 9:00 | `projekty_rano` | papír: výstupy na otevření + nové vstupy (příkazy OPG), jen schválené strategie, v limitech, bez STOPu |
+| 9:45 | `projekty_kontrola` | plnění → pozice + stop (GTC); plnění výstupů a stopů → uzavřené obchody |
+| 15:30 | `projekty_zavreni` | výstupy na zavření (příkazy CLS) |
+| 18:30 | `projekty_vecer` | doplní panel, dopočte stín všech strategií, které prošly, naplánuje papír na zítřejší otevření, pošle metriky |
+
+**Prostředí:** `ALPACA_PROJEKT_KEY` / `ALPACA_PROJEKT_SECRET` = **samostatný** papírový účet projektů (stejný klíč jako `ALPACA_PAPER_KEY`
+worker odmítne). Bez nich worker měří a stínuje, papír nejede. Data: `PROJEKT_DATA_DIR` (výchozí `agents/radar/projekt_data`, neverzuje se),
+`PROJEKT_ERP_DIR` (výchozí `~/Documents/Investements/research`), `PROJEKT_FEED` (`sip`), vypnout vše: `PROJEKTY=0`.
+
+**Pravidla, která worker nepustí:** papír jen se schválením vlastníka (brána po stínu ≥ 20 dní, ≥ 30 obchodů, Ø alfa > 0), jen long
+se vstupem na otevření, jen paper-api; STOP projektu nebo globální STOP = žádné nové vstupy (výstupy doběhnou); živý účet projekty nemají.

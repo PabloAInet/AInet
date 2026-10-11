@@ -82,6 +82,23 @@ class Alpaca:
         t = d.get("trade") or {}
         return float(t["p"]) if "p" in t else None
 
+    def svicky_vic(self, symboly: list[str], start: str, end: str | None = None, timeframe: str = "1Day", feed: str = "sip", adjustment: str = "all") -> dict:
+        """Denní svíčky pro víc titulů najednou (stránkuje next_page_token). Vrací {symbol: [bar, …]}."""
+        out: dict[str, list] = {}
+        if not symboly:
+            return out
+        zaklad = (f"{self.DATA}/v2/stocks/bars?symbols={','.join(urllib.parse.quote(s) for s in symboly)}&timeframe={timeframe}"
+                  f"&start={urllib.parse.quote(start)}&limit=10000&feed={feed}&adjustment={adjustment}" + (f"&end={urllib.parse.quote(end)}" if end else ""))
+        token = None
+        for _ in range(500):
+            d = self._req(zaklad + (f"&page_token={urllib.parse.quote(token)}" if token else ""))
+            for sym, bary in ((d or {}).get("bars") or {}).items():
+                out.setdefault(sym, []).extend(bary or [])
+            token = (d or {}).get("next_page_token")
+            if not token:
+                break
+        return out
+
     def snapshoty(self, symboly: list[str], feed: str = "iex") -> dict:
         if not symboly:
             return {}
@@ -113,6 +130,9 @@ class Alpaca:
             return {"suche": True, "prikaz": telo}
         return self._req(f"{self.base}/v2/orders", "POST", telo)
 
+    def prikaz_detail(self, order_id: str) -> dict:
+        return self._req(f"{self.base}/v2/orders/{urllib.parse.quote(order_id)}")
+
     def zrus_prikaz(self, order_id: str) -> None:
         self._req(f"{self.base}/v2/orders/{order_id}", "DELETE")
 
@@ -120,3 +140,20 @@ class Alpaca:
         if suché:
             return {"suche": True, "zavrit": symbol}
         return self._req(f"{self.base}/v2/positions/{urllib.parse.quote(symbol.upper())}", "DELETE")
+
+
+class AlpacaProjekt(Alpaca):
+    """Papírový účet PROJEKTŮ ROJE — vlastní pár klíčů, vždy paper-api, nikdy živý.
+
+    ALPACA_PROJEKT_KEY / ALPACA_PROJEKT_SECRET vkládá vlastník sám do prostředí workeru. Musí to být
+    JINÝ papírový účet než ten TradeRadarův (ALPACA_PAPER_KEY) — roj obchoduje odděleně a jeho
+    výsledek jde poctivě změřit. Limity čte z projekt_limity.json (mění je jen vlastník)."""
+
+    def __init__(self, timeout: int = 20):
+        self.zivy = False
+        self.key = os.environ.get("ALPACA_PROJEKT_KEY", "")
+        self.secret = os.environ.get("ALPACA_PROJEKT_SECRET", "")
+        self.base = "https://paper-api.alpaca.markets"
+        self.timeout = timeout
+        if self.key and self.key == os.environ.get("ALPACA_PAPER_KEY"):
+            raise AlpacaChyba("Projekty roje potřebují SAMOSTATNÝ papírový účet — ALPACA_PROJEKT_KEY je stejný jako TradeRadarův ALPACA_PAPER_KEY.")

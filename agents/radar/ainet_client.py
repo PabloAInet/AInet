@@ -142,3 +142,22 @@ class AInet:
 
     def signal(self, ticker: str) -> dict:
         return self._req(f"/api/radar/signal?ticker={urllib.parse.quote(ticker)}")
+
+    # ---------- projekty roje: worker = ruce roje (měření, stín, papír) ----------
+    def projekty_worker(self) -> dict:
+        """Joby k měření, strategie ke stínu/papíru (se STOPem a schválením vlastníka), globální STOP."""
+        return self._req("/api/projekty/worker")
+
+    def projekty_job(self, job_id: str, stav: str, vysledek: dict | None = None, chyba: str | None = None) -> dict:
+        telo: dict = {"stav": stav}
+        if vysledek is not None:
+            telo["vysledek"] = vysledek
+        if chyba:
+            telo["chyba"] = chyba[:500]
+        return self._req(f"/api/projekty/joby/{urllib.parse.quote(job_id)}", "POST", telo)
+
+    def projekty_metriky(self, registrace_id: str, typ: str, souhrn: dict, obchody: list | None = None) -> dict:
+        return self._req(f"/api/projekty/registrace/{urllib.parse.quote(registrace_id)}/metriky", "POST", {"typ": typ, "souhrn": souhrn, "obchody": obchody or []})
+
+    def projekty_manifest(self, manifest: dict) -> dict:
+        return self._req("/api/projekty/worker/manifest", "POST", {"manifest": manifest})
