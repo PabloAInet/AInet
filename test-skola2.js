@@ -36,6 +36,13 @@ const atrapa = http.createServer((rq, rs) => {
     let t = {}; try { t = JSON.parse(d); } catch {}
     const sys = String(t.system || "");
     volani.push({ sys, max_tokens: t.max_tokens, user: JSON.stringify(t.messages || []), thinking: t.thinking || null });
+    /* jako Opus 5.5: konverzace musí končit zprávou uživatele (žádný „prefill“) */
+    const zpr = Array.isArray(t.messages) ? t.messages : [];
+    if (zpr.length && zpr[zpr.length - 1].role === "assistant") {
+      volani.push({ prefill: true });
+      rs.writeHead(400, { "Content-Type": "application/json" });
+      return rs.end(JSON.stringify({ error: { message: "This model does not support assistant message prefill. The conversation must end with a user message." } }));
+    }
     /* jako Opus 5.5: „enabled“ přemýšlení odmítne, chce „adaptive“ */
     if (t.thinking && t.thinking.type === "enabled") {
       rs.writeHead(400, { "Content-Type": "application/json" });
@@ -98,6 +105,8 @@ const posta = async (a) => (await get(`/api/messages?agent=${a.id}`, { "X-Owner-
   ok(mz.status === 200, "TradeRadar má nejsilnější mozek s přemýšlením (jako v provozu)", mz.data);
   const z1 = await post("/api/skola/vypsat", { agent: "TradeRadar", dovednost: "analysis" }, { "X-Owner-Token": fable.tok });
   ok(z1.status === 201 && z1.data.cil_uroven === 1 && /Obchodování 1 — Kritérium a náklady/.test(z1.data.zkouska), "Fable vypsal TradeRadarovi Obchodování 1", z1.data);
+  const zFin = await post("/api/skola/vypsat", { agent: "TradeRadar", dovednost: "finance" }, { "X-Owner-Token": fable.tok });
+  ok(zFin.status === 201, "hned za ní druhá zkouška (finance) — jako když vlastník klikne dvakrát po sobě", zFin.data);
   ok(/DATA \(test strategie/.test(z1.data.zadani) && /KRITÉRIUM ZAPSANÉ PŘEDEM/.test(z1.data.zadani), "zadání nese vylosovaná data a kritérium");
   ok(!JSON.stringify(z1.data).includes("verdikt") && !JSON.stringify(z1.data).includes("KLÍČ"), "klíč se žákovi neukazuje");
   ok(z1.data.zprava_id && /^\[zkouska:[0-9a-f]{8}\]$/.test(z1.data.znacka), "zkouška má zprávu a značku", z1.data);
@@ -119,6 +128,8 @@ const posta = async (a) => (await get(`/api/messages?agent=${a.id}`, { "X-Owner-
   ok(vZk && vZk.max_tokens >= 2000, "na zkoušku delší odpověď (úsilí vysoké)", vZk && vZk.max_tokens);
   ok(volani.some(v => /TOHLE JE ZKOUŠKA ŠKOLY/.test(v.sys) && v.thinking && v.thinking.type === "adaptive"), "model, který chce adaptivní přemýšlení, ho dostal (žádný pád na slabší model)");
   ok(tH.oponent === "Lisak", "oponent je agent, který dovednost umí (Lisak), ne kdokoli", tH.oponent);
+  const obe = await pockejNa(async () => (await get(`/api/tasks/${zFin.data.task_id}`)).data.zkouskaStav === "hodnoceni");
+  ok(obe && !volani.some(v => v.prefill), "odpovídač vypracoval obě zkoušky po sobě (konverzace vždy končí zadáním, žádný „prefill“)");
   const znamkovano = await pockejNa(async () => { const t = cti().tasks.find(x => x.id === z1.data.task_id); return t && t.znamky && t.znamky.fable; });
   const tDb = cti().tasks.find(x => x.id === z1.data.task_id);
   ok(znamkovano && tDb.znamky.fable.znamka === 4.4, "Fable navrhl známku 4,4 (napoprvé nečitelná odpověď → druhý pokus)", tDb.znamky);
@@ -175,7 +186,24 @@ const posta = async (a) => (await get(`/api/messages?agent=${a.id}`, { "X-Owner-
     db.tasks.push({ id: "stara-zkouska-3", zkouska: true, cilUroven: 3, dovednost: "analysis", drzitel: cizi.id, zkouskaStav: "slozena", znamky: {}, t: new Date().toISOString() });
     zapis(db);
   }
+  {
+    const db = cti(); const now = new Date().toISOString();
+    db.ratings = db.ratings.filter(r => r.agent !== lisak.id);
+    for (const [h, v] of [[true, 5], [true, 5], [false, 3.5], [false, 3.5]]) db.ratings.push({ id: "r" + Math.random(), agent: lisak.id, agentName: "Lisak", rating: v, byHuman: h, vaha: h ? 1 : 0.5, od: "Test", t: now });
+    zapis(db);
+  }
   await startServer();
+  const vLis = (await get(`/api/agents/${lisak.id}/vysvedceni`)).data;
+  ok(vLis.vysvedceni.analysis.zmrazeno === false, "lidé dávají víc než agenti (drift −1,5) → nezmrazí se", vLis.vysvedceni.analysis);
+  await stopServer();
+  {
+    const db = cti(); const now = new Date().toISOString();
+    db.ratings = db.ratings.filter(r => r.agent !== lisak.id);
+    for (const [h, v] of [[true, 3], [true, 3], [false, 5], [false, 5]]) db.ratings.push({ id: "r" + Math.random(), agent: lisak.id, agentName: "Lisak", rating: v, byHuman: h, vaha: h ? 1 : 0.5, od: "Test", t: now });
+    zapis(db);
+  }
+  await startServer();
+  ok((await get(`/api/agents/${lisak.id}/vysvedceni`)).data.vysvedceni.analysis.zmrazeno === true, "agenti chválí víc než lidé (drift +2) → zmrazí se");
   const sk = (await get("/api/skola")).data;
   ok(sk.kurikulum.analysis.length === 2 && sk.kurikulum.analysis.every(l => l.cil_uroven <= 2) && /Kritérium a náklady/.test(sk.kurikulum.analysis[0].nazev), "staré tři lekce nahrazeny novými dvěma", sk.kurikulum.analysis.map(l => l.nazev));
   const db2 = cti();
