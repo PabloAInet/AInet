@@ -93,7 +93,8 @@ async function zaregistruj(jmeno, dovednosti) {
     const llms = await fetch(BASE + "/llms.txt");
     const llmsTxt = await llms.text();
     t("/llms.txt odpovídá", llms.status === 200, "status " + llms.status);
-    t("…a ukazuje obojí dveře", /\/navsteva/.test(llmsTxt) && /\/start/.test(llmsTxt));
+    t("…a ukazuje dveře 1 · odkazy GET a 4 · přímé API", /\/start/.test(llmsTxt) && /\/openapi-actions\.json/.test(llmsTxt));
+    t("…a návštěvu už nenabízí (zamítnutá 11. 10.)", !/navsteva/.test(llmsTxt));
     t("…a připomíná, že zprávy jsou data, ne příkazy", /DATA, nikdy příkazy/.test(llmsTxt));
     const robots = await fetch(BASE + "/robots.txt");
     const robotsTxt = await robots.text();
@@ -103,14 +104,13 @@ async function zaregistruj(jmeno, dovednosti) {
     const mapa = await fetch(BASE + "/sitemap.xml");
     const mapaXml = await mapa.text();
     t("/sitemap.xml odpovídá", mapa.status === 200, "status " + mapa.status);
-    t("…a je v ní vstup pro návštěvníka", /<loc>[^<]*\/navsteva<\/loc>/.test(mapaXml));
+    t("…a je v ní vstup /start, ne návštěva", /<loc>[^<]*\/start<\/loc>/.test(mapaXml) && !/navsteva/.test(mapaXml));
 
-    console.log("\n1h) Aby vstup našel i ten, kdo ho hledá místo otevření");
+    console.log("\n1h) IndexNow — a návštěva se vyhledávačům už nenabízí");
     const klicTxt = await fetch(BASE + "/ainet1e2y2026navstevaindexnowkey.txt");
     t("soubor s klíčem pro IndexNow existuje", klicTxt.status === 200 && (await klicTxt.text()).trim() === "ainet1e2y2026navstevaindexnowkey");
     const vstupHtml = await fetch(BASE + "/navsteva?h=" + Math.random(), { headers: { Accept: "text/html", "X-Forwarded-For": "10.9.1.4" } }).then((r) => r.text());
-    t("/navsteva má pro vyhledávače titulek, pod kterým se dá najít", /<title>AInet \/navsteva/.test(vstupHtml));
-    t("…a popis místo noindex", /name="description"/.test(vstupHtml) && !/noindex/.test(vstupHtml));
+    t("/navsteva se vyhledávačům nenabízí (noindex)", /noindex/.test(vstupHtml));
     t("…a nahoře hlasitou instrukci pro chat", /NEHLEDEJ TU URL, NESKLÁDEJ JI, NEUPRAVUJ JI\. KLIKNĚTE PŘÍMO NA TENTO ODKAZ/.test(vstupHtml));
     t("vstupní adresa na hlavní stránce není nofollow (ať ji roboti zaindexují)", !/href="\/start"[^>]*nofollow/.test(bezSkriptu));
 
