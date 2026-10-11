@@ -29,14 +29,23 @@ async function pockejNa(fn, ms = 6000) { const t0 = Date.now(); while (Date.now(
 
 /* atrapa modelu: zkoušející dostane JSON se známkou, zkouška text práce, jinak krátká odpověď */
 const volani = [];
+let rozbitaZnamka = true;   /* první odpověď hodnotitele nečitelná → server musí zkusit znovu */
 const atrapa = http.createServer((rq, rs) => {
   let d = ""; rq.on("data", c => d += c);
   rq.on("end", () => {
     let t = {}; try { t = JSON.parse(d); } catch {}
     const sys = String(t.system || "");
-    volani.push({ sys, max_tokens: t.max_tokens, user: JSON.stringify(t.messages || []) });
+    volani.push({ sys, max_tokens: t.max_tokens, user: JSON.stringify(t.messages || []), thinking: t.thinking || null });
+    /* jako Opus 5.5: „enabled“ přemýšlení odmítne, chce „adaptive“ */
+    if (t.thinking && t.thinking.type === "enabled") {
+      rs.writeHead(400, { "Content-Type": "application/json" });
+      return rs.end(JSON.stringify({ error: { message: '"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" instead.' } }));
+    }
     let text = "Odpověď.";
-    if (/Jsi zkoušející školy AInet/.test(sys)) text = JSON.stringify({ znamka: 4.4, body: [4, 5, 4, 4, 5], zduvodneni: "Výpočet sedí s klíčem.", zpetna_vazba: "Dobře spočítané." });
+    if (/Jsi zkoušející školy AInet/.test(sys)) {
+      if (rozbitaZnamka) { rozbitaZnamka = false; text = 'Hodnotím podle rubriky: {"znamka": 4.4, "body": [4, 5'; }
+      else text = JSON.stringify({ znamka: 4.4, body: [4, 5, 4, 4, 5], zduvodneni: "Výpočet sedí s klíčem.", zpetna_vazba: "Dobře spočítané." });
+    }
     else if (/TOHLE JE ZKOUŠKA ŠKOLY/.test(sys)) text = "Alfa po nákladech = výnos − SPY − náklad; t po dnech = alfa / (sd/√dní), protože obchody téhož dne nejsou nezávislé. Verdikt podle kritéria. Při NEPROŠLO nová registrace, žádné ladění.";
     rs.writeHead(200, { "Content-Type": "application/json" });
     rs.end(JSON.stringify({ content: [{ type: "text", text }] }));
@@ -85,6 +94,8 @@ const posta = async (a) => (await get(`/api/messages?agent=${a.id}`, { "X-Owner-
   /* TradeRadar si dá do sandboxu zápisky, ze kterých bude při zkoušce vycházet (zapisuje Fable — domácí) */
   const sb = await post("/api/agents/TradeRadar/sandbox", { nazev: "Zásady měření", text: "Alfa po nákladech = výnos minus SPY minus náklad. t po dnech, ne po obchodech. Kritérium zapsané předem.", stitky: ["zasady"] }, { "X-Owner-Token": fable.tok });
   ok(sb.status === 201, "Fable (domácí) uložil TradeRadarovi zápisky do sandboxu", sb.data);
+  const mz = await post("/api/agents/TradeRadar/mozek", { model: "silny", usili: "vysoke", premysleni: true }, { "X-Owner-Token": fable.tok });
+  ok(mz.status === 200, "TradeRadar má nejsilnější mozek s přemýšlením (jako v provozu)", mz.data);
   const z1 = await post("/api/skola/vypsat", { agent: "TradeRadar", dovednost: "analysis" }, { "X-Owner-Token": fable.tok });
   ok(z1.status === 201 && z1.data.cil_uroven === 1 && /Obchodování 1 — Kritérium a náklady/.test(z1.data.zkouska), "Fable vypsal TradeRadarovi Obchodování 1", z1.data);
   ok(/DATA \(test strategie/.test(z1.data.zadani) && /KRITÉRIUM ZAPSANÉ PŘEDEM/.test(z1.data.zadani), "zadání nese vylosovaná data a kritérium");
@@ -106,9 +117,13 @@ const posta = async (a) => (await get(`/api/messages?agent=${a.id}`, { "X-Owner-
   const vZk = volani.find(v => /TOHLE JE ZKOUŠKA ŠKOLY/.test(v.sys));
   ok(vZk && /TVOJE ZÁPISKY/.test(vZk.sys) && /Zásady měření/.test(vZk.sys), "odpovídač dostal k zadání vlastní zápisky ze sandboxu");
   ok(vZk && vZk.max_tokens >= 2000, "na zkoušku delší odpověď (úsilí vysoké)", vZk && vZk.max_tokens);
+  ok(volani.some(v => /TOHLE JE ZKOUŠKA ŠKOLY/.test(v.sys) && v.thinking && v.thinking.type === "adaptive"), "model, který chce adaptivní přemýšlení, ho dostal (žádný pád na slabší model)");
+  ok(tH.oponent === "Lisak", "oponent je agent, který dovednost umí (Lisak), ne kdokoli", tH.oponent);
   const znamkovano = await pockejNa(async () => { const t = cti().tasks.find(x => x.id === z1.data.task_id); return t && t.znamky && t.znamky.fable; });
   const tDb = cti().tasks.find(x => x.id === z1.data.task_id);
-  ok(znamkovano && tDb.znamky.fable.znamka === 4.4, "Fable navrhl známku 4,4", tDb.znamky);
+  ok(znamkovano && tDb.znamky.fable.znamka === 4.4, "Fable navrhl známku 4,4 (napoprvé nečitelná odpověď → druhý pokus)", tDb.znamky);
+  const vHod = volani.filter(v => /Jsi zkoušející školy AInet/.test(v.sys));
+  ok(vHod.length >= 2 && vHod.every(v => v.max_tokens >= 2000), "hodnotitel má delší odpověď (dřív 600 tokenů → uříznutý JSON)", vHod.map(v => v.max_tokens));
   const vZn = volani.find(v => /Jsi zkoušející školy AInet/.test(v.sys));
   ok(vZn && /KLÍČ PRO HODNOTITELE/.test(vZn.user), "hodnotitel dostal klíč k vylosovaným číslům");
   await pockej(600);
