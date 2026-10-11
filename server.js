@@ -430,6 +430,76 @@ const SENTINEL_MAX_EXCHANGES = 6;   /* zpráv v páru bez zásahu člověka */
 const OBJEDNAVKA_LHUTA_H = Number(process.env.OBJEDNAVKA_LHUTA_H || 4);
 db.sentinel = db.sentinel || { findings: [], notified: {} };
 
+/* ---- POJISTKA PROTI NEKONEČNÉ SMYČCE — v reálném čase, při každé zprávě ----
+   Kontrola po 5 minutách (runSentinel) jen varuje; dva automaty si za 5 minut
+   stihnou poslat stovky zpráv. Tady se proto rozhoduje hned při odeslání:
+     • zacyklení   — agent posílá potřetí po sobě tutéž zprávu
+     • tempo       — pár si za 2 minuty vyměnil víc než SENTINEL_RYCHLE zpráv
+     • bez člověka — pár si za 24 h vyměnil víc než SENTINEL_STOP zpráv
+                     od posledního checkpointu vlastníka (a psali oba)
+   Pak se pár POZASTAVÍ: server zprávy mezi nimi nepřijme (ani vestavěný
+   odpovídač je nenapíše), oba dostanou vysvětlení a v logu je záznam.
+   Pustit dál může jen člověk — vlastník jednoho z agentů nebo správce
+   (POST /api/checkpoint, tlačítko v sekci Log → Sentinel).
+   Hlídají se jen páry dvou agentů. Návštěvníci, Most (pacienti) a hlášení
+   mezi domácími agenty mají vlastní pravidla a strop. */
+const SENTINEL_STOP = Number(process.env.SENTINEL_STOP || 20);
+const SENTINEL_RYCHLE = Number(process.env.SENTINEL_RYCHLE || 10);
+db.sentinel.pauzy = db.sentinel.pauzy || {};          /* "idA|idB" → {od, typ, duvod, a, b, aJmeno, bJmeno} */
+db.sentinel.checkpoint = db.sentinel.checkpoint || {}; /* "idA|idB" → čas posledního checkpointu vlastníka */
+const parKlic = (a, b) => [a, b].sort().join("|");
+const normText = (t) => String(t || "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 160);
+/* most z Messengeru/webu/hlasu nese zprávy lidí (pacientů) s prefixem [FB:psid] — to není smyčka strojů;
+   na každého pacienta zvlášť platí strop vestavěného odpovídače (6 odpovědí do checkpointu) */
+const RELAY_RE = /^\[(FB:\d+|OBJEDNANI|HOVOR)\]/;
+const jeRelay = (a) => a.card.name === MOST_NAME || db.messages.some(m => m.from === a.id && RELAY_RE.test(m.text || ""));
+function hlidanyPar(od, komu, text) {
+  if (!od || !komu || od.id === komu.id) return false;
+  if (!db.agents[od.id] || !db.agents[komu.id]) return false;                       /* návštěvník, systém */
+  if (jeDomaci(od) && jeDomaci(komu)) return false;                               /* hlášení mezi domácími — modelem si neodpovídají */
+  if (RELAY_RE.test(String(text || "")) || jeRelay(od) || jeRelay(komu)) return false;
+  return true;
+}
+function pauzaVen(p) {
+  return { error: `🛡️ Sentinel: konverzace ${p.aJmeno} ↔ ${p.bJmeno} je pozastavená — ${p.duvod}. Zprávy mezi vámi server teď nepřijme; pokračovat půjde, až ji vlastník jednoho z agentů pustí dál.`,
+    sentinel: true, pozastaveno: p.od, typ: p.typ, duvod: p.duvod,
+    jak_pokracovat: "Shrň vlastníkovi, co máte hotové a co zbývá. Vlastník: sekce Log → Sentinel → ▶ Pustit dál, nebo POST /api/checkpoint {partner} s ownerTokenem." };
+}
+/* Vrací null (smí se poslat), nebo objekt s chybou (pár je / právě byl pozastaven). */
+function sentinelBrzda(od, komu, text) {
+  if (!hlidanyPar(od, komu, text)) return null;
+  const key = parKlic(od.id, komu.id);
+  if (db.sentinel.pauzy[key]) return pauzaVen(db.sentinel.pauzy[key]);
+  const now = Date.now();
+  /* všechna pravidla počítají až od posledního checkpointu — „Pustit dál" začíná s čistým štítem */
+  const cp = db.sentinel.checkpoint[key] || 0;
+  const par = db.messages.filter(m => m.from !== "system" && Date.parse(m.t) > cp &&
+    ((m.from === od.id && m.to === komu.id) || (m.from === komu.id && m.to === od.id)));
+  let typ = null, duvod = null;
+  const n = normText(text);
+  const moje = par.filter(m => m.from === od.id).slice(-2);
+  if (n.length >= 2 && moje.length === 2 && moje.every(m => normText(m.text) === n)) {
+    typ = "zacyklení"; duvod = `${od.card.name} posílá potřetí po sobě tutéž zprávu`;
+  }
+  if (!typ) {
+    const rychle = par.filter(m => now - Date.parse(m.t) < 120_000).length + 1;
+    if (rychle > SENTINEL_RYCHLE) { typ = "tempo"; duvod = `${rychle} zpráv za 2 minuty — strojové tempo bez člověka`; }
+  }
+  if (!typ) {
+    const fresh = par.filter(m => Date.parse(m.t) > now - DEN_MS);
+    const psaliOba = new Set([...fresh.map(m => m.from), od.id]).size === 2;
+    if (fresh.length + 1 > SENTINEL_STOP && psaliOba) { typ = "bez_checkpointu"; duvod = `${fresh.length + 1} zpráv za 24 h bez checkpointu vlastníka`; }
+  }
+  if (!typ) return null;
+  const p = db.sentinel.pauzy[key] = { od: new Date().toISOString(), typ, duvod, a: od.id, b: komu.id, aJmeno: od.card.name, bJmeno: komu.card.name };
+  for (const x of [od, komu]) systemovaZprava(x.id, "Sentinel",
+    `⛔ Sentinel pozastavil konverzaci ${od.card.name} ↔ ${komu.card.name}: ${duvod}. Zprávy mezi vámi server teď nepřijme. Shrň vlastníkovi, co máte hotové a co zbývá — pokračovat půjde, až ji pustí dál (checkpoint).`);
+  db.sentinel.findings = [...(db.sentinel.findings || []), { typ: "pozastaveno", "pár": `${od.card.name} ↔ ${komu.card.name}`, detail: duvod, t: p.od }].slice(-50);
+  logEvent(`SENTINEL STOP: "${od.card.name} ↔ ${komu.card.name}" — ${duvod}; čeká na checkpoint vlastníka`);
+  save();
+  return pauzaVen(p);
+}
+
 /* Zpráva je objednávka pacienta (most ji značí prefixem). Obsah se nikam nekopíruje. */
 function jeObjednavka(m) { return typeof m.text === "string" && m.text.startsWith("[OBJEDNANI]"); }
 
@@ -1548,7 +1618,10 @@ async function fableOdpovez(msg) {
      odpověď od Bridge nebo člověka — ta je nejspíš pokrývá. */
   const mojePozdeji = [...vlakno].reverse().find(m => m.from === ja.id && m.t > aktualni.t);
   if (mojePozdeji && !mojePozdeji.inReplyTo) return;
-  const mych = vlakno.filter(m => m.from === ja.id).length;
+  if (db.sentinel.pauzy[parKlic(ja.id, partner.id)]) { logEvent(`${ja.card.name.toUpperCase()} AUTO: konverzace s "${partner.card.name}" je pozastavená Sentinelem — neodpovídám`); return; }
+  /* počítá se od posledního checkpointu vlastníka — po „Pustit dál" může zase odpovídat */
+  const cpT = db.sentinel.checkpoint[parKlic(ja.id, partner.id)] || 0;
+  const mych = vlakno.filter(m => m.from === ja.id && Date.parse(m.t) > cpT).length;
   if (mych >= 6) { logEvent(`FABLE AUTO: vlákno s "${partner.card.name}" má už ${mych} mých odpovědí — čekám na checkpoint člověka`); return; }
   const checkpoint = mych >= 3;
 
@@ -1586,6 +1659,8 @@ async function fableOdpovez(msg) {
 
   const out = { id: crypto.randomUUID(), from: ja.id, to: partner.id, fromName: ja.card.name, toName: partner.card.name,
     text: odpoved.slice(0, 2000), visibility: "private", t: new Date().toISOString() };
+  const brzda = sentinelBrzda(ja, partner, out.text);
+  if (brzda) { logEvent(`${ja.card.name.toUpperCase()} AUTO: odpověď "${partner.card.name}" zastavil Sentinel (${brzda.duvod})`); return; }
   ulozZpravu(out, partner, aktualni.id);   /* párovat k TÉHLE zprávě, ne k poslední ve vlákně — mezitím mohla přijít další */
   probud(ja, "odpověděl ze serveru");          /* agent se právě projevil — nespí */
   stav.pocetDnes++; if (ja.card.name === FABLE_NAME) { db.fable.den = den; db.fable.pocetDnes = stav.pocetDnes; } save();
@@ -2231,11 +2306,15 @@ const server = http.createServer(async (req, res) => {
             if (!rec) out = { error: `Agent "${args.to}" nenalezen`, tip: "Seznam získáš nástrojem list_agents." };
             else {
               const text = String(args.text || "").slice(0, 2000);
+              const brzda = sentinelBrzda(me, rec, text);
+              if (brzda) out = brzda;
+              else {
               const msg = { id: crypto.randomUUID(), from: me.id, to: rec.id, fromName: me.card.name, toName: rec.card.name,
                 text, visibility: args.visibility === "public" ? "public" : "private", t: new Date().toISOString() };
               ulozZpravu(msg, rec, args.in_reply_to || null);
               logEvent(`ZPRÁVA (MCP): "${me.card.name}" → "${rec.card.name}"`);
               out = { odeslano: true, id: msg.id, stav: msg.status, odpoved_na: msg.inReplyTo || null, komu: rec.card.name, kdy: msg.t, viditelnost: msg.visibility };
+              }
             }
           }
         } else if (name === "find_artifacts") {
@@ -2594,6 +2673,7 @@ const server = http.createServer(async (req, res) => {
           tip: nahrada.length ? "Zkus někoho z pole misto_nej — umí totéž a je na síti." : "Teď na síti není nikdo se stejnými dovednostmi. Zkus to později.",
         });
       }
+      { const brzda = sentinelBrzda(a, rec, text); if (brzda) return json(res, 409, brzda); }
       probud(a, "poslal lite zprávu");
       const isPublic = url.searchParams.get("public") === "1";
       const msg = {
@@ -3690,6 +3770,7 @@ const server = http.createServer(async (req, res) => {
           probudi_ho: "jakmile se agent sám ozve (pošta, zpráva, registrace týmž klíčem), je zase k mání",
         });
       }
+      { const brzda = sentinelBrzda(sender, recipient, text); if (brzda) return json(res, 409, brzda); }
       probud(sender, "poslal zprávu");
       /* Výchozí je SOUKROMÁ — veřejnou musí agent zvolit výslovně */
       const msg = {
@@ -3957,17 +4038,29 @@ const server = http.createServer(async (req, res) => {
        Vynuluje Sentinelovo počítadlo pro daný pár a zapíše se do logu. */
     if (p === "/api/checkpoint" && req.method === "POST") {
       const body = await readBody(req);
+      /* správce sítě smí pustit dál kterýkoli pozastavený pár: {par: "idA|idB"} */
+      if (body.par && db.sentinel.pauzy[body.par] && adminOk()) {
+        const pz = db.sentinel.pauzy[body.par]; delete db.sentinel.pauzy[body.par];
+        db.sentinel.checkpoint[body.par] = db.sentinel.notified[body.par] = Date.now();
+        for (const id of [pz.a, pz.b]) systemovaZprava(id, "Checkpoint", `✓ Správce sítě pustil dál konverzaci ${pz.aJmeno} ↔ ${pz.bJmeno}.${body.note ? ` Poznámka: ${String(body.note).slice(0, 300)}` : ""}`);
+        logEvent(`CHECKPOINT: správce pustil dál "${pz.aJmeno} ↔ ${pz.bJmeno}" (Sentinel)`);
+        save();
+        return json(res, 200, { ok: true, schvaleno: [pz.aJmeno, pz.bJmeno], uvolneno: [`${pz.aJmeno} ↔ ${pz.bJmeno}`] });
+      }
       const tok = body.token || req.headers["x-owner-token"];
       const me = tok ? Object.values(db.agents).find(x => x.ownerToken && x.ownerToken === tok) : null;
-      if (!me) return json(res, 403, { error: "Checkpoint může potvrdit jen vlastník agenta (ownerToken)." });
+      if (!me) return json(res, 403, { error: "Checkpoint může potvrdit jen vlastník agenta (ownerToken) nebo správce sítě." });
       const partner = body.partner ? db.agents[body.partner] : null;
       const note = (body.note || "").slice(0, 300);
       const targets = partner ? [partner] : Object.values(db.agents).filter(a => a.id !== me.id && db.messages.some(m => (m.from === me.id && m.to === a.id) || (m.from === a.id && m.to === me.id)));
       if (!targets.length) return json(res, 404, { error: "Žádná konverzace ke schválení." });
       const now = Date.now();
+      const uvolneno = [];
       for (const t of targets) {
         const key = [me.id, t.id].sort().join("|");
         db.sentinel.notified[key] = now;               /* Sentinelovi: počítej znovu od nuly */
+        db.sentinel.checkpoint[key] = now;             /* pojistka i vestavěný odpovídač počítají od teď */
+        if (db.sentinel.pauzy[key]) { delete db.sentinel.pauzy[key]; uvolneno.push(`${me.card.name} ↔ ${t.card.name}`); logEvent(`SENTINEL: pauza "${me.card.name} ↔ ${t.card.name}" zrušena checkpointem vlastníka`); }
         db.messages.push({
           id: crypto.randomUUID(), from: "system", to: t.id, fromName: "Checkpoint",
           toName: t.card.name, visibility: "private", t: new Date().toISOString(),
@@ -3976,7 +4069,7 @@ const server = http.createServer(async (req, res) => {
         logEvent(`CHECKPOINT: vlastník "${me.card.name}" schválil pokračování s "${t.card.name}"${note ? ` — ${note}` : ""}`);
       }
       save();
-      return json(res, 200, { ok: true, schvaleno: targets.map(t => t.card.name) });
+      return json(res, 200, { ok: true, schvaleno: targets.map(t => t.card.name), uvolneno });
     }
 
     /* ================= TRH (MarketPlace) =================
@@ -4268,6 +4361,7 @@ const server = http.createServer(async (req, res) => {
         if (!rec) return json(res, 404, { error: `Agent "${x2 || ""}" nenalezen.`, seznam: `${baseUrl}/api/lite/agents` });
         const text = String(x3 || "").slice(0, 2000);
         if (!text) return json(res, 400, { error: "Chybí text zprávy." });
+        { const brzda = sentinelBrzda(a, rec, text); if (brzda) return json(res, 409, brzda); }
         const msg = { id: crypto.randomUUID(), from: a.id, to: rec.id, fromName: a.card.name, toName: rec.card.name,
           text, visibility: "private", t: new Date().toISOString() };
         ulozZpravu(msg, rec, x4 || null);   /* /napis/KOD/KOMU/TEXT/ID_PUVODNI — poslední díl je volitelný */
@@ -4342,6 +4436,7 @@ const server = http.createServer(async (req, res) => {
         rec = posl ? (db.agents[posl.from] || cilJakoAgent(posl.from)) : null;
       }
       if (!rec) return json(res, 404, { error: komu ? `Agent "${komu}" nenalezen.` : "Není komu odpovědět — uveď v bloku pole komu." });
+      { const brzda = sentinelBrzda(a, rec, zprava); if (brzda) return json(res, 409, { faze: "zprava", ...brzda }); }
       const msg = {
         id: crypto.randomUUID(), from: a.id, to: rec.id,
         fromName: a.card.name, toName: rec.card.name, text: zprava,
@@ -4391,10 +4486,12 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/sentinel" && req.method === "GET") {
       if (url.searchParams.get("run") === "1") runSentinel();
       return json(res, 200, {
-        pravidla: ["max 3 výměny bez checkpointu s vlastníky", "detekce zacyklení (opakovaná zpráva)", "sledování reputace pod 3★", "dovednosti bez ověření testem", "artefakty čekající na schválení déle než 24 h", "propadlé propustky návštěvníků (24 h) — mazání i s poštou", `${SPANEK_DNI} dní bez aktivity — agent spí: mimo matchmaking, poštu nepřijme, reputace beze změny`, `${ARCHIV_DNI} dní bez aktivity — profil do archivu, jméno i klíč zůstávají rezervované pro návrat`],
+        pravidla: [`POJISTKA (hned při odeslání): stejná zpráva potřetí po sobě, víc než ${SENTINEL_RYCHLE} zpráv páru za 2 minuty, nebo víc než ${SENTINEL_STOP} zpráv za 24 h bez checkpointu → konverzace se pozastaví, dál ji pustí jen člověk`, "max 3 výměny bez checkpointu s vlastníky (po 6 zprávách upozornění)", "detekce zacyklení (opakovaná zpráva)", "sledování reputace pod 3★", "dovednosti bez ověření testem", "artefakty čekající na schválení déle než 24 h", "propadlé propustky návštěvníků (24 h) — mazání i s poštou", `${SPANEK_DNI} dní bez aktivity — agent spí: mimo matchmaking, poštu nepřijme, reputace beze změny`, `${ARCHIV_DNI} dní bez aktivity — profil do archivu, jméno i klíč zůstávají rezervované pro návrat`],
         spanekDni: SPANEK_DNI, archivDni: ARCHIV_DNI,
         poslednKontrola: db.sentinel.lastRun || null,
         nalezy: db.sentinel.findings || [],
+        pojistka: { stop24h: SENTINEL_STOP, za2min: SENTINEL_RYCHLE },
+        pozastaveno: Object.entries(db.sentinel.pauzy || {}).map(([par, z]) => ({ par, a: z.a, b: z.b, aJmeno: z.aJmeno, bJmeno: z.bJmeno, od: z.od, typ: z.typ, duvod: z.duvod })),
       });
     }
 

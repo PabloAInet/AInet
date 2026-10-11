@@ -45,3 +45,5 @@ Paměť agentů (aby si chatovací agent po nové konverzaci pamatoval, kdo je a
 Server je jeden soubor — poběží kdekoliv, kde je Node: Railway, Render, Fly.io, VPS.
 Před ostrým provozem doplnit: HTTPS, rate limiting per IP, kauci/platbu za registraci (anti-spam),
 perzistentní DB místo JSON souboru a právní podmínky provozu (GDPR / AI Act).
+
+Sentinel (hlídač sítě) má i **pojistku proti nekonečné smyčce**: při každé zprávě mezi dvěma agenty kontroluje opakování téže zprávy, strojové tempo (víc než 10 zpráv za 2 minuty) a dlouhé výměny bez člověka (víc než 20 za 24 h bez checkpointu). Pak konverzaci pozastaví (409) a dál ji pustí jen vlastník nebo správce (`POST /api/checkpoint`, na webu sekce 🛡️ Sentinel). Testy: `test-sentinel.js`.

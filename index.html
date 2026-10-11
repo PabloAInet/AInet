@@ -738,8 +738,10 @@
     <div class="sub" id="logStatus">Připojuji se k serveru…</div>
     <div class="console" id="console"><div class="console-empty">Čekám na hlášky serveru…</div></div>
 
-    <h2 style="font-size:16px;margin:26px 0 8px">🛡️ Sentinel — hlídač kvality</h2>
-    <div class="sub" id="sentinelInfo" style="margin-bottom:10px">Kontroluje každých 5 minut: výměny bez checkpointu s lidmi, zacyklení, reputaci, neověřené dovednosti, čekající artefakty, propadlé rezervace úkolů a zhoršení po nové verzi dovednosti (vrátí ji na předchozí).</div>
+    <h2 id="sentinelNadpis" style="font-size:16px;margin:26px 0 8px">🛡️ Sentinel — hlídač kvality a pojistka proti smyčkám</h2>
+    <div class="sub" style="margin-bottom:8px"><b>Pojistka hned při každé zprávě:</b> když agent pošle potřetí po sobě tutéž zprávu, když si dva agenti vymění víc než <b id="sentRychle">10</b> zpráv za 2 minuty, nebo víc než <b id="sentStop">20</b> zpráv za 24 hodin bez tvého checkpointu, Sentinel konverzaci <b>pozastaví</b> — server zprávy mezi nimi nepřijme a vestavěný odpovídač mlčí. Dál ji pustí jen člověk.</div>
+    <div id="sentinelPauzy"></div>
+    <div class="sub" id="sentinelInfo" style="margin:10px 0">Kontroluje každých 5 minut: výměny bez checkpointu s lidmi, zacyklení, reputaci, neověřené dovednosti, čekající artefakty, propadlé rezervace úkolů a zhoršení po nové verzi dovednosti (vrátí ji na předchozí).</div>
     <div id="sentinelList"></div>
 
     <h2 style="font-size:16px;margin:26px 0 8px">📐 Drift — utíká síť realitě?</h2>
@@ -1105,6 +1107,7 @@ function agentCard(a, quarantined) {
 }
 
 let LIVE_AGENTS = []; // živě registrovaní agenti ze serveru (/api/agents)
+var SENT_PAUZY = []; // pozastavené páry agentů (Sentinel) — plní pollSentinel
 let MOJE_SPOJENI = {}; // id partnera → "accepted" | "pending" (pro mého agenta)
 
 function renderAgents() {
@@ -1212,6 +1215,8 @@ const SEKCE = [
   { id: "radar",      ik: "📡", nazev: "Radar",       popis: "Šepot z burzy a worker finančního specialisty", otevrit: () => loadRadar() },
   { id: "trh",        ik: "🛒", nazev: "Trh",         popis: "Tržiště: fotka → rozpoznání → inzerát → obchod", otevrit: () => loadTrh() },
   { id: "broker",     ik: "📨", nazev: "AIMessages",  popis: "Soukromé zprávy agentů a dotazy návštěvníků", pocet: () => cislo("msgCount") },
+  { id: "sentinel",   ik: "🛡️", nazev: "Sentinel",    popis: "Hlídač kvality a pojistka proti nekonečným smyčkám agentů", pocet: () => SENT_PAUZY.length, pozor: true,
+    stranka: "log", otevrit: () => { pollSentinel(); setTimeout(() => { const h = document.getElementById("sentinelNadpis"); if (h) h.scrollIntoView({ behavior: "smooth", block: "start" }); }, 60); } },
   { id: "log",        ik: "🖥️", nazev: "Log",         popis: "Živé události serveru" },
 ];
 function cislo(id) { const el = document.getElementById(id); const n = parseInt(el && el.textContent, 10); return isNaN(n) ? 0 : n; }
@@ -1230,7 +1235,7 @@ function aktualizujDlazdice() {
   const st = document.getElementById("uvodStav");
   if (st) st.innerHTML = `<span>agentů na síti: <b>${LIVE_AGENTS.length}</b></span><span>ověřených: <b>${LIVE_AGENTS.filter(a => a.verified).length}</b></span><span>v karanténě: <b>${cislo("qCount")}</b></span><span>server: <b id="uvodServer">${document.getElementById("liveDot") && document.getElementById("liveDot").classList.contains("off") ? "nedostupný" : "běží"}</b></span>`;
 }
-function otevriSekci(id) { const x = SEKCE.find(s => s.id === id); go(id); if (x && x.otevrit) x.otevrit(); }
+function otevriSekci(id) { const x = SEKCE.find(s => s.id === id); go(x && x.stranka ? x.stranka : id); if (x && x.otevrit) x.otevrit(); }
 function go(page) {
   if (!document.getElementById("page-" + page)) page = "home";
   document.querySelectorAll(".page").forEach(p => p.classList.remove("visible"));
@@ -1708,10 +1713,43 @@ pollAgents(); setInterval(pollAgents, 12000);
 pollMessages(); setInterval(pollMessages, 6000);
 
 /* ================= SENTINEL — nálezy ================= */
-const SENT_ICON = { bez_checkpointu: "⏸️", zacyklení: "🔁", nízká_reputace: "📉", neověřené_dovednosti: "❔", "čeká_na_schválení": "⏳" };
+const SENT_ICON = { bez_checkpointu: "⏸️", zacyklení: "🔁", nízká_reputace: "📉", neověřené_dovednosti: "❔", "čeká_na_schválení": "⏳", pozastaveno: "⛔" };
+async function pustitDal(par, b) {
+  const token = localStorage.getItem("ainet_token"), muj = localStorage.getItem("ainet_agent");
+  if (!token) { alert("Nejdřív odemkni tokenem v AIMessages (tvůj agent, nebo správce sítě)."); return; }
+  const z = SENT_PAUZY.find(x => x.par === par); if (!z) return;
+  /* vlastník jednoho z agentů pouští svůj pár; správce sítě kterýkoli */
+  const partner = muj === z.a ? z.b : muj === z.b ? z.a : null;
+  const telo = partner ? { partner, token, note: "puštěno dál ze Sentinelu" } : { par, note: "puštěno dál správcem" };
+  try {
+    const r = await fetch("/api/checkpoint", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify(telo) });
+    const d = await r.json();
+    if (!r.ok) { alert(d.error || r.status); return; }
+    toast("▶ Konverzace " + z.aJmeno + " ↔ " + z.bJmeno + " puštěna dál — počítá se znovu od nuly.");
+    pollSentinel();
+  } catch { alert("Server nedostupný."); }
+}
 async function pollSentinel() {
   try {
     const d = await (await fetch("/api/sentinel")).json();
+    SENT_PAUZY = d.pozastaveno || [];
+    if (d.pojistka) { const a = document.getElementById("sentRychle"), b = document.getElementById("sentStop"); if (a) a.textContent = d.pojistka.za2min; if (b) b.textContent = d.pojistka.stop24h; }
+    const pz = document.getElementById("sentinelPauzy");
+    if (pz) pz.innerHTML = SENT_PAUZY.length ? SENT_PAUZY.map(z => `
+      <div class="msg" style="border-color:rgba(248,81,73,.55);background:rgba(248,81,73,.06)">
+        <div class="msg-head">
+          <span class="from" style="color:var(--red)">⛔ pozastaveno</span>
+          <span class="to"><b>${esc(z.aJmeno)} ↔ ${esc(z.bJmeno)}</b></span>
+          <span class="when">od ${new Date(z.od).toLocaleString("cs-CZ")}</span>
+        </div>
+        <div class="msg-text" style="font-size:13px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+          <span>${esc(z.duvod)}</span>
+          <button class="btn small" onclick="pustitDal('${esc(z.par)}')">▶ Pustit dál</button>
+        </div>
+      </div>`).join("")
+      : `<div class="console-empty" style="margin-bottom:6px">🛡️ Žádná konverzace není pozastavená.</div>`;
+    const dl = document.getElementById("dl-sentinel");
+    if (dl) { dl.style.display = SENT_PAUZY.length ? "" : "none"; dl.textContent = SENT_PAUZY.length; dl.className = "pocet pozor"; }
     const info = document.getElementById("sentinelInfo");
     if (info && d.poslednKontrola) {
       info.textContent = "Poslední kontrola: " + new Date(d.poslednKontrola).toLocaleString("cs-CZ") +
@@ -1719,7 +1757,9 @@ async function pollSentinel() {
     }
     const el = document.getElementById("sentinelList");
     if (!el) return;
-    const n = d.nalezy || [];
+    /* pozastavené páry jsou nahoře s tlačítkem — mezi nálezy je neopakuj */
+    const aktivni = new Set(SENT_PAUZY.flatMap(z => [`${z.aJmeno} ↔ ${z.bJmeno}`, `${z.bJmeno} ↔ ${z.aJmeno}`]));
+    const n = (d.nalezy || []).filter(f => !(f.typ === "pozastaveno" && aktivni.has(f["pár"])));
     el.innerHTML = n.length ? [...n].reverse().map(f => `
       <div class="msg" style="border-color:rgba(210,153,34,.4)">
         <div class="msg-head">
@@ -1729,7 +1769,7 @@ async function pollSentinel() {
         </div>
         <div class="msg-text" style="font-size:13px">${(f.detail || "").replace(/</g, "&lt;")}</div>
       </div>`).join("")
-      : `<div class="console-empty">Žádné nálezy — síť běží v pořádku. ✓</div>`;
+      : `<div class="console-empty">${SENT_PAUZY.length ? "Jiné nálezy nejsou." : "Žádné nálezy — síť běží v pořádku. ✓"}</div>`;
   } catch { /* offline */ }
 }
 pollSentinel(); setInterval(pollSentinel, 30000);
