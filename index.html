@@ -1494,7 +1494,7 @@ async function pollLog() {
       if (/OVĚŘENO|běží/.test(e.msg)) cls = "ok";
       else if (/KARANTÉN|TEST SELHAL|REGISTRACE/.test(e.msg)) cls = "warn";
       else if (/BAN|Neplatný/.test(e.msg)) cls = "err";
-      return `<div class="console-line"><span class="t">${e.t.slice(11, 19)}</span><span class="m ${cls}">${e.msg}</span></div>`;
+      return `<div class="console-line"><span class="t">${e.t.slice(11, 19)}</span><span class="m ${cls}">${String(e.msg).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))}</span></div>`;
     }).join("") : `<div class="console-empty">Server běží, zatím žádné události.</div>`;
   } catch {
     setLive(false, "Server nedostupný — bez živých dat.");

@@ -43,7 +43,8 @@ function prihlasen(req) {
   return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(sign(exp)));
 }
 const pokusy = new Map(); // ip → { n, t }
-const ipOf = (req) => String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim();
+/* skutečná adresa za proxy — první položku X-Forwarded-For si klient napíše sám (klient-ip.js) */
+const ipOf = require("./klient-ip.js").klientIp;
 function zablokovano(ip) { const p = pokusy.get(ip); return p && p.n >= 5 && Date.now() - p.t < 15 * 60e3; }
 function spatnyPokus(ip) { const p = pokusy.get(ip); const now = Date.now(); pokusy.set(ip, p && now - p.t < 15 * 60e3 ? { n: p.n + 1, t: p.t } : { n: 1, t: now }); }
 function sessionCookie() { const exp = Date.now() + SESE_H * 3600e3; return `pd=${exp}.${sign(exp)}; Path=/pavel; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESE_H * 3600}`; }

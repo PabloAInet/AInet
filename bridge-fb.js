@@ -38,6 +38,7 @@
  */
 
 const http = require("http");
+const { klientIp } = require("./klient-ip.js");   /* skutečná adresa za proxy, ne první položka X-Forwarded-For */
 
 const PORT = process.env.PORT || 4790;
 const AINET = (process.env.AINET_BASE || "https://ainet-1e2y.onrender.com").replace(/\/$/, "");
@@ -590,7 +591,7 @@ http.createServer(async (req, res) => {
       const json = (st, o) => { res.writeHead(st, { ...cors, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(o)); };
       if (req.method !== "POST") return json(405, { chyba: "jen POST" });
       if (!PORADNA || !INSTRUKCE) return json(503, { odpoved: "Poradna je teď mimo provoz. Napište nám prosím do Messengeru; při akutních potížích volejte 155." });
-      const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim();
+      const ip = klientIp(req);
       if (webPrilisRychle(ip)) return json(429, { odpoved: "Píšete moc rychle za sebou, chvilku počkejte. Při akutních potížích volejte 155." });
       let body; try { body = await readBody(req); } catch { return json(400, { chyba: "špatný JSON" }); }
       const id = String(body.id || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40);
@@ -714,7 +715,7 @@ http.createServer(async (req, res) => {
       const json = (st, o) => { res.writeHead(st, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(o)); };
       /* stejná ochrana jako /hlas/literatura: bez správného x-doctor-klic nikdo nezaloží objednávku s cizími údaji */
       if (process.env.HLAS_KLIC && req.headers["x-doctor-klic"] !== process.env.HLAS_KLIC) return json(403, { ok: false, chyba: "forbidden" });
-      const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim();
+      const ip = klientIp(req);
       if (webPrilisRychle("hlas_" + ip)) return json(429, { ok: false, chyba: "příliš mnoho požadavků" });
       let b; try { b = await readBody(req); } catch { return json(400, { ok: false, chyba: "špatný JSON" }); }
       const t = (k) => String((b && b[k]) || "").replace(/[\r\n]+/g, " ").slice(0, 300).trim();
