@@ -5323,9 +5323,28 @@ const server = http.createServer(async (req, res) => {
       /* u domácích agentů potvrzuje vlastník tokenem kteréhokoli z nich (web ho má odemčený přes Fabla) */
       const vlastnik = !!(zak && tok && vlastniAgenta(tok, zak));
       if (!vlastnik && !adminOk()) return json(res, 403, { error: "Známku potvrzuje vlastník žáka svým ownerTokenem (u domácích agentů tokenem kteréhokoli z nich), nebo správce sítě." });
-      if (t.zkouskaStav !== "hodnoceni") return json(res, 409, { error: `Zkouška není ve stavu hodnocení (je ${t.zkouskaStav}).` });
-      const znamka = Number(body.znamka);
-      if (!(znamka >= 1 && znamka <= 5)) return json(res, 400, { error: "znamka 1–5" });
+      const znamka = Math.round(Number(body.znamka) * 10) / 10;
+      if (!(znamka >= 1 && znamka <= 5)) return json(res, 400, { error: "znamka 1–5 (smí být desetinná, např. 4,6)" });
+      /* OPRAVA už uzavřené zkoušky (11. 10. 2026): vlastník přepíše svou známku do 7 dnů — jen když se tím
+         neotočí výsledek (složena ↔ nesložena); to by chtělo novou zkoušku, ne přepsání */
+      if (["slozena", "neslozena"].includes(t.zkouskaStav) && body.oprava) {
+        if (!t.uzavreno || Date.now() - Date.parse(t.uzavreno.t) > 7 * 86400_000) return json(res, 409, { error: "Opravit známku jde do 7 dnů od uzavření." });
+        const novyStav = znamka >= SKOLA_PROSEL ? "slozena" : "neslozena";
+        if (novyStav !== t.zkouskaStav) return json(res, 409, { error: `Oprava by otočila výsledek (${t.zkouskaStav} → ${novyStav}) — na to vypiš novou zkoušku.` });
+        const kdo = vlastnik ? `vlastník ${zak.card.name}` : "správce sítě", ted = new Date().toISOString();
+        const stara = t.uzavreno.znamka;
+        t.znamky.clovek = { znamka, komentar: String(body.komentar || (t.znamky.clovek && t.znamky.clovek.komentar) || "").slice(0, 1000), kdo, t: ted, opraveno_z: stara };
+        t.uzavreno = { ...t.uzavreno, znamka, kdo, auto: false, opraveno: { z: stara, t: ted } };
+        const r = db.ratings.find(x => x.ukol === t.id && x.byHuman);
+        if (r) { r.rating = znamka; r.t = ted; }
+        else db.ratings.push({ id: crypto.randomUUID(), agent: zak.id, agentName: zak.card.name, rating: znamka, byHuman: true, vaha: 1, od: kdo, ukol: t.id, dovednost: t.dovednost, t: ted });
+        const z = prepocitejUroven(zak, t.dovednost, "oprava známky");
+        systemovaZprava(zak.id, "Škola", `🎓 Známka zkoušky „${t.lekce}“ opravena vlastníkem: ${stara} → ${znamka}.`);
+        logEvent(`ŠKOLA: „${t.lekce}“ od "${zak.card.name}" — známka opravena ${stara} → ${znamka} (${kdo})`);
+        save();
+        return json(res, 200, { ok: true, opraveno: true, stav: t.zkouskaStav, znamka, puvodni: stara, uroven: z.uroven, uroven_nazev: UROVNE[z.uroven] });
+      }
+      if (t.zkouskaStav !== "hodnoceni") return json(res, 409, { error: `Zkouška není ve stavu hodnocení (je ${t.zkouskaStav}). Přepsat vlastní známku jde s {"oprava": true}.` });
       const kdo = vlastnik ? `vlastník ${zak.card.name}` : "správce sítě";
       t.znamky.clovek = { znamka, komentar: String(body.komentar || "").slice(0, 1000), kdo, t: new Date().toISOString() };
       const z = uzavriZkousku(t, znamka, kdo, false);

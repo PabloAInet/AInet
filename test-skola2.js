@@ -160,6 +160,13 @@ const posta = async (a) => (await get(`/api/messages?agent=${a.id}`, { "X-Owner-
   console.log("\n4) Osvědčený = zkouška 2 + praxe; živý účet jen výslovně");
   const pot1 = await post(`/api/tasks/${z1.data.task_id}/hodnoceni`, { znamka: 4 }, { "X-Owner-Token": fable.tok });
   ok(pot1.status === 200 && pot1.data.uroven === 1, "vlastník (token domácího) potvrdil 4/5 → TradeRadar ověřený", pot1.data);
+  const op1 = await post(`/api/tasks/${z1.data.task_id}/hodnoceni`, { znamka: 4.6, oprava: true }, { "X-Owner-Token": fable.tok });
+  ok(op1.status === 200 && op1.data.opraveno && op1.data.puvodni === 4 && op1.data.znamka === 4.6, "vlastník přepsal svou známku 4 → 4,6 (desetinná)", op1.data);
+  ok(cti().ratings.find(r => r.ukol === z1.data.task_id && r.byHuman).rating === 4.6, "lidské hodnocení v databázi je 4,6 (žádné druhé)");
+  const op2 = await post(`/api/tasks/${z1.data.task_id}/hodnoceni`, { znamka: 3, oprava: true }, { "X-Owner-Token": fable.tok });
+  ok(op2.status === 409, "oprava, která by otočila výsledek (složena → nesložena), neprojde", op2.data);
+  ok((await post(`/api/tasks/${z1.data.task_id}/hodnoceni`, { znamka: 5, oprava: true }, { "X-Owner-Token": cizi.tok })).status === 403, "cizí známku neopraví");
+  ok((await post(`/api/tasks/${z1.data.task_id}/hodnoceni`, { znamka: 5 }, { "X-Owner-Token": fable.tok })).status === 409, "bez „oprava“ uzavřenou zkoušku znovu nepotvrdí");
   const st0 = (await get("/api/radar/stav", { "X-Owner-Token": fable.tok })).data;
   ok(st0.smi_papir === false && st0.smi_zivy === false && st0.praxe_dny === 0, "ověřený: ani papír, ani živý účet", st0);
   const z2 = await post("/api/skola/vypsat", { agent: "TradeRadar", dovednost: "analysis" }, { "X-Owner-Token": fable.tok });

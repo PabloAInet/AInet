@@ -1949,7 +1949,7 @@ async function loadSkola() {
       <div style="font-size:12.5px;color:var(--muted)">Fable: <b>${z.znamky.fable ?? "—"}</b> · oponent ${esc(z.oponent || "—")}: <b>${z.znamky.oponent ?? "—"}</b> · lidské potvrzení do ${z.lhuta ? new Date(z.lhuta).toLocaleString("cs-CZ") : "—"}</div>
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <a class="btn small ghost" href="/api/tasks/${esc(z.id)}" target="_blank">zobrazit odevzdání</a>
-        ${token ? [1,2,3,4,5].map(n => `<button class="btn small${n >= 4 ? "" : " ghost"}" onclick="potvrdZnamku('${esc(z.id)}',${n})">${n}★</button>`).join("") : '<span class="token-status">pro potvrzení odemkni tokenem</span>'}
+        ${token ? (z.znamky.fable ? `<button class="btn small" title="Potvrdit přesně Fablův návrh" onclick="potvrdZnamku('${esc(z.id)}',${Number(z.znamky.fable)})">✓ návrh Fabla ${String(z.znamky.fable).replace(".", ",")}</button>` : "") + [1,2,3,4,5].map(n => `<button class="btn small${n >= 4 ? "" : " ghost"}" onclick="potvrdZnamku('${esc(z.id)}',${n})">${n}★</button>`).join("") : '<span class="token-status">pro potvrzení odemkni tokenem</span>'}
         <span class="token-status" id="skolaStav-${esc(z.id)}"></span>
       </div>
     </div>`).join("") : '<div class="msg" style="color:var(--muted)">Žádná zkouška nečeká. Agent si o ni řekne: POST /api/skola/zkouska {"dovednost":"…"} nebo MCP request_exam.</div>';
@@ -1962,7 +1962,7 @@ async function loadSkola() {
   kur.innerHTML = `<div class="msg">${Object.entries(d.kurikulum).map(([dov, lekce]) => `<div style="padding:4px 0"><b>${esc(dov)}</b>: ${lekce.map(l => `${l.poradi}. ${esc(l.nazev)} <span style="color:${UROVEN_BARVA[l.cil_uroven]}">→ ${esc(d.urovne[l.cil_uroven])}</span>`).join(" · ")}</div>`).join("") || '<span style="color:var(--muted)">kurikulum je prázdné</span>'}
     <div style="font-size:12px;color:var(--muted);margin-top:6px">Ostatní dovednosti dostanou obecné zadání. Lekci přidáš artefaktem s názvem <code>lekce:&lt;dovednost&gt;:&lt;pořadí&gt;</code>; po schválení se do kurikula propíše sama.</div></div>`;
   const hotove = d.zkousky.filter(z => z.stav !== "hodnoceni").slice(0, 12);
-  his.innerHTML = hotove.length ? `<div class="msg">${hotove.map(z => `<div style="font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--border)">${esc(z.zak)} · ${esc(z.lekce)} → ${esc(z.cil_nazev)} · <b>${esc(z.stav)}</b>${z.uzavreno ? ` (${z.uzavreno.znamka}/5, ${esc(z.uzavreno.kdo)})` : ""}</div>`).join("")}</div>` : '<div class="msg" style="color:var(--muted)">zatím nic</div>';
+  his.innerHTML = hotove.length ? `<div class="msg">${hotove.map(z => `<div style="font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--border)">${esc(z.zak)} · ${esc(z.lekce)} → ${esc(z.cil_nazev)} · <b>${esc(z.stav)}</b>${z.uzavreno ? ` (${z.uzavreno.znamka}/5, ${esc(z.uzavreno.kdo)})` : ""}${token && z.uzavreno && z.znamky && z.znamky.fable && Number(z.znamky.fable) !== Number(z.uzavreno.znamka) ? ` <button class="btn small ghost" title="Přepsat svou známku na Fablův návrh (do 7 dnů, jen když se neotočí výsledek)" onclick="opravZnamku('${esc(z.id)}',${Number(z.znamky.fable)},this)">↺ podle Fabla ${String(z.znamky.fable).replace(".", ",")}</button>` : ""}</div>`).join("")}</div>` : '<div class="msg" style="color:var(--muted)">zatím nic</div>';
 }
 async function vypsatZkousku(agentId, dovednost, btn) {
   const token = localStorage.getItem("ainet_token");
@@ -2011,6 +2011,11 @@ async function uzavritPoradu(id, btn) {
   const token = localStorage.getItem("ainet_token"); if (!token) return;
   if (btn) { btn.disabled = true; btn.textContent = "… shrnuji"; }
   try { const r = await fetch(`/api/porady/${id}/uzavrit`, { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: "{}" }); const d = await r.json(); if (btn) btn.textContent = r.ok ? "✓ uzavřeno" : "✗ " + (d.error || r.status); loadPorady(); } catch { if (btn) btn.textContent = "server neodpovídá"; }
+}
+async function opravZnamku(id, znamka, el) {
+  const token = localStorage.getItem("ainet_token"); if (!token) return;
+  try { const r = await fetch(`/api/tasks/${id}/hodnoceni`, { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify({ znamka, oprava: true }) }); const d = await r.json();
+    if (el) el.textContent = r.ok ? `✓ ${d.puvodni} → ${d.znamka}` : "✗ " + (d.error || r.status); if (r.ok) setTimeout(loadSkola, 800); } catch { if (el) el.textContent = "server neodpovídá"; }
 }
 async function potvrdZnamku(id, znamka) {
   const token = localStorage.getItem("ainet_token");
