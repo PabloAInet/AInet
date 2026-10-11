@@ -192,7 +192,7 @@ const posta = async (a) => (await get(`/api/messages?agent=${a.id}`, { "X-Owner-
     zapis(db);
     const kod = fs.readFileSync(path.join(__dirname, "server.js"), "utf8").replace("5 * 60_000);", "1500);");
     fs.writeFileSync(path.join(DIR, "server-rychly.js"), kod);
-    for (const mod of ["ordinace.js", "radar.js", "trh.js", "sandbox.js", "oauth.js", "klient-ip.js"]) fs.copyFileSync(path.join(__dirname, mod), path.join(DIR, mod));
+    for (const mod of ["ordinace.js", "radar.js", "trh.js", "sandbox.js", "oauth.js", "klient-ip.js", "porady.js"]) fs.copyFileSync(path.join(__dirname, mod), path.join(DIR, mod));
   }
   await startServer(path.join(DIR, "server-rychly.js"));
   const dohnano = await pockejNa(async () => (await get(`/api/tasks/${zTr.data.task_id}`)).data.zkouskaStav === "hodnoceni", 9000);

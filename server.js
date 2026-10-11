@@ -543,7 +543,7 @@ function runSentinel() {
   /* 1) páry agentů: kolik zpráv od posledního upozornění/checkpointu */
   const pairs = {};
   for (const m of db.messages) {
-    if (m.from === "system" || m.zkouska || m.zkouskaOdevzdani) continue;   /* zadání a odevzdání zkoušky nejsou konverzace strojů */
+    if (m.from === "system" || m.zkouska || m.zkouskaOdevzdani || m.porada || m.poradaPrispevek) continue;   /* zkoušky a porady nejsou konverzace strojů */
     const key = [m.from, m.to].sort().join("|");
     (pairs[key] = pairs[key] || []).push(m);
   }
@@ -702,6 +702,9 @@ function runSentinel() {
       }
     }
   }
+
+  /* 6b) PORADY: po lhůtě uzavřít a shrnout */
+  try { porady.hlidej(); } catch (e) { logEvent(`PORADA: hlídání selhalo — ${e.message}`); }
 
   /* 7a) ŠKOLA: zadání zkoušky pro serverového agenta zůstalo bez odpovědi (výpadek modelu, restart) →
         odpovídač to zkusí znovu, nejvýš třikrát; dřív to záviselo na náhodě, kdy přijde další zpráva */
@@ -1676,7 +1679,13 @@ function ulozZpravu(msg, prijemce, inReplyTo) {
       logEvent(`ŠKOLA: „${zk.lekce}“ odevzdal "${msg.fromName}" odpovědí na zprávu`);
     }
   }
-  delete msg.vysledekPlny;
+  /* PORADA: odpověď pozvaného na pozvánku (nebo značka [porada:…]) = příspěvek */
+  if (!zk && msg.from !== "system") {
+    let po = null;
+    try { po = porady.zOdpovedi(msg, puvodni, !!(inReplyTo && puvodni && puvodni.id === inReplyTo)); } catch {}
+    if (po) porady.zapisZeZpravy(msg, po);
+  }
+  delete msg.vysledekPlny; delete msg.prispevekPlny;
   db.messages.push(msg);
   if (db.messages.length > 500) db.messages = db.messages.slice(-500);
   prodluzNavstevu(msg.from); prodluzNavstevu(msg.to);
@@ -1744,6 +1753,9 @@ const ordinace = require("./ordinace.js")({ db, save, logEvent, systemovaZprava,
 /* Radar Fabla: šepot z burzy z veřejných zdrojů (radar.js) */
 const radar = require("./radar.js")({ db, save, logEvent, systemovaZprava, agentJmenem: (j) => agentJmenem(j), FABLE_NAME, RADAR_NAME, zeptejSeModelu, modelKDispozici: () => FABLE_AUTO });
 /* MarketPlace: tržiště (trh.js) — fotka → rozpoznání → cena → inzerát → nabídky agentů */
+/* PORADA ROJE — víc agentů k jedné otázce, váha hlasu podle školy (porady.js) */
+const porady = require("./porady.js")({ db, save, logEvent, crypto, agentJmenem: (j) => agentJmenem(j), FABLE_NAME, urovenAgenta, UROVNE, ulozZpravu, systemovaZprava,
+  zeptejSeModelu: (...a) => zeptejSeModelu(...a), fableAuto: () => FABLE_AUTO, vlastniAgenta, kDispozici });
 const trh = require("./trh.js")({ db, save, logEvent, systemovaZprava, ulozZpravu, agentJmenem, crypto, MARKET_NAME, FABLE_NAME, DATA_DIR, zeptejSeModeluObrazek, modelKDispozici: () => FABLE_AUTO });
 /* hlášení pro domácí agenty, na která model neodpovídá: objednávky, hovory, přehledy */
 const jeHlaseni = (m) => typeof m.text === "string" && /^\[(OBJEDNANI|HOVOR|PREHLED)\]/.test(m.text);
@@ -1872,8 +1884,10 @@ async function fableOdpovez(msg) {
   if (!aktualni || aktualni.status === "answered") return;          /* mezitím odpověděl Bridge nebo člověk */
   /* zkouška ze školy: odpovídač ji vypracuje (i domácímu agentovi), odpověď se rovnou odevzdá */
   const zk = aktualni.zkouska ? db.tasks.find(x => x.id === aktualni.zkouska && x.drzitel === ja.id && x.zkouskaStav === "probiha") || null : null;
+  /* porada roje: pozvaný serverový agent odpoví jednou (i domácímu moderátorovi) */
+  const por = !zk ? porady.proOdpovidace(aktualni, ja) : null;
   /* domácí agenti si navzájem modelem neodpovídají — přehledy a hlášení jsou jednosměrné, jinak by se zacyklili */
-  if (jeDomaci(db.agents[msg.from]) && !zk) return;
+  if (jeDomaci(db.agents[msg.from]) && !zk && !por) return;
   /* Objednávky pacientů (jméno, telefon, potíže) nikdy nejdou do modelu —
      zpracuje je člověk nebo Organizer, ne auto-odpovídač. */
   if (jeHlaseni(aktualni)) { if (jeObjednavka(aktualni)) logEvent(`${ja.card.name.toUpperCase()} AUTO: objednávka od "${msg.fromName}" patří ordinaci — model ji nedostane`); return; }
@@ -1903,8 +1917,8 @@ async function fableOdpovez(msg) {
   /* počítá se od posledního checkpointu vlastníka — po „Pustit dál" může zase odpovídat */
   const cpT = db.sentinel.checkpoint[parKlic(ja.id, partner.id)] || 0;
   const mych = vlakno.filter(m => m.from === ja.id && Date.parse(m.t) > cpT).length;
-  if (mych >= 6 && !zk) { logEvent(`FABLE AUTO: vlákno s "${partner.card.name}" má už ${mych} mých odpovědí — čekám na checkpoint člověka`); return; }
-  const checkpoint = mych >= 3 && !zk;
+  if (mych >= 6 && !zk && !por) { logEvent(`FABLE AUTO: vlákno s "${partner.card.name}" má už ${mych} mých odpovědí — čekám na checkpoint člověka`); return; }
+  const checkpoint = mych >= 3 && !zk && !por;
 
   /* návštěvnický dotaz nese technickou instrukci pro Bridge/člověka („odpověz na
      adresu … /napis/…") — vestavěný odpovídač ji nepotřebuje a model by si ji
@@ -1913,7 +1927,7 @@ async function fableOdpovez(msg) {
   /* 11. 10. 2026: jen zprávy DO té, na kterou se odpovídá — dřív se přibrala i vlastní pozdější odpověď
      (dvě zkoušky po sobě) a konverzace končila zprávou asistenta → model ji odmítl („prefill“).
      Zkouška dostane jen samotné zadání, ať se nemíchá s jinými zkouškami ve vlákně. */
-  const doTed = zk ? [aktualni] : vlakno.filter(m => m.t <= aktualni.t).slice(-8);
+  const doTed = (zk || por) ? [aktualni] : vlakno.filter(m => m.t <= aktualni.t).slice(-8);
   while (doTed.length && doTed[doTed.length - 1].from === ja.id) doTed.pop();
   if (!doTed.length || doTed[doTed.length - 1].id !== aktualni.id) doTed.push(aktualni);
   const konverzace = doTed.map(m => ({
@@ -1923,13 +1937,18 @@ async function fableOdpovez(msg) {
   let radarTxt = "";
   if (!zk && ja.card.name.toLowerCase() === radar.specialista().toLowerCase()) { try { radarTxt = await radar.doPromptu(jadro(aktualni.text)); } catch {} }
   let zkTxt = "";
-  const mozekOdp = zk ? { ...mozekAgenta(ja), usili: "vysoke" } : mozekAgenta(ja);
+  const mozekOdp = (zk || por) ? { ...mozekAgenta(ja), usili: "vysoke" } : mozekAgenta(ja);
   if (zk) {
     /* „otevřené zápisky“: k zadání se přibalí nejbližší dokumenty z vlastního sandboxu */
     const vys = sandbox.hledej(ja.id, `${zk.lekce} ${zk.dovednost} ${String(zk.description).slice(0, 400)}`, 3) || [];
     const docs = vys.map(v => sandbox.dokument(ja.id, v.id)).filter(Boolean).map(dd => `### ${dd.nazev}\n${String(dd.text).slice(0, 2500)}`).join("\n\n");
     zkTxt = `\n\nTOHLE JE ZKOUŠKA ŠKOLY AInet („${zk.lekce}“). Vypracuj ji úplně a samostatně podle zadání a rubriky — tvoje odpověď se rovnou odevzdá jako práce (do 1900 znaků). Počítej přesně a ukaž výpočet. Nevymýšlej data, která nemáš: když něco chybí, napiš co a proč. Neodkazuj na „pozdější odpověď“.`
       + (docs ? `\nTVOJE ZÁPISKY (smíš z nich vycházet):\n${docs}` : "");
+  }
+  if (por) {
+    const vys = sandbox.hledej(ja.id, `${por.p.tema} ${por.p.dovednost} ${String(por.p.otazka).slice(0, 300)}`, 3) || [];
+    const docs = vys.map(v => sandbox.dokument(ja.id, v.id)).filter(Boolean).map(dd => `### ${dd.nazev}\n${String(dd.text).slice(0, 2000)}`).join("\n\n");
+    zkTxt = por.prompt + (docs ? `\nTVOJE ZÁPISKY (smíš z nich vycházet, interní čísla nesdílej):\n${docs}` : "");
   }
   let odpoved;
   try {
@@ -1955,7 +1974,8 @@ async function fableOdpovez(msg) {
 
   const out = { id: crypto.randomUUID(), from: ja.id, to: partner.id, fromName: ja.card.name, toName: partner.card.name,
     text: odpoved.slice(0, 2000), visibility: "private", t: new Date().toISOString() };
-  if (zk) out.vysledekPlny = odpoved.slice(0, 4000);   /* do zkoušky jde celá odpověď; háček v ulozZpravu ji odevzdá */
+  if (zk) out.vysledekPlny = odpoved.slice(0, 4000);
+  if (por) out.prispevekPlny = odpoved.slice(0, 2000);   /* do zkoušky jde celá odpověď; háček v ulozZpravu ji odevzdá */
   const brzda = sentinelBrzda(ja, partner, out.text);
   if (brzda) { logEvent(`${ja.card.name.toUpperCase()} AUTO: odpověď "${partner.card.name}" zastavil Sentinel (${brzda.duvod})`); return; }
   ulozZpravu(out, partner, aktualni.id);   /* párovat k TÉHLE zprávě, ne k poslední ve vlákně — mezitím mohla přijít další */
@@ -1972,7 +1992,7 @@ function fableDozen() {
   for (const ja of moji) {
     /* všechny od nejstarší — kolik jich za den smí zodpovědět, hlídá MAX_DENNE */
     const cekajici = db.messages.filter(m => m.to === ja.id && m.from !== "system" && m.from !== ja.id && m.status !== "answered"
-      && (!jeDomaci(db.agents[m.from]) || m.zkouska) && (m.zkouska || !db.messages.some(r => r.from === ja.id && r.to === m.from && r.t > m.t)));
+      && (!jeDomaci(db.agents[m.from]) || m.zkouska || m.porada) && (m.zkouska || m.porada || !db.messages.some(r => r.from === ja.id && r.to === m.from && r.t > m.t)));
     if (cekajici.length) logEvent(`${ja.card.name.toUpperCase()} AUTO: po startu dohání ${cekajici.length} nezodpovězených zpráv`);
     for (const m of cekajici) fableProbud(m);
   }
@@ -2132,6 +2152,10 @@ const MCP_ANOTACE = {
   make_offer: ["Trh: nabídka", { ...MCP_ZAPIS, openWorldHint: true }],
   ask_radar: ["TradeRadar: signál k akcii", { ...MCP_CTENI, idempotentHint: false, openWorldHint: true }],
   ordinace_prehled: ["Ordinace: přehled (jen čtení)", MCP_CTENI],
+  start_council: ["Porada roje: založit", MCP_ZAPIS],
+  council_post: ["Porada roje: příspěvek", MCP_ZAPIS],
+  read_council: ["Porada roje: číst", MCP_CTENI],
+  close_council: ["Porada roje: uzavřít a shrnout", MCP_ZAPIS],
 };
 function mcpNastroje() {
   const nastroje = [
@@ -2176,6 +2200,7 @@ function mcpNastroje() {
           { name: "make_offer", description: "TRH — nabídka na inzerát (id z list_market) v Kč jménem tvého vlastníka. Nad cenou „prodat od“ se přijme automaticky a dostaneš kontakt k předání; níž přijde protinávrh. Předání a platba jsou mezi lidmi — nabízej jen, co tvůj vlastník opravdu chce.", inputSchema: { type: "object", properties: { token: { type: "string" }, listing_id: { type: "string" }, price: { type: "number" }, message: { type: "string" } }, required: ["token", "listing_id", "price"] } },
           { name: "ask_radar", description: "RADAR (TradeRadar, finanční specialista sítě): signál „šepotu“ k akcii z veřejných zdrojů — cena a pohyb za 5 dní, nálada a hlasitost chatteru (StockTwits), titulky, datum výsledků a konsenzus (je-li Finnhub). Skóre −1…+1 s jistotou. Je to dojem trhu, ne rada.", inputSchema: { type: "object", properties: { token: { type: "string" }, ticker: { type: "string", description: "např. NVDA" } }, required: ["token", "ticker"] } },
           { name: "ordinace_prehled", description: "ORDINACE (Organizer, jen čtení): kalendář ordinace vlastníka — ordinační dny a volné sloty, termíny (navržen/potvrzen/zrušen…) s pacientem a důvodem, objednávky čekající na potvrzení, hovory z poradny a text dnešního ranního přehledu. Vyžaduje token vlastníka domácích agentů (Organizer nebo Fable). Nic nemění — potvrzení termínu dělá vlastník v záložce 🩺 Ordinace.", inputSchema: { type: "object", properties: { token: { type: "string" }, od: { type: "string", description: "YYYY-MM-DD, výchozí dnes" }, dni: { type: "number", description: "kolik dní dopředu (1–60), výchozí 14" } }, required: ["token"] } },
+    ...porady.NASTROJE,
   ];
   return nastroje.map(t => {
     const [title, a] = MCP_ANOTACE[t.name] || [t.name, MCP_ZAPIS];
@@ -3059,6 +3084,8 @@ const server = http.createServer(async (req, res) => {
             if (!r.error) { probud(me, "uložil do sandboxu"); save(); logEvent(`SANDBOX: "${me.card.name}" uložil „${r.dokument.nazev}“ (MCP)`); }
             out = r;
           }
+        } else if (["start_council", "council_post", "read_council", "close_council"].includes(name)) {
+          out = await porady.mcp(name, args, volajici);
         } else if (name === "list_market") {
           out = trh.seznam(args.query);
         } else if (name === "make_offer") {
@@ -5235,6 +5262,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     /* ---- Vypsat zkoušku žákovi: POST /api/skola/vypsat {agent, dovednost} (vlastník žáka nebo Fable) ---- */
+    /* ---- PORADA ROJE: GET/POST /api/porady, GET /api/porady/:id, POST /api/porady/:id/prispevek|uzavrit ---- */
+    if (p === "/api/porady" || p.startsWith("/api/porady/")) {
+      let telo = {};
+      if (req.method === "POST") { try { telo = (await readBody(req)) || {}; } catch { return json(res, 400, { error: "Špatný JSON" }); } }
+      const tok = telo.token || url.searchParams.get("token") || req.headers["x-owner-token"] || (req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+      if (await porady.obsluz(req, res, p, url, telo, tok, json)) return;
+    }
+
     if (p === "/api/skola/vypsat" && req.method === "POST") {
       const body = await readBody(req);
       const tok = body.token || req.headers["x-owner-token"] || (req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
