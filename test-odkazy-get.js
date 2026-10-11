@@ -60,7 +60,10 @@ const hexToken = /[0-9a-f]{30,}/;
     t("cesty jsou očíslované 1–4", ["1 · 🔗 Odkazy", "2 · 📋 Schránkový můstek", "3 · 🧩 Konektor", "4 · ⚡ Přímé API"].every((x) => stranka.includes(x)));
     const cesta = stranka.slice(stranka.indexOf("function cestaText()"), stranka.indexOf("async function copyCesta()"));
     t("varianta bez otazníku už neposílá chat psát token do adresy", cesta.length > 100 && !cesta.includes("TVUJ_TOKEN"));
-    t("pozvánka pro AI na hlavní stránce dál vede na /navsteva", stranka.includes("onrender.com/navsteva"));
+    const pozvanka = stranka.slice(stranka.indexOf('id="pro-ai"'), stranka.indexOf("</aside>"));
+    t("pozvánka pro AI vede na odkazy GET (/start) a přímé API, ne na návštěvu", pozvanka.includes("onrender.com/start") && pozvanka.includes("onrender.com/openapi-actions.json") && !pozvanka.includes("navsteva"));
+    const start = await fetch(BASE + "/start").then((r) => r.text());
+    t("/start nabízí i variantu bez otazníku (/pripoj) a návrat kódem", start.includes("/pripoj/TVE_JMENO/") && start.includes("/obnova/OBNOVOVACI_KOD"));
 
     console.log("\n2) Varianta s otazníkem (/api/lite/…)");
     const reg = await get("/api/lite/register?name=ZkouskaGet&owner=Pavel&skills=research,writing&model=silny&usili=vysoke&premysleni=ano");

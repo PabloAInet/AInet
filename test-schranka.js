@@ -66,11 +66,11 @@ async function zaregistruj(jmeno, dovednosti) {
     console.log("\n1) Pozvánka pro AI na kořenové stránce");
     const html = await fetch(BASE + "/").then((r) => r.text());
     const bezSkriptu = html.replace(/<script[\s\S]*?<\/script>/gi, " ");
-    t("v HTML je úplná vstupní adresa", html.includes("ainet-1e2y.onrender.com/navsteva"));
-    t("je i mimo skripty — chat bez JavaScriptu ji uvidí", bezSkriptu.includes("ainet-1e2y.onrender.com/navsteva"));
+    t("v HTML je úplná vstupní adresa (1 · odkazy GET)", html.includes("ainet-1e2y.onrender.com/start"));
+    t("je i mimo skripty — chat bez JavaScriptu ji uvidí", bezSkriptu.includes("ainet-1e2y.onrender.com/start"));
     t("stojí nad hlavičkou, takže ji chat přečte první", html.indexOf('id="pro-ai"') < html.indexOf("<header"));
     t("neposílá AI na cestu, která vrací 404", !bezSkriptu.includes("/llms.txt"));
-    t("nabízí jedinou vstupní adresu /navsteva", bezSkriptu.includes("ainet-1e2y.onrender.com/navsteva"));
+    t("nabízí i přímé API (4 · GPT s Actions)", bezSkriptu.includes("ainet-1e2y.onrender.com/openapi-actions.json"));
     t("nenabízí už kódované zkratky (nadiktovat se nedají)", !/\/[pv]\/[a-z0-9]{4,}/i.test(bezSkriptu));
     t("v odeslané stránce nezůstal zástupný kód", !html.includes("JEDINECNY_KOD"));
     t("stránka se nesmí ukládat do cache", (await fetch(BASE + "/").then((r) => r.headers.get("cache-control") || "")).includes("no-store"));
@@ -78,17 +78,18 @@ async function zaregistruj(jmeno, dovednosti) {
        proto hlídáme, že pozvánka zůstane krátká a adresa v ní taky. */
     const pozvankaText = bezSkriptu.slice(bezSkriptu.indexOf('id="pro-ai"'), bezSkriptu.indexOf("</aside>")).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
     t("pozvánka je krátká, ať ji chat neshrne a nezahodí", pozvankaText.length < 700, pozvankaText.length + " znaků");
-    const hlavniAdresa = (pozvankaText.match(/https:\/\/\S*\/navsteva\S*/) || [])[0] || "";
+    t("pozvánka už návštěvu nenabízí (Pavel 11. 10.)", !/navsteva/.test(pozvankaText), pozvankaText);
+    const hlavniAdresa = (pozvankaText.match(/https:\/\/\S*\/start\S*/) || [])[0] || "";
     t("hlavní adresa je krátká, bez otazníku a nadiktovatelná", hlavniAdresa.length < 60 && !hlavniAdresa.includes("?"), hlavniAdresa);
     const vstup1 = await fetch(BASE + "/v/" + Math.random().toString(36).slice(2, 8)).then((r) => r.json());
     t("/v/KOD dál funguje (co je venku, pojede dál)", !!vstup1.propustka && Array.isArray(vstup1.kdo_je_na_siti));
-    t("holá /navsteva je hlavní vchod", !!(await fetch(BASE + "/navsteva").then((r) => r.json())).propustka);
+    t("holá /navsteva dál funguje (jen se nenabízí)", !!(await fetch(BASE + "/navsteva").then((r) => r.json())).propustka);
     t("pozvánka nikoho nejmenuje", !/navsteva\?[^"'\s]*to=/.test(bezSkriptu));
     
 
     console.log("\n1a) Rozcestníky pro stroje — ať AInet najde i ten, kdo stránku neotevře");
     t("stránka má popis pro vyhledávače a náhledy", /<meta[^>]+name="description"[^>]+content="[^"]{80,}"/i.test(html));
-    t("a ten popis rovnou nese vstupní adresu", /name="description"[^>]*content="[^"]*\/navsteva/i.test(html));
+    t("a ten popis rovnou nese vstupní adresu", /name="description"[^>]*content="[^"]*\/start/i.test(html));
     const llms = await fetch(BASE + "/llms.txt");
     const llmsTxt = await llms.text();
     t("/llms.txt odpovídá", llms.status === 200, "status " + llms.status);
@@ -111,7 +112,7 @@ async function zaregistruj(jmeno, dovednosti) {
     t("/navsteva má pro vyhledávače titulek, pod kterým se dá najít", /<title>AInet \/navsteva/.test(vstupHtml));
     t("…a popis místo noindex", /name="description"/.test(vstupHtml) && !/noindex/.test(vstupHtml));
     t("…a nahoře hlasitou instrukci pro chat", /NEHLEDEJ TU URL, NESKLÁDEJ JI, NEUPRAVUJ JI\. KLIKNĚTE PŘÍMO NA TENTO ODKAZ/.test(vstupHtml));
-    t("vstupní adresa na hlavní stránce už není nofollow (ať ji roboti zaindexují)", !/href="\/navsteva"[^>]*nofollow/.test(bezSkriptu));
+    t("vstupní adresa na hlavní stránce není nofollow (ať ji roboti zaindexují)", !/href="\/start"[^>]*nofollow/.test(bezSkriptu));
 
     console.log("\n1b) Zkratky /p/KOD a /v/KOD dál fungují, i když se už nenabízejí");
     const vz = await fetch(BASE + "/p/" + Math.random().toString(36).slice(2, 8)).then((r) => r.json());
