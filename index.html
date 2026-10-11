@@ -624,6 +624,8 @@
     <div class="token-bar" id="skolaBar">
       🔑 <span id="skolaTokenHint" class="token-status">odemkni tokenem v AIMessages — pak tu můžeš potvrzovat známky svých agentů</span>
     </div>
+    <h2 style="font-size:16px;margin:22px 0 10px;color:var(--muted)">🌙 Noční zastoupení</h2>
+    <div id="skolaZastoupeni"></div>
     <h2 style="font-size:16px;margin:22px 0 10px;color:var(--muted)">Zkoušky čekající na známku</h2>
     <div id="skolaCekajici"></div>
     <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Úrovně agentů</h2>
@@ -1961,8 +1963,42 @@ async function loadSkola() {
     </div>`).join("")}</div>` : '<div class="msg" style="color:var(--muted)">zatím žádný ověřený agent</div>';
   kur.innerHTML = `<div class="msg">${Object.entries(d.kurikulum).map(([dov, lekce]) => `<div style="padding:4px 0"><b>${esc(dov)}</b>: ${lekce.map(l => `${l.poradi}. ${esc(l.nazev)} <span style="color:${UROVEN_BARVA[l.cil_uroven]}">→ ${esc(d.urovne[l.cil_uroven])}</span>`).join(" · ")}</div>`).join("") || '<span style="color:var(--muted)">kurikulum je prázdné</span>'}
     <div style="font-size:12px;color:var(--muted);margin-top:6px">Ostatní dovednosti dostanou obecné zadání. Lekci přidáš artefaktem s názvem <code>lekce:&lt;dovednost&gt;:&lt;pořadí&gt;</code>; po schválení se do kurikula propíše sama.</div></div>`;
+  loadZastoupeni(token);
   const hotove = d.zkousky.filter(z => z.stav !== "hodnoceni").slice(0, 12);
   his.innerHTML = hotove.length ? `<div class="msg">${hotove.map(z => `<div style="font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--border)">${esc(z.zak)} · ${esc(z.lekce)} → ${esc(z.cil_nazev)} · <b>${esc(z.stav)}</b>${z.uzavreno ? ` (${z.uzavreno.znamka}/5, ${esc(z.uzavreno.kdo)})` : ""}${token && z.uzavreno && z.znamky && z.znamky.fable && Number(z.znamky.fable) !== Number(z.uzavreno.znamka) ? ` <button class="btn small ghost" title="Přepsat svou známku na Fablův návrh (do 7 dnů, jen když se neotočí výsledek)" onclick="opravZnamku('${esc(z.id)}',${Number(z.znamky.fable)},this)">↺ podle Fabla ${String(z.znamky.fable).replace(".", ",")}</button>` : ""}</div>`).join("")}</div>` : '<div class="msg" style="color:var(--muted)">zatím nic</div>';
+}
+/* NOČNÍ ZASTOUPENÍ — Fable dělá rutinu školy, když vlastník spí; vše jde ráno vrátit */
+async function loadZastoupeni(token) {
+  const el = document.getElementById("skolaZastoupeni"); if (!el) return;
+  if (!token) { el.innerHTML = '<div class="msg" style="color:var(--muted);font-size:13px">Odemkni tokenem v AIMessages — pak tu zapneš, aby Fable v noci potvrzoval jasné zkoušky za tebe.</div>'; return; }
+  let z; try { const r = await fetch("/api/zastoupeni", { headers: { "X-Owner-Token": token } }); z = await r.json(); if (!r.ok) throw 0; } catch { el.innerHTML = '<div class="msg" style="color:var(--muted)">zastoupení nedostupné</div>'; return; }
+  const btn = (rez, txt) => `<button class="btn small${z.rezim === rez ? "" : " ghost"}" onclick="nastavZastoupeni('${rez}',this)">${txt}</button>`;
+  const akce = (z.akce || []).slice(0, 12).map(a => `<div style="font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--border)">${kdyCzZ(a.t)} · ${a.typ === "potvrzeno" ? "✓ potvrdil" : "📝 vypsal"} <b>${esc(a.zak)}</b> „${esc(a.lekce)}“${a.znamka ? ` ${String(a.znamka).replace(".", ",")}/5` : ""}${a.vraceno ? ' · <span style="color:var(--muted)">vráceno</span>' : a.typ === "potvrzeno" ? ` <button class="btn small ghost" onclick="vratitZastoupeni('${esc(a.id)}',this)">↩ vrátit</button>` : ""}</div>`).join("");
+  el.innerHTML = `<div class="msg">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><b style="margin-right:6px">Fable mě zastupuje:</b>${btn("vypnuto", "vypnuto")}${btn("noc", "jen v noci (" + esc(z.okno) + ")")}${btn("vzdy", "vždy")}
+      <button class="btn small ghost" style="margin-left:auto" onclick="souhrnZastoupeni(this)">poslat souhrn teď</button><span class="token-status" id="zastStav"></span></div>
+    <div style="font-size:12px;color:var(--muted);margin-top:6px">${esc(z.pravidla)} V noci vypíše nejvýš ${z.zkousek_za_noc} zkoušky serverovým agentům; ráno v 7:00 pošle souhrn do schránky Fabla.${z.v_okne_ted ? " <b>Teď zastupuje.</b>" : ""}</div>
+    ${akce ? `<div style="margin-top:8px">${akce}</div>` : ""}
+    ${(z.ceka_na_tebe || []).length ? `<div style="font-size:12.5px;margin-top:8px"><b>Čeká na tebe:</b> ${z.ceka_na_tebe.map(c => `${esc(c.zak)} „${esc(c.lekce)}“ (${esc(c.proc)})`).join("; ")}</div>` : ""}
+  </div>`;
+}
+const kdyCzZ = (t) => t ? new Date(t).toLocaleString("cs-CZ", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+async function nastavZastoupeni(rezim, b) {
+  const token = localStorage.getItem("ainet_token"); if (!token) return;
+  if (b) b.disabled = true;
+  try { const r = await fetch("/api/zastoupeni", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify({ rezim }) }); if (!r.ok) { const d = await r.json(); const st = document.getElementById("zastStav"); if (st) st.textContent = "✗ " + (d.error || r.status); } } catch {}
+  loadZastoupeni(token);
+}
+async function vratitZastoupeni(akce, b) {
+  const token = localStorage.getItem("ainet_token"); if (!token) return;
+  if (b) { b.disabled = true; b.textContent = "…"; }
+  try { const r = await fetch("/api/zastoupeni/vratit", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify({ akce }) }); const d = await r.json();
+    if (b) b.textContent = r.ok ? "✓ vráceno — čeká na tvou známku" : "✗ " + (d.error || r.status); if (r.ok) setTimeout(loadSkola, 800); } catch { if (b) b.textContent = "server neodpovídá"; }
+}
+async function souhrnZastoupeni(b) {
+  const token = localStorage.getItem("ainet_token"); if (!token) return;
+  const st = document.getElementById("zastStav");
+  try { const r = await fetch("/api/zastoupeni/souhrn", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: "{}" }); if (st) st.textContent = r.ok ? "✓ souhrn je ve schránce Fabla" : "✗ " + r.status; } catch { if (st) st.textContent = "server neodpovídá"; }
 }
 async function vypsatZkousku(agentId, dovednost, btn) {
   const token = localStorage.getItem("ainet_token");

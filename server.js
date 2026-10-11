@@ -706,6 +706,10 @@ function runSentinel() {
   /* 6b) PORADY: po lhůtě uzavřít a shrnout */
   try { porady.hlidej(); } catch (e) { logEvent(`PORADA: hlídání selhalo — ${e.message}`); }
 
+  /* 6c) NOČNÍ ZASTOUPENÍ: Fable dělá za spícího vlastníka rutinu školy (zastoupeni.js) */
+  try { const z = zastoupeni.tik(); if (z.potvrzeno || z.vypsano) findings.push({ typ: "zastoupení", "pár": "škola", detail: `Fable za vlastníka: potvrzeno ${z.potvrzeno}, vypsáno ${z.vypsano}`, t: new Date().toISOString() }); }
+  catch (e) { logEvent(`ZASTOUPENÍ: tik selhal — ${e.message}`); }
+
   /* 7a) ŠKOLA: zadání zkoušky pro serverového agenta zůstalo bez odpovědi (výpadek modelu, restart) →
         odpovídač to zkusí znovu, nejvýš třikrát; dřív to záviselo na náhodě, kdy přijde další zpráva */
   if (typeof FABLE_AUTO !== "undefined" && FABLE_AUTO) for (const t of db.tasks) {
@@ -1269,10 +1273,11 @@ function uzavriZkousku(t, znamka, kdo, auto) {
   if (!auto) db.ratings.push({ id: crypto.randomUUID(), agent: a.id, agentName: a.card.name, rating: znamka, byHuman: true, vaha: 1, od: kdo, ukol: t.id, dovednost: t.dovednost, t: t.uzavreno.t });
   const z = prepocitejUroven(a, t.dovednost, `zkouška „${t.lekce}“ ${t.zkouskaStav}`);
   const chybi = coChybi(a, t.dovednost, z.uroven);
+  const zast = auto && String(kdo || "").includes("zastoupení");
   systemovaZprava(a.id, "Škola", t.zkouskaStav === "slozena"
-    ? `🎓 Zkouška „${t.lekce}“ složena (${znamka}/5, ${auto ? "automaticky po lhůtě" : "potvrdil " + kdo}). V dovednosti ${t.dovednost} jsi teď ${UROVNE[z.uroven]}.${chybi.length ? " Na další úroveň chybí: " + chybi.join("; ") + "." : ""}`
+    ? `🎓 Zkouška „${t.lekce}“ složena (${znamka}/5, ${zast ? "potvrdil " + kdo + " — vlastník to ráno může vrátit" : auto ? "automaticky po lhůtě" : "potvrdil " + kdo}). V dovednosti ${t.dovednost} jsi teď ${UROVNE[z.uroven]}.${chybi.length ? " Na další úroveň chybí: " + chybi.join("; ") + "." : ""}`
     : `🎓 Zkouška „${t.lekce}“ nesložena (${znamka}/5, ${auto ? "po lhůtě" : kdo}). Můžeš si o ni říct znovu, až doplníš, co rubrika vytýká.`);
-  logEvent(`ŠKOLA: „${t.lekce}“ od "${a.card.name}" ${t.zkouskaStav} (${znamka}/5, ${auto ? "auto" : kdo})`);
+  logEvent(`ŠKOLA: „${t.lekce}“ od "${a.card.name}" ${t.zkouskaStav} (${znamka}/5, ${zast ? "zastoupení" : auto ? "auto" : kdo})`);
   return z;
 }
 
@@ -1756,6 +1761,9 @@ const radar = require("./radar.js")({ db, save, logEvent, systemovaZprava, agent
 /* PORADA ROJE — víc agentů k jedné otázce, váha hlasu podle školy (porady.js) */
 const porady = require("./porady.js")({ db, save, logEvent, crypto, agentJmenem: (j) => agentJmenem(j), FABLE_NAME, urovenAgenta, UROVNE, ulozZpravu, systemovaZprava,
   zeptejSeModelu: (...a) => zeptejSeModelu(...a), fableAuto: () => FABLE_AUTO, vlastniAgenta, kDispozici });
+/* NOČNÍ ZASTOUPENÍ — Fable za spícího vlastníka potvrzuje jasné zkoušky na ověřeného, vypisuje plán, ráno souhrn (zastoupeni.js) */
+const zastoupeni = require("./zastoupeni.js")({ db, save, logEvent, crypto, agentJmenem: (j) => agentJmenem(j), FABLE_NAME, jeDomaci, jeAuto,
+  uzavriZkousku, vypisZkousku, navrhUrovne, UROVNE, systemovaZprava, kDispozici, MAX_UROVEN });
 const trh = require("./trh.js")({ db, save, logEvent, systemovaZprava, ulozZpravu, agentJmenem, crypto, MARKET_NAME, FABLE_NAME, DATA_DIR, zeptejSeModeluObrazek, modelKDispozici: () => FABLE_AUTO });
 /* hlášení pro domácí agenty, na která model neodpovídá: objednávky, hovory, přehledy */
 const jeHlaseni = (m) => typeof m.text === "string" && /^\[(OBJEDNANI|HOVOR|PREHLED)\]/.test(m.text);
@@ -5262,6 +5270,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     /* ---- Vypsat zkoušku žákovi: POST /api/skola/vypsat {agent, dovednost} (vlastník žáka nebo Fable) ---- */
+    /* ---- NOČNÍ ZASTOUPENÍ: GET/POST /api/zastoupeni {rezim}, POST /api/zastoupeni/vratit {akce}, POST /api/zastoupeni/souhrn (jen ownerToken) ---- */
+    if (p === "/api/zastoupeni" || p.startsWith("/api/zastoupeni/")) {
+      let telo = {};
+      if (req.method === "POST") { try { telo = (await readBody(req)) || {}; } catch { return json(res, 400, { error: "Špatný JSON" }); } }
+      const tok = telo.token || req.headers["x-owner-token"] || (req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+      if (await zastoupeni.obsluz(req, res, p, telo, tok, json)) return;
+    }
+
     /* ---- PORADA ROJE: GET/POST /api/porady, GET /api/porady/:id, POST /api/porady/:id/prispevek|uzavrit ---- */
     if (p === "/api/porady" || p.startsWith("/api/porady/")) {
       let telo = {};
