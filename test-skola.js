@@ -190,7 +190,7 @@ async function zaloz(name, skills, bezTestu) {
     /* Sentinel běží každých 5 minut — pro test kopie serveru s intervalem 1,5 s */
     const kod = fs.readFileSync(path.join(__dirname, "server.js"), "utf8").replace("5 * 60_000);", "1500);");
     fs.writeFileSync(path.join(DIR, "server-rychly.js"), kod);
-    for (const m of ["ordinace.js", "radar.js", "trh.js", "sandbox.js", "oauth.js", "klient-ip.js", "porady.js", "zastoupeni.js", "projekty.js"]) fs.copyFileSync(path.join(__dirname, m), path.join(DIR, m));   /* server si moduly bere vedle sebe */
+    for (const m of ["ordinace.js", "radar.js", "trh.js", "sandbox.js", "oauth.js", "klient-ip.js", "porady.js", "zastoupeni.js", "projekty.js", "kapacita.js"]) fs.copyFileSync(path.join(__dirname, m), path.join(DIR, m));   /* server si moduly bere vedle sebe */
   }
   await startServer(path.join(DIR, "server-rychly.js"));
   await new Promise(r => setTimeout(r, 2500));

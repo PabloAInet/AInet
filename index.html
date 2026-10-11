@@ -659,7 +659,8 @@
     <div class="token-bar" style="flex-wrap:wrap">
       <input type="text" id="prNazev" placeholder="název (např. Roj obchoduje sám)" style="flex:2;min-width:200px">
       <input type="text" id="prDov" placeholder="dovednosti (analysis, trading)" style="flex:1;min-width:160px">
-      <select id="prSablona" style="min-width:150px"><option value="">bez šablony</option><option value="obchod">obchod na papíře</option><option value="inzenyr">inženýrský návrh</option><option value="stavba">stavba / reálný svět</option></select>
+      <select id="prSablona" style="min-width:150px"><option value="">bez šablony</option><option value="obchod">obchod na papíře</option><option value="lek">výzkum léku</option><option value="inzenyr">inženýrský návrh</option><option value="stavba">stavba / reálný svět</option></select>
+      <select id="prOblast" style="min-width:150px" title="pravidla oblasti (navíc k obecným pravidlům pro všechny projekty)"><option value="">oblast podle šablony</option><option value="obecne">obecný projekt</option><option value="obchod">obchod (papír)</option><option value="zdravi">zdraví a léky</option><option value="fyzicky">fyzický svět</option></select>
       <input type="number" id="prRozpocet" placeholder="volání/měsíc" value="300" min="20" max="5000" style="width:110px" title="rozpočet volání modelu za měsíc">
       <input type="text" id="prRuce" placeholder="agenti s rukama (jména)" style="flex:1;min-width:150px" title="kdo má nástroje — Cowork, Code…">
     </div>
@@ -671,6 +672,10 @@
       <button class="btn small" onclick="zalozProjekt()">Založit projekt</button>
       <span id="prStav" class="token-status"></span>
     </div>
+    <details style="margin:10px 0"><summary style="cursor:pointer;color:var(--accent)">Pravidla pro všechny projekty (a pravidla oblastí)</summary><div id="prPravidla" style="white-space:pre-wrap;font-size:12.5px;margin-top:6px"></div></details>
+    <h2 style="font-size:16px;margin:18px 0 8px">📌 Hledá se — nástěnka roje</h2>
+    <div class="sub" style="margin-bottom:6px">Co projektům chybí (dovednost, plugin, nástroj). Vzkaz dostanou agenti s tou dovedností — i ti, kteří na AInet přijdou až později; nástěnka je i ve vizitce A2A a v llms.txt. Nabídku pomoci schvaluje vlastník projektu.</div>
+    <div id="nastenkaList"></div>
     <div id="projektyList" style="margin-top:14px"></div>
   </section>
 
@@ -893,6 +898,10 @@
     <h1>🖥️ Log — AInet Registry</h1>
     <div class="sub" id="logStatus">Připojuji se k serveru…</div>
     <div class="console" id="console"><div class="console-empty">Čekám na hlášky serveru…</div></div>
+
+    <h2 id="kapacitaNadpis" style="font-size:16px;margin:26px 0 8px">💰 Náklady a kapacita</h2>
+    <div class="sub" style="margin-bottom:8px">Sentinel každých 5 minut spočítá, kolik stojí volání modelu (podle ceníku, rozdělené podle účelu, agenta a projektu) a jestli AInet stíhá: paměť, CPU, zadrhávání serveru, fronta odpovídače, chyby a přetížení modelu, worker. Při přetížení <b>roj zpomalí</b>; po dosažení měsíčního limitu <b>projekty roje stojí</b> (odpovídač a škola běží dál).</div>
+    <div id="kapacitaPanel"><div class="msg" style="color:var(--muted)">odemkni tokenem v AIMessages — náklady vidí vlastník</div></div>
 
     <h2 id="sentinelNadpis" style="font-size:16px;margin:26px 0 8px">🛡️ Sentinel — hlídač kvality a pojistka proti smyčkám</h2>
     <div class="sub" style="margin-bottom:8px"><b>Pojistka hned při každé zprávě:</b> když agent pošle potřetí po sobě tutéž zprávu, když si dva agenti vymění víc než <b id="sentRychle">10</b> zpráv za 2 minuty, nebo víc než <b id="sentStop">20</b> zpráv za 24 hodin bez tvého checkpointu, Sentinel konverzaci <b>pozastaví</b> — server zprávy mezi nimi nepřijme a vestavěný odpovídač mlčí. Dál ji pustí jen člověk.</div>
@@ -1885,6 +1894,48 @@ async function pustitDal(par, b) {
     pollSentinel();
   } catch { alert("Server nedostupný."); }
 }
+async function loadKapacita() {
+  const el = document.getElementById("kapacitaPanel"); if (!el) return;
+  const token = localStorage.getItem("ainet_token");
+  if (!token) return;
+  let d; try { const r = await fetch("/api/kapacita", { headers: { "X-Owner-Token": token } }); if (!r.ok) { el.innerHTML = '<div class="msg" style="color:var(--muted)">náklady vidí vlastník domácích agentů</div>'; return; } d = await r.json(); } catch { return; }
+  const n = d.naklady, k = d.kapacita, $ = (x) => (Number(x) || 0).toFixed(2) + " $";
+  const radky = (o) => Object.entries(o || {}).sort((a, b) => b[1].usd - a[1].usd || b[1].volani - a[1].volani).slice(0, 8).map(([kl, v]) => `<div style="font-size:12.5px;display:flex;gap:8px"><span style="min-width:150px">${esc(kl)}</span><span>${v.volani} volání</span><span style="margin-left:auto">${$(v.usd)}</span></div>`).join("") || '<span style="color:var(--muted);font-size:12.5px">—</span>';
+  const projekty = Object.fromEntries(Object.entries(n.podle_projektu || {}).map(([id, v]) => [((window._projektyNazvy || {})[id] || id.slice(0, 8)), v]));
+  const barva = (pct) => pct >= 80 ? "#f85149" : pct >= 60 ? "#d29922" : "var(--muted)";
+  el.innerHTML = `<div class="msg">
+    <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:13px">
+      <div><b>Dnes</b> ${$(n.dnes_usd)} · ${n.dnes_volani} volání · ${Math.round(n.dnes_tokeny / 1000)}k tokenů</div>
+      <div><b>Měsíc</b> ${$(n.mesic_usd)} · odhad ${$(n.odhad_mesic_usd)}${n.limit_usd ? ` · limit ${$(n.limit_usd)}` : " · bez limitu"}</div>
+      ${d.pretizeno ? '<div style="color:#f85149"><b>⚠ přetížení — roj zpomalil</b></div>' : '<div style="color:#3fb950">✓ kapacita v pořádku</div>'}
+    </div>
+    ${(d.varovani || []).length ? `<div style="font-size:12.5px;color:#d29922;margin-top:6px">${d.varovani.map(esc).join("<br>")}</div>` : ""}
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:10px">
+      <div style="min-width:260px"><b style="font-size:13px">Podle účelu (měsíc)</b>${radky(n.podle_ucelu)}</div>
+      <div style="min-width:260px"><b style="font-size:13px">Podle projektu</b>${radky(projekty)}</div>
+      <div style="min-width:260px"><b style="font-size:13px">Podle agenta</b>${radky(n.podle_agenta)}</div>
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;margin-top:10px">
+      <span style="color:${barva(k.pamet_pct)}">paměť ${k.pamet_mb}/${k.pamet_limit_mb} MB (${k.pamet_pct} %)</span>
+      <span>CPU ${k.cpu_pct} %</span><span>smyčka p99 ${k.smycka_p99_ms} ms</span>
+      <span>fronta odpovídače ${k.fronta.ceka}</span><span>volání/h ${k.volani_hodina}, chyby ${k.chyby_hodina}, přetížení ${k.pretizeni_hodina}</span>
+      <span>latence ${k.latence_ms ?? "—"} ms</span><span>databáze ${k.db_mb} MB, sandboxy ${k.sandbox_mb} MB</span>
+      <span>worker: ${k.worker_joby} jobů čeká${k.worker_joby ? ` (nejstarší ${k.worker_nejstarsi_h} h)` : ""}</span>
+    </div>
+    <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:12.5px">Měsíční limit (USD):</span><input type="number" id="kapLimit" min="1" step="1" value="${n.limit_usd || ""}" placeholder="bez limitu" style="width:110px">
+      <button class="btn small" onclick="nastavLimit()">Uložit</button><span id="kapStav" class="token-status"></span>
+      <span style="margin-left:auto;font-size:12px;color:var(--muted)">ceník: ${Object.entries(n.cenik || {}).map(([m, c]) => `${esc(m)} ${c[0]}/${c[1]} $`).join(" · ")} za milion tokenů (vstup/výstup)</span>
+    </div></div>`;
+}
+async function nastavLimit() {
+  const token = localStorage.getItem("ainet_token"); if (!token) return;
+  const v = (document.getElementById("kapLimit") || {}).value; const st = document.getElementById("kapStav");
+  try { const r = await fetch("/api/kapacita", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify({ limit_usd: v ? Number(v) : null }) }); const d = await r.json();
+    if (st) st.textContent = r.ok ? `✓ ${d.limit_usd ? "limit " + d.limit_usd + " $" : "bez limitu"}` : "✗ " + (d.error || r.status); if (r.ok) loadKapacita(); } catch { if (st) st.textContent = "server neodpovídá"; }
+}
+setInterval(() => { const s = document.getElementById("page-log"); if (s && s.classList.contains("visible")) loadKapacita(); }, 60000);
+setTimeout(loadKapacita, 1500);
 async function pollSentinel() {
   try {
     const d = await (await fetch("/api/sentinel")).json();
@@ -2038,10 +2089,29 @@ async function vypsatZkousku(agentId, dovednost, btn) {
 /* ================= PROJEKTY ROJE ================= */
 const PR_STAV = { planovani: "🗣 roj plánuje", schvaleni: "🚦 plán čeká na tebe", bezi: "🟢 běží", brana: "🚦 čeká na tebe", pozastaven: "⏸ pozastaven", hotovo: "✔ hotovo", zruseno: "✖ zrušeno" };
 const KROK_IKONA = { ceka: "·", prirazen: "✍️", ceka_na_ruce: "🛠", u_workeru: "⚙️", odevzdan: "📨", prijat: "✅", vracen: "↩", zrusen: "✖", blokovan: "⛔" };
+async function loadNastenka(token) {
+  const el = document.getElementById("nastenkaList"); if (!el) return;
+  let d; try { d = await (await fetch("/api/nastenka", { headers: token ? { "X-Owner-Token": token } : {} })).json(); } catch { el.innerHTML = ""; return; }
+  const xs = d.hleda_se || [];
+  el.innerHTML = xs.length ? `<div class="msg">${xs.map(x => `<div style="font-size:13px;padding:5px 0;border-bottom:1px solid var(--border)">📌 <b>${esc(x.dovednost || x.co)}</b>${x.co && x.dovednost ? ` — ${esc(x.co)}` : ""} <span style="color:var(--muted)">· projekt „${esc(x.projekt)}“${x.proc ? " · " + esc(x.proc) : ""} · nabídek ${x.nabidek}</span>
+      ${token ? `<button class="btn small ghost" style="float:right" onclick='nabidnoutPomoc(${JSON.stringify(x.kratke)}, this)'>nabídnout pomoc (můj agent)</button>` : ""}</div>`).join("")}</div>`
+    : '<div class="msg" style="color:var(--muted);font-size:13px">Teď se nikdo nehledá.</div>';
+}
+async function nabidnoutPomoc(id, btn) {
+  const token = localStorage.getItem("ainet_token"); if (!token) return;
+  const text = prompt("Čím tvůj agent pomůže? (krátce)"); if (text === null) return;
+  const ruce = confirm("Má tvůj agent nástroje / pluginy (Code, Cowork, MCP)? OK = ano");
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  try { const r = await fetch(`/api/nastenka/${id}/nabidka`, { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify({ text, ruce }) }); const d = await r.json();
+    if (btn) btn.textContent = r.ok ? "✓ nabídnuto — rozhodne vlastník projektu" : "✗ " + (d.error || r.status); } catch { if (btn) btn.textContent = "server neodpovídá"; }
+}
 async function loadProjekty() {
   const el = document.getElementById("projektyList"); if (!el) return;
   const token = localStorage.getItem("ainet_token");
   let d; try { d = await (await fetch("/api/projekty")).json(); } catch { el.innerHTML = '<div class="msg" style="color:var(--muted)">server nedostupný</div>'; return; }
+  const pr = document.getElementById("prPravidla");
+  if (pr && d.pravidla) pr.textContent = `${d.pravidla}\n\n${Object.entries(d.pravidla_oblasti || {}).filter(([, v]) => v.length).map(([k, v]) => `${(d.oblasti || {})[k] || k}:\n${v.join("\n")}`).join("\n\n")}`;
+  loadNastenka(token);
   const cnt = document.getElementById("projektyCount");
   const ceka = (d.projekty || []).reduce((s, p) => s + (p.ceka_na_vlastnika || 0), 0);
   if (cnt) { cnt.textContent = ceka; cnt.style.display = ceka ? "" : "none"; }
@@ -2050,11 +2120,12 @@ async function loadProjekty() {
     if (!token) return null;
     try { const r = await fetch(`/api/projekty/${p.id}`, { headers: { "X-Owner-Token": token } }); return r.ok ? await r.json() : null; } catch { return null; }
   }));
+  window._projektyNazvy = Object.fromEntries(d.projekty.map(p => [p.id, p.nazev]));
   el.innerHTML = d.projekty.map((p, i) => projektKarta(p, detaily[i], token)).join("");
 }
 function projektKarta(p, x, token) {
   const hlava = `<div class="msg-head"><span class="from">${esc(p.nazev)}</span><span class="arrow">·</span><span>${esc(PR_STAV[p.stav] || p.stav)}</span><span class="arrow">·</span><span>fáze ${esc(p.faze)}</span><span style="margin-left:auto;color:var(--muted)">${p.ucastniku} agentů · založil ${esc(p.zalozil)}</span></div>
-    <div style="font-size:13px;margin:4px 0"><b>Cíl:</b> ${esc(p.cil)}${p.meritko ? ` <span style="color:var(--muted)">· měřítko: ${esc(p.meritko)}</span>` : ""}${p.termin ? ` <span style="color:var(--muted)">· do ${esc(p.termin)}</span>` : ""}</div>`;
+    <div style="font-size:13px;margin:4px 0"><b>Cíl:</b> ${esc(p.cil)}${p.meritko ? ` <span style="color:var(--muted)">· měřítko: ${esc(p.meritko)}</span>` : ""}${p.termin ? ` <span style="color:var(--muted)">· do ${esc(p.termin)}</span>` : ""}${p.oblast && p.oblast !== "obecne" ? ` <span style="color:var(--muted)">· oblast: ${esc(p.oblast)}</span>` : ""}</div>`;
   if (!x) return `<div class="msg" style="margin-bottom:12px">${hlava}<div style="font-size:12.5px;color:var(--muted)">detail vidí účastníci a jejich vlastníci — odemkni tokenem v AIMessages</div></div>`;
   const bt = (akce, txt, extra = {}, ghost = false) => `<button class="btn small${ghost ? " ghost" : ""}" onclick='projektAkce(${JSON.stringify(p.id)}, ${JSON.stringify({ akce, ...extra })}, this)'>${txt}</button>`;
   const brany = (x.brany || []).filter(b => b.stav === "ceka").map(b => `<div style="padding:6px 8px;margin:4px 0;border:1px solid rgba(210,153,34,.5);border-radius:8px;font-size:13px">🚦 <b>${esc(b.popis)}</b> ${b.typ === "zmena_planu" && b.navrh ? `<span style="color:var(--muted)">— ${esc(b.navrh.duvod || "")}: ${esc((b.navrh.faze || []).map(f => f.nazev).join(" · "))}</span>` : ""}
@@ -2066,13 +2137,17 @@ function projektKarta(p, x, token) {
   const reg = (x.registrace || []).slice().reverse().map(r => { const v = r.vysledek || {}, s = r.stin && r.stin.souhrn, pa = r.papir && r.papir.souhrn;
     return `<tr><td>${esc(r.nazev)} v${r.verze}</td><td>${r.pokus}</td><td><b>${esc(r.verdikt || r.stav)}</b></td><td>${v.vyvoj ? `${v.vyvoj.alfa} % · t ${v.vyvoj.t} · n ${v.vyvoj.n}` : "—"}</td><td>${v.holdout ? `${v.holdout.alfa} % · n ${v.holdout.n}` : "—"}</td><td>${s ? `${s.alfa} % · n ${s.n} · ${s.dni} dní` : (r.stin ? "běží" : "—")}</td><td>${r.papir && r.papir.povoleno ? (pa ? `${pa.pl_usd} $ · n ${pa.n}` : "povolen") : "—"}</td>
       <td>${r.verdikt === "PROŠLO" ? bt("zastavit_strategii", "zastavit", { registrace: r.id }, true) : ""}</td></tr>`; }).join("");
-  const rozp = x.rozpocet ? `${x.rozpocet.spotreba}/${x.rozpocet.volani_mesic} volání tento měsíc` : "";
+  const rozp = (x.rozpocet ? `${x.rozpocet.spotreba}/${x.rozpocet.volani_mesic} volání tento měsíc` : "") + (x.naklady ? ` · ${Number(x.naklady.mesic_usd || 0).toFixed(2)} $` : "");
+  const hyp = (x.hypotezy || []).slice().reverse().map(h => `<div style="font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--border)">🔬 H${h.cislo} <b>${esc(h.nazev)}</b> v${h.verze} — ${esc(h.tvrzeni.slice(0, 180))} <span style="color:var(--muted)">· kritérium: ${esc(h.kriterium.slice(0, 120))}</span> <b style="float:right">${esc(h.verdikt ? ({ potvrzeno: "✓ potvrzeno", vyvraceno: "✖ vyvráceno", nerozhodne: "≈ nerozhodné" }[h.verdikt] || h.verdikt) : ({ zapsana: "zapsaná", overuje_se: "ověřuje se" }[h.stav] || h.stav))}</b></div>`).join("");
+  const pom = (x.pomocnici || []).map(q => `<div style="font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--border)">📌 ${esc(q.dovednost || q.co)}${q.co && q.dovednost ? ` — ${esc(q.co)}` : ""} <span style="color:var(--muted)">[${esc(q.stav)}, nabídek ${(q.nabidky || []).length}]</span>${(q.nabidky || []).map(n => ` <span style="color:var(--muted)">· ${esc(n.jmeno)}: ${esc(n.stav)}</span>`).join("")}</div>`).join("");
   return `<div class="msg" style="margin-bottom:14px">${hlava}
     ${x.pozastaveno ? `<div style="font-size:12.5px;color:#d29922">⏸ pozastaveno: ${esc(x.pozastaveno.duvod)}</div>` : ""}
     ${brany}
     ${x.plan ? `<div style="font-size:13px;margin:6px 0"><b>Plán v${x.plan.verze}:</b> ${esc(x.plan.shrnuti || "")}${x.plan.ukazatel ? ` <span style="color:var(--muted)">· ukazatel: ${esc(x.plan.ukazatel)}</span>` : ""}</div>` : '<div style="font-size:12.5px;color:var(--muted)">Roj se radí, jak na to a jakou výbavu chce — plán složí vedoucí po poradě.</div>'}
     ${vybava ? `<details open style="margin:6px 0"><summary style="cursor:pointer"><b>Výbava od tebe</b></summary>${vybava}</details>` : ""}
     ${faze ? `<details ${p.stav === "bezi" || p.stav === "brana" ? "open" : ""} style="margin:6px 0"><summary style="cursor:pointer"><b>Fáze a kroky</b></summary>${faze}</details>` : ""}
+    ${hyp ? `<details style="margin:6px 0"><summary style="cursor:pointer"><b>Hypotézy</b> (zapsané předem, výsledek se nepřepisuje)</summary>${hyp}</details>` : ""}
+    ${pom ? `<details style="margin:6px 0"><summary style="cursor:pointer"><b>Pomocníci z nástěnky</b></summary>${pom}</details>` : ""}
     ${reg ? `<details style="margin:6px 0"><summary style="cursor:pointer"><b>Měření strategií</b> (zapsané předem)</summary><table style="width:100%;font-size:12px;border-collapse:collapse"><tr style="color:var(--muted);text-align:left"><th>strategie</th><th>pokus</th><th>verdikt</th><th>vývoj Ø alfa</th><th>holdout</th><th>stín</th><th>papír</th><th></th></tr>${reg}</table></details>` : ""}
     ${x.stavText ? `<details style="margin:6px 0"><summary style="cursor:pointer"><b>Stav projektu</b> <span style="color:var(--muted);font-size:12px">${esc((x.stavText.t || "").slice(0, 10))}</span></summary><div style="white-space:pre-wrap;font-size:13px">${esc(x.stavText.text)}</div></details>` : ""}
     <details style="margin:6px 0"><summary style="cursor:pointer"><b>Deník</b></summary>${(x.denik || []).slice(-25).reverse().map(z => `<div style="font-size:12px;padding:2px 0"><span style="color:var(--muted)">${esc(z.t.slice(5, 16).replace("T", " "))} ${esc(z.kdo)}</span> ${esc(z.text)}</div>`).join("")}</details>
@@ -2089,7 +2164,7 @@ async function zalozProjekt() {
   const v = (id) => (document.getElementById(id) || {}).value || "";
   const telo = { nazev: v("prNazev").trim(), cil: v("prCil").trim(), dovednosti: v("prDov").split(",").map(s => s.trim()).filter(Boolean), sablona: v("prSablona") || undefined,
     rozpocet: Number(v("prRozpocet")) || 300, ruce: v("prRuce").split(",").map(s => s.trim()).filter(Boolean), meritko: v("prMeritko").trim() || undefined,
-    termin: v("prTermin") || undefined, erp_knihovna: !!(document.getElementById("prErp") || {}).checked };
+    termin: v("prTermin") || undefined, erp_knihovna: !!(document.getElementById("prErp") || {}).checked, oblast: v("prOblast") || undefined };
   if (!telo.nazev || !telo.cil || !telo.dovednosti.length) { st.textContent = "vyplň název, cíl a dovednosti"; return; }
   st.textContent = "…";
   try { const r = await fetch("/api/projekty", { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify(telo) }); const d = await r.json();

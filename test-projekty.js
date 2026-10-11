@@ -93,7 +93,7 @@ async function zalozLite(name, skills) {
   await new Promise(r => atrapa.listen(0, r));
   rychly = path.join(DIR, "server-rychly.js");
   fs.writeFileSync(rychly, fs.readFileSync(path.join(__dirname, "server.js"), "utf8").replace("5 * 60_000);", "1500);"));
-  for (const mod of ["ordinace.js", "radar.js", "trh.js", "sandbox.js", "oauth.js", "klient-ip.js", "porady.js", "zastoupeni.js", "projekty.js"]) fs.copyFileSync(path.join(__dirname, mod), path.join(DIR, mod));
+  for (const mod of ["ordinace.js", "radar.js", "trh.js", "sandbox.js", "oauth.js", "klient-ip.js", "porady.js", "zastoupeni.js", "projekty.js", "kapacita.js"]) fs.copyFileSync(path.join(__dirname, mod), path.join(DIR, mod));
   await startServer();
   const fable = await zalozLite("Fable", "orchestrace,research");
   const lisak = await zalozLite("Lisak", "chat,analysis");

@@ -126,7 +126,7 @@ const posta = async (a) => (await get(`/api/messages?agent=${a.id}`, { "X-Owner-
   { const db = cti(); const p = db.porady.find(x => x.id === m1.id); p.lhuta = new Date(Date.now() - 60_000).toISOString(); zapis(db);
     const kod = fs.readFileSync(path.join(__dirname, "server.js"), "utf8").replace("5 * 60_000);", "1500);");
     fs.writeFileSync(path.join(DIR, "server-rychly.js"), kod);
-    for (const mod of ["ordinace.js", "radar.js", "trh.js", "sandbox.js", "oauth.js", "klient-ip.js", "porady.js", "zastoupeni.js", "projekty.js"]) fs.copyFileSync(path.join(__dirname, mod), path.join(DIR, mod)); }
+    for (const mod of ["ordinace.js", "radar.js", "trh.js", "sandbox.js", "oauth.js", "klient-ip.js", "porady.js", "zastoupeni.js", "projekty.js", "kapacita.js"]) fs.copyFileSync(path.join(__dirname, mod), path.join(DIR, mod)); }
   await startServer(path.join(DIR, "server-rychly.js"));
   const sam = await pockejNa(async () => (cti().porady.find(x => x.id === m1.id) || {}).stav === "uzavrena", 8000);
   ok(sam, "po lhůtě Sentinel poradu uzavřel sám");

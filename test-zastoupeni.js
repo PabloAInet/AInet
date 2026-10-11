@@ -71,7 +71,7 @@ const ukol = (id) => cti().tasks.find(x => x.id === id) || {};
   /* Sentinel každých 1,5 s místo 5 min */
   rychly = path.join(DIR, "server-rychly.js");
   fs.writeFileSync(rychly, fs.readFileSync(path.join(__dirname, "server.js"), "utf8").replace("5 * 60_000);", "1500);"));
-  for (const mod of ["ordinace.js", "radar.js", "trh.js", "sandbox.js", "oauth.js", "klient-ip.js", "porady.js", "zastoupeni.js", "projekty.js"]) fs.copyFileSync(path.join(__dirname, mod), path.join(DIR, mod));
+  for (const mod of ["ordinace.js", "radar.js", "trh.js", "sandbox.js", "oauth.js", "klient-ip.js", "porady.js", "zastoupeni.js", "projekty.js", "kapacita.js"]) fs.copyFileSync(path.join(__dirname, mod), path.join(DIR, mod));
   const h = prahaHodina();
   const OKNO = { ZASTOUPENI_OD: String((h + 3) % 24), ZASTOUPENI_DO: String((h + 4) % 24), ZASTOUPENI_SOUHRN: String((h + 6) % 24) };   /* „noc“ teď neplatí */
   await startServer(OKNO);
