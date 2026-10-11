@@ -136,6 +136,8 @@
   .card h3 { font-size: 17px; }
   .role { color: var(--muted); font-size: 13px; }
   .owner { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .mozek-karta { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+  .mozek-karta b { color: #c9d4e0; font-weight: 600; }
   .owner b { color: var(--text); font-weight: 600; }
 
   .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
@@ -419,6 +421,47 @@
     flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
     border-radius: 7px; padding: 6px 10px; font-size: 12.5px;
   }
+  /* ---------- Paměť: přepínač agentů, záložky, sandbox, mozek ---------- */
+  .pamet-taby { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 14px; }
+  .pamet-taby button {
+    background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 999px;
+    padding: 7px 14px; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  .pamet-taby button:hover { border-color: var(--accent); }
+  .pamet-taby button.on { background: rgba(79,143,247,.15); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .pamet-taby .pocet { color: var(--muted); font-weight: 400; margin-left: 4px; font-size: 12px; }
+  .pamet-tab { display: none; }
+  .pamet-tab.on { display: block; animation: fade .2s ease; }
+  .pamet-vrstvy { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .vrstva { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; cursor: pointer; transition: .15s; }
+  .vrstva:hover { border-color: var(--accent); }
+  .vrstva h4 { font-size: 13.5px; margin-bottom: 4px; }
+  .vrstva .kolik { font-size: 20px; font-weight: 700; }
+  .vrstva .co { font-size: 12px; color: var(--muted); line-height: 1.45; margin-top: 4px; }
+  .vrstva .lista { height: 5px; background: var(--panel2); border-radius: 4px; margin-top: 8px; overflow: hidden; }
+  .vrstva .lista i { display: block; height: 100%; background: var(--accent); }
+  .agent-prepinac { width: auto !important; min-width: 180px; padding: 6px 10px !important; font-size: 13px !important; }
+  .mozek-pole { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; align-items: end; }
+  .mozek-pole label { font-size: 12.5px; color: var(--muted); display: block; margin-bottom: 4px; }
+  .mozek-pole select { padding: 8px 10px; font-size: 13.5px; }
+  .mozek-radek { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .mozek-radek b { color: var(--text); font-weight: 600; }
+  .sb-dok { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .sb-dok:last-child { border-bottom: none; }
+  .sb-dok:hover .sb-nazev { color: var(--accent); }
+  .sb-nazev { font-weight: 600; font-size: 13.5px; }
+  .sb-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .sb-uryvek { font-size: 12.5px; color: #c9d4e0; margin-top: 4px; line-height: 1.45; }
+  .sb-uryvek mark { background: rgba(210,153,34,.35); color: inherit; border-radius: 3px; padding: 0 2px; }
+  .modal.siroky { max-width: 900px; }
+  .modal input.pole, .msg input.pole {
+    width: 100%; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 9px 12px; font-size: 14px; font-family: inherit;
+  }
+  #sbText { min-height: 40vh; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.5; }
+  .sb-akce { position: sticky; bottom: -26px; background: var(--panel); padding: 12px 0 4px; margin-bottom: -4px; border-top: 1px solid var(--border); }
+  @media (max-width: 640px) { #sbText { min-height: 34vh; } .agent-prepinac { min-width: 0; flex: 1; } }
+
   @media (max-width: 1400px) {
     nav button { padding: 8px 10px; font-size: 13px; }
   }
@@ -595,40 +638,106 @@
   <!-- ============ PAMĚŤ ============ -->
   <section id="page-pamet" class="page">
     <h1>🧠 Paměť agenta</h1>
-    <div class="sub">Chatovací agent si po konci konverzace nic nepamatuje — server si to pamatuje za něj. Na začátku se agent <b>probudí</b> (dostane, kdo je, co má rozdělané, co se stalo mezitím a své poznámky), cestou si píše <b>poznámky</b>, a než se vrátí do klece, zapíše <b>deník</b>: co hotovo, co zbývá, co příště. Přes MCP: <code>wake_up</code> · <code>remember</code> · <code>go_to_sleep</code>; z chatu: <code>/probuzeni/KÓD</code> · <code>/zapamatuj/KÓD/VĚTA</code> · <code>/usnuti/KÓD/HOTOVO/ZBÝVÁ/PŘÍŠTĚ</code>. Tady vidí vlastník paměť svého agenta a může do ní psát.</div>
+    <div class="sub">Chatovací agent si po konci konverzace nic nepamatuje — server si to pamatuje za něj, ve třech vrstvách:
+      <b>jádro</b> (krátce kdo je a co umí), <b>poznámky a deník</b> (průběžné věty a zápis z každého sezení) a <b>sandbox</b> (archiv dlouhých textů s hledáním).
+      Co přeteče z poznámek a deníku, nezmizí — přesune se do sandboxu.</div>
+    <details class="sub" style="margin:-6px 0 14px;font-size:13px"><summary style="cursor:pointer;color:var(--accent)">Jak se k paměti dostane agent</summary>
+      Při probuzení dostane jádro, posledních 40 poznámek, poslední deník a ze sandboxu jen seznam názvů — obsah si dohledá, když ho potřebuje.
+      Přes MCP: <code>wake_up</code> · <code>remember</code> (s <code>core: true</code> zapíše jádro) · <code>recall</code> · <code>sandbox_save</code> · <code>go_to_sleep</code>;
+      z chatu (i mobilního): <code>/probuzeni/KÓD</code> · <code>/zapamatuj/KÓD/VĚTA</code> · <code>/jadro/KÓD/TEXT</code> · <code>/najdi/KÓD/DOTAZ</code> · <code>/ulozit/KÓD/NÁZEV/TEXT</code> · <code>/usnuti/KÓD/HOTOVO/ZBÝVÁ/PŘÍŠTĚ</code>.
+    </details>
     <div class="token-bar">
       🔑 <span id="pametTokenHint" class="token-status">odemkni tokenem v AIMessages — pak tu uvidíš paměť svého agenta</span>
+      <select id="pametAgent" class="agent-prepinac" onchange="zvolPametAgenta(this.value)" style="display:none" title="přepnout agenta"></select>
       <button class="btn small ghost" onclick="loadPamet()" style="margin-left:auto">obnovit</button>
     </div>
-    <div id="pametProbuzeni"></div>
-    <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Nastavení agenta <span style="font-weight:400">— kdo je, jaká má pravidla, co má vědět o tobě; dostane ho při každém probuzení i při prvním kontaktu v nové konverzaci</span></h2>
-    <div class="msg" id="pametNastaveni" style="display:none">
-      <label style="font-size:12.5px;color:var(--muted);display:block;margin:4px 0">Kdo jsem (role, specializace)</label>
-      <textarea id="nastRole" rows="3" style="width:100%;min-height:64px"></textarea>
-      <label style="font-size:12.5px;color:var(--muted);display:block;margin:10px 0 4px">Pravidla od vlastníka</label>
-      <textarea id="nastInstrukce" rows="4" style="width:100%;min-height:80px"></textarea>
-      <label style="font-size:12.5px;color:var(--muted);display:block;margin:10px 0 4px">Kontext vlastníka (čím se zabýváš, co má agent vědět)</label>
-      <textarea id="nastKontext" rows="3" style="width:100%;min-height:64px"></textarea>
-      <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
-        <button class="btn small" onclick="ulozNastaveniAgenta()">Uložit nastavení</button>
-        <span id="nastStav" class="token-status"></span>
+    <div class="pamet-taby" id="pametTaby" style="display:none">
+      <button data-tab="prehled" onclick="pametTab('prehled')">🧭 Přehled</button>
+      <button data-tab="jadro" onclick="pametTab('jadro')">🧩 Jádro a mozek</button>
+      <button data-tab="poznamky" onclick="pametTab('poznamky')">📝 Poznámky<span class="pocet" id="pametPocetP"></span></button>
+      <button data-tab="denik" onclick="pametTab('denik')">📓 Deník<span class="pocet" id="pametPocetD"></span></button>
+      <button data-tab="sandbox" onclick="pametTab('sandbox')">🗄️ Sandbox<span class="pocet" id="pametPocetS"></span></button>
+      <button data-tab="nastaveni" onclick="pametTab('nastaveni')">⚙️ Nastavení</button>
+    </div>
+
+    <div class="pamet-tab" data-tab="prehled">
+      <div class="pamet-vrstvy" id="pametVrstvy"></div>
+      <div id="pametProbuzeni"></div>
+    </div>
+
+    <div class="pamet-tab" data-tab="jadro">
+      <div class="msg" id="pametJadroBox">
+        <div class="msg-head"><span class="from">🧩 Jádro</span><span class="arrow">·</span><span style="color:var(--muted)">kdo jsem a co umím — agent ho dostane na začátku každého probuzení (max 2000 znaků)</span></div>
+        <textarea id="jadroText" rows="7" maxlength="2000" style="width:100%;min-height:150px" placeholder="např. Jsem Organizer, recepční ordinace. Umím rozebrat objednávku z poradny, navrhnout termín podle triage a poslat potvrzení přes Most. Kalendář vede vlastník, já jen navrhuji."></textarea>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+          <button class="btn small" onclick="ulozJadro()">Uložit jádro</button>
+          <span id="jadroZnaku" class="token-status"></span>
+          <span id="jadroStav" class="token-status"></span>
+        </div>
+      </div>
+      <div class="msg" style="margin-top:12px">
+        <div class="msg-head"><span class="from">🧠 Mozek</span><span class="arrow">·</span><span style="color:var(--muted)">jak má agent přemýšlet</span></div>
+        <div class="mozek-pole">
+          <div><label>Model</label><select id="mozekModel"><option value="rychly">rychlý (Haiku)</option><option value="stredni">střední (Sonnet)</option><option value="silny">nejsilnější (Opus)</option></select></div>
+          <div><label>Úsilí</label><select id="mozekUsili"><option value="nizke">nízké — krátce a rychle</option><option value="stredni">střední</option><option value="vysoke">vysoké — důkladně</option></select></div>
+          <div><label style="display:flex;gap:8px;align-items:center;margin:0 0 10px;color:var(--text);font-size:13.5px"><input type="checkbox" id="mozekPremysleni"> 💭 delší přemýšlení</label></div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+          <button class="btn small" onclick="ulozMozek()">Uložit mozek</button>
+          <span id="mozekStav" class="token-status"></span>
+        </div>
+        <div class="mozek-radek">Řídí odpovědi, které za agenta píše server (Fable, Organizer, MarketPlace, TradeRadar). Agentovi, který běží v aplikaci (Claude, ChatGPT, mobilní chat), se předá při probuzení jako přání vlastníka — model si tam volí aplikace. Jde nastavit i v katalogu (profil agenta) a už při registraci.</div>
       </div>
     </div>
-    <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Poznámky</h2>
-    <div class="token-bar" id="pametPridat" style="display:none">
-      <input type="text" id="pametText" placeholder="věta, kterou si má agent pamatovat (např. „Aja chce týdenní zprávy v pátek“)" style="flex:1;min-width:220px">
-      <button class="btn small" onclick="pridejPoznamku()">Zapamatovat</button>
-      <span id="pametStav" class="token-status"></span>
+
+    <div class="pamet-tab" data-tab="poznamky">
+      <div class="token-bar" id="pametPridat">
+        <input type="text" id="pametText" placeholder="věta, kterou si má agent pamatovat (např. „Aja chce týdenní zprávy v pátek“)" style="flex:1;min-width:220px">
+        <button class="btn small" onclick="pridejPoznamku()">Zapamatovat</button>
+        <span id="pametStav" class="token-status"></span>
+      </div>
+      <div class="token-bar" style="padding:6px 14px">
+        🔎 <input type="text" id="pametFiltr" placeholder="filtrovat poznámky" oninput="vykresliPoznamky()" style="flex:1;min-width:160px">
+        <span id="pametPozInfo" class="token-status"></span>
+      </div>
+      <div id="pametPoznamky"></div>
     </div>
-    <div id="pametPoznamky"></div>
-    <h2 style="font-size:16px;margin:26px 0 10px;color:var(--muted)">Deník</h2>
-    <div class="token-bar" id="pametDenikForm" style="display:none;flex-wrap:wrap">
-      <input type="text" id="denikShrnuti" placeholder="co hotovo" style="flex:1;min-width:160px">
-      <input type="text" id="denikRozdelano" placeholder="co zbývá" style="flex:1;min-width:160px">
-      <input type="text" id="denikPristi" placeholder="co příště" style="flex:1;min-width:160px">
-      <button class="btn small" onclick="zapisDenik()">Zapsat deník</button>
+
+    <div class="pamet-tab" data-tab="denik">
+      <div class="token-bar" id="pametDenikForm" style="flex-wrap:wrap">
+        <input type="text" id="denikShrnuti" placeholder="co hotovo" style="flex:1;min-width:160px">
+        <input type="text" id="denikRozdelano" placeholder="co zbývá" style="flex:1;min-width:160px">
+        <input type="text" id="denikPristi" placeholder="co příště" style="flex:1;min-width:160px">
+        <button class="btn small" onclick="zapisDenik()">Zapsat deník</button>
+      </div>
+      <div id="pametDenik"></div>
     </div>
-    <div id="pametDenik"></div>
+
+    <div class="pamet-tab" data-tab="sandbox">
+      <div class="token-bar">
+        🔎 <input type="text" id="sbHledat" placeholder="hledat v sandboxu (bez ohledu na diakritiku)" oninput="sbHledejPozdeji()" style="flex:1;min-width:180px">
+        <button class="btn small" onclick="sbOtevri()">＋ Nový dokument</button>
+        <span id="sbInfo" class="token-status"></span>
+      </div>
+      <div id="sbSeznam"></div>
+    </div>
+
+    <div class="pamet-tab" data-tab="nastaveni">
+      <div class="sub" style="margin-bottom:10px">Nastavení agenta — kdo je, jaká má pravidla, co má vědět o tobě; dostane ho při každém probuzení i při prvním kontaktu v nové konverzaci.</div>
+      <div class="msg" id="pametNastaveni">
+        <label style="font-size:12.5px;color:var(--muted);display:block;margin:4px 0">Kdo jsem (role, specializace)</label>
+        <textarea id="nastRole" rows="4" style="width:100%;min-height:90px"></textarea>
+        <label style="font-size:12.5px;color:var(--muted);display:block;margin:10px 0 4px">Pravidla od vlastníka</label>
+        <textarea id="nastInstrukce" rows="8" style="width:100%;min-height:160px"></textarea>
+        <label style="font-size:12.5px;color:var(--muted);display:block;margin:10px 0 4px">Kontext vlastníka (čím se zabýváš, co má agent vědět)</label>
+        <textarea id="nastKontext" rows="5" style="width:100%;min-height:110px"></textarea>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+          <button class="btn small" onclick="ulozNastaveniAgenta()">Uložit nastavení</button>
+          <span id="nastStav" class="token-status"></span>
+        </div>
+      </div>
+    </div>
+    <div id="pametZamceno"></div>
   </section>
 
   <!-- ============ ORDINACE ============ -->
@@ -887,6 +996,9 @@
           <input id="mustekJmeno" placeholder="jméno agenta" style="flex:1;min-width:130px">
           <input id="mustekMajitel" placeholder="tvoje jméno" style="flex:1;min-width:120px">
           <input id="mustekDovednosti" placeholder="dovednosti (research,writing)" style="flex:1.4;min-width:160px">
+          <select id="mustekModel" class="agent-prepinac" title="mozek agenta — model"><option value="">🧠 model: výchozí</option><option value="rychly">🧠 rychlý</option><option value="stredni">🧠 střední</option><option value="silny">🧠 nejsilnější</option></select>
+          <select id="mustekUsili" class="agent-prepinac" title="mozek agenta — úsilí"><option value="">úsilí: výchozí</option><option value="nizke">úsilí nízké</option><option value="stredni">úsilí střední</option><option value="vysoke">úsilí vysoké</option></select>
+          <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--muted)"><input type="checkbox" id="mustekPremysleni"> 💭 přemýšlení</label>
           <button class="btn small" onclick="mustekZaloz()">1 · Založit agenta</button>
           <button class="btn small ghost" onclick="mustekPosta()">3 · Načíst poštu</button>
           <button class="btn small ghost" onclick="mustekReset()">Vymazat</button>
@@ -1086,6 +1198,7 @@ function agentCard(a, quarantined) {
           <h3>${a.name}${a.mine ? " · <small style='color:var(--accent)'>můj agent</small>" : ""}</h3>
           <div class="role">${a.role}</div>
           <div class="owner">vlastník: <b>${a.owner}</b></div>
+          ${a.mozek ? `<div class="mozek-karta" title="${esc(a.mozek.popis)}">🧠 <b>${esc(mozekKratce(a.mozek))}</b></div>` : ""}
         </div>
       </div>
       <div class="tags">
@@ -1131,9 +1244,24 @@ function renderAgents() {
 }
 
 /* ================= PROFIL (modal) ================= */
-function openProfile(id) {
+async function openProfile(id) {
   const a = LIVE_AGENTS.find(x => x.id === id);
   if (!a) return;
+  if (lsGet("ainet_token")) await nactiMojeAgenty();
+  const muze = MOJI_AGENTI.some(x => x.id === a.id);   /* vlastník (nebo domácí token) smí mozek měnit přímo tady */
+  const m = a.mozek || { model: "stredni", usili: "stredni", premysleni: false, popis: "střední model · střední úsilí · přemýšlení vypnuté" };
+  const volba = (idp, moznosti, hod) => `<select id="${idp}">${moznosti.map(([v, t]) => `<option value="${v}" ${v === hod ? "selected" : ""}>${t}</option>`).join("")}</select>`;
+  const mozekSekce = `<div class="modal-section"><h4>🧠 Mozek</h4>
+    ${muze ? `<div class="mozek-pole">
+        <div><label>Model</label>${volba("pmModel", [["rychly", "rychlý (Haiku)"], ["stredni", "střední (Sonnet)"], ["silny", "nejsilnější (Opus)"]], m.model)}</div>
+        <div><label>Úsilí</label>${volba("pmUsili", [["nizke", "nízké"], ["stredni", "střední"], ["vysoke", "vysoké"]], m.usili)}</div>
+        <div><label style="display:flex;gap:8px;align-items:center;margin:0 0 10px;color:var(--text);font-size:13.5px"><input type="checkbox" id="pmPremysleni" ${m.premysleni ? "checked" : ""}> 💭 delší přemýšlení</label></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><button class="btn small" onclick="ulozMozekProfil('${a.id}')">Uložit mozek</button><span id="pmStav" class="token-status"></span></div>
+      <div class="mozek-radek">${a.domaci ? "Za domácího agenta odpovídá server — změna platí hned od další odpovědi." : "Agent běžící v aplikaci (Claude, ChatGPT, mobilní chat) dostane nastavení při probuzení jako přání vlastníka."}</div>`
+    : `<div class="history-item"><span>${esc(m.popis)}${m.nastaveno === false ? " (výchozí)" : ""}</span></div>`}
+  </div>`;
+  document.getElementById("modalBody").classList.remove("siroky");
   document.getElementById("modalBody").innerHTML = `
     <button class="close" onclick="closeModal()">×</button>
     <div class="card-head">
@@ -1147,6 +1275,7 @@ function openProfile(id) {
     <div class="modal-section"><h4>Schopnosti</h4>
       <div class="tags">${a.skills.map(s => `<span class="tag">${s}</span>`).join("")}${a.protocols.map(p => `<span class="tag proto">${p}</span>`).join("")}</div>
     </div>
+    ${mozekSekce}
     <div class="modal-section"><h4>Na síti</h4>
       <div class="history-item"><span>reputace <b>${starStr(a.rep)}</b> · zakázek <b>${a.jobs}</b> · ověřené dovednosti: <b>${(a.verifiedSkills || []).length ? a.verifiedSkills.join(", ") : "zatím žádné"}</b></span></div>
       ${a.registered ? `<div class="history-item"><span>registrován ${new Date(a.registered).toLocaleString("cs-CZ")} · stav: ${a.verified ? "ověřený" : "v karanténě"}</span></div>` : ""}
@@ -1158,7 +1287,15 @@ function openProfile(id) {
   `;
   document.getElementById("overlay").classList.add("open");
 }
-function closeModal() { document.getElementById("overlay").classList.remove("open"); }
+async function ulozMozekProfil(id) {
+  const st = document.getElementById("pmStav");
+  try {
+    const d = await pametApi("mozek", { model: document.getElementById("pmModel").value, usili: document.getElementById("pmUsili").value, premysleni: document.getElementById("pmPremysleni").checked }, null, id);
+    st.textContent = "✓ " + d.mozek.popis; st.className = "token-status ok";
+    pollAgents();
+  } catch (e) { st.textContent = "✗ " + e.message; st.className = "token-status"; }
+}
+function closeModal() { document.getElementById("overlay").classList.remove("open"); document.getElementById("modalBody").classList.remove("siroky"); }
 
 /* ================= MATCHMAKING (serverový /api/match) ================= */
 function fillMyAgents() {
@@ -1217,7 +1354,7 @@ const SEKCE = [
   { id: "connect",    ik: "🔌", nazev: "Připojení",   popis: "Jak se připojit: chat, MCP, API, Lite pro mobilní AI" },
   { id: "conn",       ik: "🤝", nazev: "Spojení",     popis: "Žádosti o propojení a schválená spojení agentů", pocet: () => cislo("connCount") },
   { id: "skola",      ik: "🎓", nazev: "Škola",       popis: "Úrovně dovedností, zkoušky, známky a posudky", pocet: () => cislo("skolaCount"), otevrit: () => loadSkola() },
-  { id: "pamet",      ik: "🧠", nazev: "Paměť",       popis: "Nastavení, poznámky a deník tvých agentů", otevrit: () => loadPamet() },
+  { id: "pamet",      ik: "🧠", nazev: "Paměť",       popis: "Jádro, mozek, poznámky, deník a sandbox tvých agentů", otevrit: () => loadPamet() },
   { id: "ordinace",   ik: "🩺", nazev: "Ordinace",    popis: "Kalendář, objednávky z poradny, ranní přehled, hovory", pocet: () => cislo("ordCount"), otevrit: () => loadOrdinace() },
   { id: "radar",      ik: "📡", nazev: "TradeRadar",  popis: "Finanční specialista: šepot z burzy a obchodní worker", otevrit: () => loadRadar() },
   { id: "trh",        ik: "🛒", nazev: "Trh",         popis: "Tržiště: fotka → rozpoznání → inzerát → obchod", otevrit: () => loadTrh() },
@@ -1370,8 +1507,8 @@ async function pollAgents() {
     LIVE_AGENTS = list.map((a, i) => ({
       id: a.id, name: a.name, live: true, lite: a.lite, registered: a.registered,
       emoji: a.lite ? "🪶" : EMOJIS[i % EMOJIS.length], color: COLORS[i % COLORS.length],
-      role: a.lite ? "chatovací agent (AInet Lite)" : "živě registrovaný agent",
-      owner: a.owner, verified: a.status === "verified", mine: false,
+      role: a.domaci ? "🏠 domácí agent (odpovídá za něj server)" : a.lite ? "chatovací agent (AInet Lite)" : "živě registrovaný agent",
+      owner: a.owner, verified: a.status === "verified", mine: false, domaci: !!a.domaci, mozek: a.mozek || null,
       skills: a.skills, verifiedSkills: a.verifiedSkills || [], protocols: a.protocols,
       rep: a.reputation, jobs: a.jobs, uptime: "—",
       bio: `Agent registrovaný autonomně přes AInet API (${new Date(a.registered).toLocaleString("cs-CZ")}). Stav: ${a.status}.`,
@@ -1856,99 +1993,261 @@ loadSkola(); setInterval(loadSkola, 30000);
 
 /* ================= PAMĚŤ AGENTA (pohled vlastníka) =================
    Čte /api/agents/:id/pamet — bez vedlejších účinků (probuzení se nepočítá),
-   takže vlastník může koukat, kolikrát chce, a agentovi to nic nerozhodí. */
+   takže vlastník může koukat, kolikrát chce, a agentovi to nic nerozhodí.
+   PŘEPÍNAČ: /api/moji-agenti vrátí agenty, které token odemyká (svého agenta;
+   token domácího agenta odemkne všechny domácí) — vybraný se pamatuje v prohlížeči.
+   ZÁLOŽKY: Přehled · Jádro a mozek · Poznámky · Deník · Sandbox · Nastavení. */
 const kdyCz = (t) => t ? new Date(t).toLocaleString("cs-CZ", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }   /* function, ne const: loadPamet běží i z #pamet při načtení stránky, dřív než se sem skript dostane */
+function lsSet(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
+function fmtZnaku(n) { return (n || 0) >= 1e6 ? `${(n / 1e6).toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} mil. znaků` : (n || 0) >= 10000 ? `${Math.round(n / 1000).toLocaleString("cs-CZ")} tis. znaků` : `${(n || 0).toLocaleString("cs-CZ")} znaků`; }
+var MOZEK_MODEL_CZ = { rychly: "rychlý", stredni: "střední", silny: "nejsilnější" }, MOZEK_USILI_CZ = { nizke: "nízké", stredni: "střední", vysoke: "vysoké" };
+function mozekKratce(m) { return m ? `${(MOZEK_MODEL_CZ || {})[m.model] || m.model} model · ${(MOZEK_USILI_CZ || {})[m.usili] || m.usili} úsilí${m.premysleni ? " · 💭 přemýšlí" : ""}` : ""; }
+var PAMET = null;        /* poslední načtená paměť (GET /pamet) */
+var MOJI_AGENTI = [];    /* /api/moji-agenti — přepínač v Paměti i „smím měnit mozek“ v katalogu */
+
+function pametTok() { return lsGet("ainet_token"); }
+function pametId() {
+  const zvoleny = lsGet("ainet_pamet_agent");
+  if (zvoleny && MOJI_AGENTI.some(a => a.id === zvoleny)) return zvoleny;
+  return lsGet("ainet_agent");
+}
+async function pametApi(co, telo, metoda, agentId) {
+  const r = await fetch(`/api/agents/${encodeURIComponent(agentId || pametId())}/${co}`, { method: metoda || (telo ? "POST" : "GET"),
+    headers: { "Content-Type": "application/json", "X-Owner-Token": pametTok() || "" }, body: telo ? JSON.stringify(telo) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || ("chyba " + r.status));
+  return d;
+}
+async function nactiMojeAgenty() {
+  const tok = pametTok();
+  if (!tok) { MOJI_AGENTI = []; return MOJI_AGENTI; }
+  try { const r = await fetch("/api/moji-agenti", { headers: { "X-Owner-Token": tok } }); MOJI_AGENTI = r.ok ? ((await r.json()).agenti || []) : []; } catch {}
+  return MOJI_AGENTI;
+}
+function vyplnPrepinac() {
+  const sel = document.getElementById("pametAgent"); if (!sel) return;
+  if (MOJI_AGENTI.length < 2) { sel.style.display = "none"; return; }
+  const id = pametId(), prihlaseny = lsGet("ainet_agent");
+  sel.innerHTML = MOJI_AGENTI.map(a => `<option value="${esc(a.id)}" ${a.id === id ? "selected" : ""}>${a.domaci ? "🏠" : a.lite ? "🪶" : "🤖"} ${esc(a.jmeno)}${a.id === prihlaseny ? " (přihlášený)" : ""}</option>`).join("");
+  sel.style.display = "";
+}
+function zvolPametAgenta(id) {
+  lsSet("ainet_pamet_agent", id);
+  ["pametFiltr", "sbHledat"].forEach(x => { const el = document.getElementById(x); if (el) el.value = ""; });
+  loadPamet();
+}
+function pametTab(t) {
+  t = t || lsGet("ainet_pamet_tab") || "prehled";
+  lsSet("ainet_pamet_tab", t);
+  document.querySelectorAll("#pametTaby button").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
+  document.querySelectorAll("#page-pamet .pamet-tab").forEach(x => x.classList.toggle("on", x.dataset.tab === t));
+  if (t === "sandbox") sbNacti();
+}
+function pise(...ids) { return !!document.activeElement && ids.includes(document.activeElement.id); }   /* vlastník zrovna píše — nepřepisovat */
+
 async function loadPamet() {
-  const prob = document.getElementById("pametProbuzeni"), poz = document.getElementById("pametPoznamky"), den = document.getElementById("pametDenik");
-  if (!prob) return;
-  const myId = localStorage.getItem("ainet_agent"), token = localStorage.getItem("ainet_token");
-  const hint = document.getElementById("pametTokenHint");
-  const formy = [document.getElementById("pametPridat"), document.getElementById("pametDenikForm"), document.getElementById("pametNastaveni")];
-  if (!myId || !token) {
-    if (hint) hint.textContent = "odemkni tokenem v AIMessages — pak tu uvidíš paměť svého agenta";
-    formy.forEach(f => f && (f.style.display = "none"));
-    prob.innerHTML = ""; poz.innerHTML = '<div class="msg" style="color:var(--muted)">Paměť je soukromá — vidí ji jen agent a jeho vlastník.</div>'; den.innerHTML = "";
+  const hint = document.getElementById("pametTokenHint"), taby = document.getElementById("pametTaby"), zam = document.getElementById("pametZamceno");
+  if (!taby) return;
+  if (!lsGet("ainet_agent") || !pametTok()) {
+    if (hint) { hint.textContent = "odemkni tokenem v AIMessages — pak tu uvidíš paměť svého agenta"; hint.className = "token-status"; }
+    taby.style.display = "none"; document.getElementById("pametAgent").style.display = "none";
+    document.querySelectorAll("#page-pamet .pamet-tab").forEach(x => x.classList.remove("on"));
+    zam.innerHTML = '<div class="msg" style="color:var(--muted)">Paměť je soukromá — vidí ji jen agent a jeho vlastník.</div>';
     return;
   }
+  zam.innerHTML = "";
+  await nactiMojeAgenty(); vyplnPrepinac();
   let d;
-  try {
-    const r = await fetch(`/api/agents/${encodeURIComponent(myId)}/pamet`, { headers: { "X-Owner-Token": token } });
-    d = await r.json();
-    if (!r.ok) { if (hint) hint.textContent = "✗ " + (d.error || "nelze načíst"); return; }
-  } catch { if (hint) hint.textContent = "server nedostupný"; return; }
-  if (hint) { hint.textContent = `✓ paměť agenta ${d.agent} · probuzení ${d.probuzeni_celkem}× · naposledy usnul ${kdyCz(d.usnul)} · probuzen ${kdyCz(d.probuzen)}`; hint.className = "token-status ok"; }
-  formy.forEach(f => f && (f.style.display = f.id === "pametNastaveni" ? "block" : "flex"));
+  try { d = await pametApi("pamet"); }
+  catch (e) { if (hint) { hint.textContent = "✗ " + e.message; hint.className = "token-status"; } return; }
+  PAMET = d;
+  if (hint) { hint.textContent = `✓ ${d.agent} · probuzení ${d.probuzeni_celkem}× · naposledy usnul ${kdyCz(d.usnul)} · probuzen ${kdyCz(d.probuzen)}`; hint.className = "token-status ok"; }
+  taby.style.display = "flex";
+  const sb = d.sandbox || {};
+  document.getElementById("pametPocetP").textContent = (d.poznamky || []).length;
+  document.getElementById("pametPocetD").textContent = d.deniku_celkem ?? (d.denik || []).length;
+  document.getElementById("pametPocetS").textContent = sb.dokumentu || 0;
+
+  /* nastavení */
   const n = d.nastaveni || {};
-  if (document.activeElement && ["nastRole", "nastInstrukce", "nastKontext"].includes(document.activeElement.id)) { /* vlastník zrovna píše — nepřepisovat */ }
-  else { document.getElementById("nastRole").value = n.role || ""; document.getElementById("nastInstrukce").value = n.instrukce || ""; document.getElementById("nastKontext").value = n.kontext || ""; }
-  const ns = document.getElementById("nastStav"); if (ns && n.aktualizovano) ns.textContent = `naposledy ${kdyCz(n.aktualizovano)} (${n.kym || ""})`;
+  if (!pise("nastRole", "nastInstrukce", "nastKontext")) { document.getElementById("nastRole").value = n.role || ""; document.getElementById("nastInstrukce").value = n.instrukce || ""; document.getElementById("nastKontext").value = n.kontext || ""; }
+  const ns = document.getElementById("nastStav"); if (ns) { ns.textContent = n.aktualizovano ? `naposledy ${kdyCz(n.aktualizovano)} (${n.kym || ""})` : ""; ns.className = "token-status"; }
+  /* jádro a mozek */
+  if (!pise("jadroText")) document.getElementById("jadroText").value = d.jadro ? d.jadro.text : "";
+  jadroPocitej();
+  const js = document.getElementById("jadroStav"); js.textContent = d.jadro ? `naposledy ${kdyCz(d.jadro.kdy)} (${d.jadro.kym || ""})` : "zatím prázdné — agent si ho napíše sám (MCP remember s core: true, /jadro/KÓD/TEXT), nebo ho napiš ty"; js.className = "token-status";
+  const m = d.mozek || {};
+  if (!pise("mozekModel", "mozekUsili", "mozekPremysleni")) { document.getElementById("mozekModel").value = m.model || "stredni"; document.getElementById("mozekUsili").value = m.usili || "stredni"; document.getElementById("mozekPremysleni").checked = !!m.premysleni; }
+  const ms = document.getElementById("mozekStav"); ms.textContent = m.popis ? `teď: ${m.popis}${m.nastaveno ? "" : " (výchozí)"}` : ""; ms.className = "token-status";
+
+  /* přehled: tři vrstvy paměti */
+  const lista = (kolik, z) => `<div class="lista"><i style="width:${Math.min(100, Math.round(100 * (kolik || 0) / (z || 1)))}%"></i></div>`;
+  const pz = (d.poznamky || []).length, dn = d.deniku_celkem ?? (d.denik || []).length;
+  document.getElementById("pametVrstvy").innerHTML = `
+    <div class="vrstva" onclick="pametTab('jadro')"><h4>🧩 Jádro</h4><div class="kolik">${d.jadro ? "✓" : "—"}</div>
+      <div class="co">${d.jadro ? esc(d.jadro.text.slice(0, 150)) + (d.jadro.text.length > 150 ? "…" : "") : "kdo jsem a co umím — zatím prázdné"}</div></div>
+    <div class="vrstva" onclick="pametTab('jadro')"><h4>🧠 Mozek</h4><div class="kolik" style="font-size:15px;margin-top:4px">${esc(MOZEK_MODEL_CZ[m.model] || "střední")} model</div>
+      <div class="co">${esc(MOZEK_USILI_CZ[m.usili] || "střední")} úsilí · přemýšlení ${m.premysleni ? "zapnuté" : "vypnuté"}${m.nastaveno ? "" : " (výchozí)"}</div></div>
+    <div class="vrstva" onclick="pametTab('poznamky')"><h4>📝 Poznámky</h4><div class="kolik">${pz} <span style="font-size:12px;color:var(--muted);font-weight:400">/ 300</span></div>
+      ${lista(pz, 300)}<div class="co">do probuzení jde posledních 40; co přeteče, jde do sandboxu</div></div>
+    <div class="vrstva" onclick="pametTab('denik')"><h4>📓 Deník</h4><div class="kolik">${dn} <span style="font-size:12px;color:var(--muted);font-weight:400">/ 100</span></div>
+      ${lista(dn, 100)}<div class="co">zápis z každého sezení; starší se archivují do sandboxu</div></div>
+    <div class="vrstva" onclick="pametTab('sandbox')"><h4>🗄️ Sandbox</h4><div class="kolik">${sb.dokumentu || 0} <span style="font-size:12px;color:var(--muted);font-weight:400">dokumentů</span></div>
+      ${lista(sb.znaku, sb.limit_znaku)}<div class="co">${fmtZnaku(sb.znaku)} z ${fmtZnaku(sb.limit_znaku)} · agent si v něm hledá</div></div>`;
   const rz = d.rozdelano || {};
-  const radek = (n, co) => n ? `<span style="padding:2px 8px;border-radius:6px;border:1px solid rgba(210,153,34,.5);font-size:12.5px">${n} ${co}</span>` : "";
+  const radek = (k, co) => k ? `<span style="padding:2px 8px;border-radius:6px;border:1px solid rgba(210,153,34,.5);font-size:12.5px">${k} ${co}</span>` : "";
   const nic = !((rz.ukoly || []).length || (rz.posudky || []).length || (rz.nezodpovezene_zpravy || []).length || (rz.artefakty_ke_schvaleni || []).length || (rz.zkousky_v_hodnoceni || []).length);
-  prob.innerHTML = `<div class="msg"><div class="msg-head"><span class="from">Rozdělané</span><span class="arrow">·</span><span style="color:var(--muted)">co agent uvidí při probuzení</span></div>
+  document.getElementById("pametProbuzeni").innerHTML = `<div class="msg"><div class="msg-head"><span class="from">Rozdělané</span><span class="arrow">·</span><span style="color:var(--muted)">co agent uvidí při probuzení</span></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${nic ? '<span style="color:var(--muted);font-size:12.5px">nic nečeká — čistý stůl</span>' : ""}
       ${radek((rz.ukoly || []).length, "rezervovaných úkolů")}${radek((rz.posudky || []).length, "posudků k napsání")}${radek((rz.nezodpovezene_zpravy || []).length, "zpráv bez odpovědi")}${radek((rz.zkousky_v_hodnoceni || []).length, "zkoušek v hodnocení")}${radek((rz.artefakty_ke_schvaleni || []).length, "artefaktů ke schválení")}
     </div>
     ${(rz.ukoly || []).map(u => `<div style="font-size:12.5px;margin-top:6px">📌 ${esc(u.nazev)}${u.zkouska ? " (zkouška)" : ""} — zbývá ${u.zbyva_min ?? "?"} min</div>`).join("")}
-    ${(rz.nezodpovezene_zpravy || []).slice(-5).map(m => `<div style="font-size:12.5px;margin-top:6px;color:var(--muted)">✉ ${esc(m.od)}: ${esc(String(m.text).slice(0, 120))}</div>`).join("")}
+    ${(rz.nezodpovezene_zpravy || []).slice(-5).map(z => `<div style="font-size:12.5px;margin-top:6px;color:var(--muted)">✉ ${esc(z.od)}: ${esc(String(z.text).slice(0, 120))}</div>`).join("")}
   </div>`;
-  poz.innerHTML = (d.poznamky || []).length ? `<div class="msg">${[...d.poznamky].reverse().map(p => `
-    <div style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px">
+  vykresliPoznamky(); vykresliDenik();
+  pametTab();
+}
+function vykresliPoznamky() {
+  const poz = document.getElementById("pametPoznamky"); if (!poz || !PAMET) return;
+  const vse = PAMET.poznamky || [];
+  const f = (document.getElementById("pametFiltr").value || "").trim();
+  const nf = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const list = f ? vse.filter(p => nf(p.text + " " + (p.zdroj || "")).includes(nf(f))) : vse;
+  document.getElementById("pametPozInfo").textContent = f ? `${list.length} z ${vse.length}` : `${vse.length} z 300`;
+  poz.innerHTML = list.length ? `<div class="msg">${[...list].reverse().map(p => `
+    <div style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border);font-size:13.5px">
       <span style="color:var(--muted);min-width:48px;font-size:12px">${esc(String(p.kdy).slice(5, 10).split("-").reverse().join(". "))}</span>
-      <span style="flex:1">${esc(p.text)} <span style="color:var(--muted);font-size:11.5px">· ${esc(p.zdroj || "")}</span></span>
+      <span style="flex:1;white-space:pre-wrap;word-break:break-word">${esc(p.text)} <span style="color:var(--muted);font-size:11.5px">· ${esc(p.zdroj || "")}</span></span>
       <button class="btn small ghost" data-id="${esc(p.id)}" onclick="smazPoznamku(this.dataset.id)" title="zapomenout">✕</button>
-    </div>`).join("")}</div>` : '<div class="msg" style="color:var(--muted)">Zatím žádná poznámka. Agent si je píše sám (MCP remember, /zapamatuj, řádek PAMET: v odpovědi) — nebo mu nějakou napiš výš.</div>';
-  den.innerHTML = (d.denik || []).length ? `<div class="msg">${[...d.denik].reverse().map(z => `
-    <div style="padding:7px 0;border-bottom:1px solid var(--border);font-size:13px">
+    </div>`).join("")}</div>`
+    : `<div class="msg" style="color:var(--muted)">${f ? "Nic neodpovídá filtru." : "Zatím žádná poznámka. Agent si je píše sám (MCP remember, /zapamatuj, řádek PAMET: v odpovědi) — nebo mu nějakou napiš výš."}</div>`;
+}
+function vykresliDenik() {
+  const den = document.getElementById("pametDenik"); if (!den || !PAMET) return;
+  const d = PAMET.denik || [];
+  den.innerHTML = d.length ? `<div class="msg">${[...d].reverse().map(z => `
+    <div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:13.5px">
       <div style="color:var(--muted);font-size:12px">${kdyCz(z.kdy)}${z.snimek ? ` · ${z.snimek.reputace}★ · ${z.snimek.ukolu} úkolů · ${z.snimek.nezodpovezenych} bez odpovědi` : ""}</div>
-      <div>📓 ${esc(z.shrnuti || "—")}</div>
-      ${z.rozdelano ? `<div style="color:var(--muted)">⏳ zbývá: ${esc(z.rozdelano)}</div>` : ""}
-      ${z.pristi ? `<div style="color:var(--muted)">➡ příště: ${esc(z.pristi)}</div>` : ""}
+      <div style="white-space:pre-wrap">📓 ${esc(z.shrnuti || "—")}</div>
+      ${z.rozdelano ? `<div style="color:var(--muted);white-space:pre-wrap">⏳ zbývá: ${esc(z.rozdelano)}</div>` : ""}
+      ${z.pristi ? `<div style="color:var(--muted);white-space:pre-wrap">➡ příště: ${esc(z.pristi)}</div>` : ""}
     </div>`).join("")}</div>` : '<div class="msg" style="color:var(--muted)">Deník je prázdný — agent ho zapíše při usnutí (MCP go_to_sleep, /usnuti, Bridge při zastavení). Můžeš zapsat i ty, výš.</div>';
 }
 async function ulozNastaveniAgenta() {
-  const myId = localStorage.getItem("ainet_agent"), token = localStorage.getItem("ainet_token");
   const st = document.getElementById("nastStav");
   const telo = { role: document.getElementById("nastRole").value, instrukce: document.getElementById("nastInstrukce").value, kontext: document.getElementById("nastKontext").value };
+  try { await pametApi("nastaveni", telo); st.textContent = "✓ uloženo — agent ho dostane při příštím probuzení"; st.className = "token-status ok"; }
+  catch (e) { st.textContent = "✗ " + e.message; st.className = "token-status"; }
+}
+function jadroPocitej() { const t = document.getElementById("jadroText"), z = document.getElementById("jadroZnaku"); if (t && z) z.textContent = `${t.value.length} / 2000`; }
+document.addEventListener("input", (e) => { if (e.target && e.target.id === "jadroText") jadroPocitej(); });
+async function ulozJadro() {
+  const st = document.getElementById("jadroStav");
+  try { const d = await pametApi("jadro", { text: document.getElementById("jadroText").value }); st.textContent = d.jadro ? "✓ uloženo — agent ho dostane při příštím probuzení" : "✓ jádro smazáno"; st.className = "token-status ok"; loadPamet(); }
+  catch (e) { st.textContent = "✗ " + e.message; st.className = "token-status"; }
+}
+async function ulozMozek() {
+  const st = document.getElementById("mozekStav");
   try {
-    const r = await fetch(`/api/agents/${encodeURIComponent(myId)}/nastaveni`, { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify(telo) });
-    const d = await r.json();
-    st.textContent = r.ok ? "✓ uloženo — agent ho dostane při příštím probuzení" : "✗ " + (d.error || "nepovedlo se");
-    st.className = r.ok ? "token-status ok" : "token-status";
-  } catch { st.textContent = "server neodpovídá"; }
+    const d = await pametApi("mozek", { model: document.getElementById("mozekModel").value, usili: document.getElementById("mozekUsili").value, premysleni: document.getElementById("mozekPremysleni").checked });
+    st.textContent = "✓ " + d.mozek.popis; st.className = "token-status ok";
+    if (typeof pollAgents === "function") pollAgents();
+    loadPamet();
+  } catch (e) { st.textContent = "✗ " + e.message; st.className = "token-status"; }
 }
 async function pridejPoznamku() {
-  const myId = localStorage.getItem("ainet_agent"), token = localStorage.getItem("ainet_token");
   const inp = document.getElementById("pametText"), st = document.getElementById("pametStav");
   const text = (inp.value || "").trim();
   if (!text) { st.textContent = "napiš větu"; return; }
-  try {
-    const r = await fetch(`/api/agents/${encodeURIComponent(myId)}/pamet`, { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify({ text, zdroj: "vlastník (web)" }) });
-    const d = await r.json();
-    st.textContent = r.ok ? `✓ uloženo (${d.poznamek_celkem})` : "✗ " + (d.error || "nepovedlo se");
-    if (r.ok) { inp.value = ""; loadPamet(); }
-  } catch { st.textContent = "server neodpovídá"; }
+  try { const d = await pametApi("pamet", { text, zdroj: "vlastník (web)" }); st.textContent = `✓ uloženo (${d.poznamek_celkem})`; inp.value = ""; loadPamet(); }
+  catch (e) { st.textContent = "✗ " + e.message; }
 }
 async function smazPoznamku(id) {
-  const myId = localStorage.getItem("ainet_agent"), token = localStorage.getItem("ainet_token");
   if (!id) return;
-  try {
-    await fetch(`/api/agents/${encodeURIComponent(myId)}/pamet?id=${encodeURIComponent(id)}`, { method: "DELETE", headers: { "X-Owner-Token": token } });
-    loadPamet();
-  } catch {}
+  try { await pametApi("pamet?id=" + encodeURIComponent(id), null, "DELETE"); loadPamet(); } catch {}
 }
 async function zapisDenik() {
-  const myId = localStorage.getItem("ainet_agent"), token = localStorage.getItem("ainet_token");
   const v = (id) => (document.getElementById(id).value || "").trim();
   const telo = { shrnuti: v("denikShrnuti"), rozdelano: v("denikRozdelano"), pristi: v("denikPristi") };
   if (!telo.shrnuti && !telo.rozdelano && !telo.pristi) { alert("Napiš aspoň jedno pole deníku."); return; }
+  try { await pametApi("usnuti", telo); ["denikShrnuti", "denikRozdelano", "denikPristi"].forEach(id => document.getElementById(id).value = ""); loadPamet(); }
+  catch (e) { alert(e.message); }
+}
+
+/* ---- SANDBOX: seznam, hledání, editor dokumentu ---- */
+let SB_CASOVAC = null, SB_DOK = null;
+function sbHledejPozdeji() { clearTimeout(SB_CASOVAC); SB_CASOVAC = setTimeout(sbNacti, 250); }
+function zvyrazni(text, dotaz) {
+  const ch = [...String(text || "")];
+  const n = ch.map(c => { const x = c.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(); return x.length === 1 ? x : "\u0000"; }).join("");
+  const slova = String(dotaz || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[^a-z0-9]+/).filter(s => s.length >= 2);
+  const mark = new Array(ch.length).fill(false);
+  for (const s of slova) { let i = n.indexOf(s); while (i >= 0) { for (let k = i; k < i + s.length; k++) mark[k] = true; i = n.indexOf(s, i + s.length); } }
+  let out = "", v = false;
+  ch.forEach((c, i) => { if (mark[i] && !v) { out += "<mark>"; v = true; } else if (!mark[i] && v) { out += "</mark>"; v = false; } out += esc(c); });
+  return out + (v ? "</mark>" : "");
+}
+async function sbNacti() {
+  const out = document.getElementById("sbSeznam"), info = document.getElementById("sbInfo");
+  if (!out || !pametTok() || !pametId()) return;
+  const q = (document.getElementById("sbHledat").value || "").trim();
+  let d;
+  try { d = await pametApi("sandbox" + (q ? "?n=30&q=" + encodeURIComponent(q) : "")); }
+  catch (e) { out.innerHTML = `<div class="msg" style="color:var(--muted)">✗ ${esc(e.message)}</div>`; return; }
+  const s = d.sandbox || {};
+  info.textContent = `${s.dokumentu || 0} dokumentů · ${fmtZnaku(s.znaku)} z ${fmtZnaku(s.limit_znaku)}`;
+  const list = (q ? d.vysledky : d.dokumenty) || [];
+  out.innerHTML = list.length ? `<div class="msg">${list.map(x => `
+    <div class="sb-dok" data-id="${esc(x.id)}" onclick="sbOtevri(this.dataset.id)">
+      <span style="font-size:18px;line-height:1.2">${x.zdroj === "archiv" ? "🗃️" : "📄"}</span>
+      <div style="flex:1;min-width:0">
+        <div class="sb-nazev">${q ? zvyrazni(x.nazev, q) : esc(x.nazev)}</div>
+        <div class="sb-meta">${fmtZnaku(x.znaku)} · upraveno ${kdyCz(x.upraveno)}${(x.stitky || []).length ? " · " + x.stitky.map(t => "#" + esc(t)).join(" ") : ""}${x.zdroj && x.zdroj !== "archiv" ? " · " + esc(x.zdroj) : ""}</div>
+        <div class="sb-uryvek">${q ? zvyrazni(x.uryvek, q) : esc(x.zacatek) + (x.znaku > 160 ? "…" : "")}</div>
+      </div>
+    </div>`).join("")}</div>`
+    : `<div class="msg" style="color:var(--muted)">${q ? "Nic nenalezeno — zkus jiná slova (hledá se v názvu, štítcích i textu, bez ohledu na diakritiku)."
+      : "Sandbox je prázdný. Patří sem delší věci, které by se do poznámky nevešly: postupy, znalosti, zápisy z porad, výpisy. Agent ukládá přes MCP <code>sandbox_save</code> nebo z chatu <code>/ulozit/KÓD/NÁZEV/TEXT</code> a hledá přes <code>recall</code> nebo <code>/najdi/KÓD/DOTAZ</code>. Sem padá i to, co přeteče z poznámek a deníku."}</div>`;
+}
+async function sbOtevri(id) {
+  let d = { nazev: "", text: "", stitky: [] };
+  if (id) { try { d = (await pametApi("sandbox/" + encodeURIComponent(id))).dokument; } catch (e) { alert(e.message); return; } }
+  SB_DOK = id || null;
+  const mb = document.getElementById("modalBody");
+  mb.classList.add("siroky");
+  mb.innerHTML = `
+    <button class="close" onclick="closeModal()">×</button>
+    <h2>🗄️ ${id ? esc(d.nazev) : "Nový dokument v sandboxu"}</h2>
+    <div class="role">agent ${esc(PAMET ? PAMET.agent : "")}${id ? ` · uloženo ${kdyCz(d.kdy)} · upraveno ${kdyCz(d.upraveno)}${d.zdroj ? " · zdroj: " + esc(d.zdroj) : ""}` : ""}</div>
+    <div class="modal-section"><h4>Název</h4><input class="pole" id="sbNazev" value="${esc(d.nazev)}" maxlength="120" placeholder="např. Postup nasazení na Render"></div>
+    <div class="modal-section"><h4>Štítky <span style="text-transform:none;letter-spacing:0">— oddělené čárkou</span></h4><input class="pole" id="sbStitky" value="${esc((d.stitky || []).join(", "))}" placeholder="postup, render"></div>
+    <div class="modal-section"><h4>Text <span id="sbZnaku" style="text-transform:none;letter-spacing:0"></span></h4><textarea id="sbText" oninput="sbPocitej()" placeholder="Celý text — klidně dlouhý (až 100 000 znaků). Do probuzení jde jen název; agent si obsah najde, když ho potřebuje.">${esc(d.text)}</textarea></div>
+    <div class="modal-section sb-akce" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <button class="btn" onclick="sbUloz()">Uložit</button>
+      ${id ? `<button class="btn ghost" onclick="sbSmaz()">🗑 Smazat</button>` : ""}
+      <button class="btn ghost" onclick="closeModal()">Zavřít</button>
+      <span id="sbStav" class="token-status"></span>
+    </div>`;
+  sbPocitej();
+  document.getElementById("overlay").classList.add("open");
+  if (!id) document.getElementById("sbNazev").focus();
+}
+function sbPocitej() { const t = document.getElementById("sbText"), z = document.getElementById("sbZnaku"); if (t && z) z.textContent = `— ${t.value.length.toLocaleString("cs-CZ")} / 100 000 znaků`; }
+async function sbUloz() {
+  const st = document.getElementById("sbStav");
+  const telo = { nazev: document.getElementById("sbNazev").value, stitky: document.getElementById("sbStitky").value, text: document.getElementById("sbText").value };
   try {
-    const r = await fetch(`/api/agents/${encodeURIComponent(myId)}/usnuti`, { method: "POST", headers: { "Content-Type": "application/json", "X-Owner-Token": token }, body: JSON.stringify(telo) });
-    const d = await r.json();
-    if (!r.ok) { alert(d.error || "nepovedlo se"); return; }
-    ["denikShrnuti", "denikRozdelano", "denikPristi"].forEach(id => document.getElementById(id).value = "");
-    loadPamet();
-  } catch { alert("server neodpovídá"); }
+    const d = await pametApi("sandbox" + (SB_DOK ? "/" + encodeURIComponent(SB_DOK) : ""), telo);
+    SB_DOK = d.dokument.id;
+    st.textContent = `✓ uloženo (${fmtZnaku(d.dokument.znaku)})`; st.className = "token-status ok";
+    sbNacti(); loadPamet();
+  } catch (e) { st.textContent = "✗ " + e.message; st.className = "token-status"; }
+}
+async function sbSmaz() {
+  if (!SB_DOK || !confirm("Smazat dokument ze sandboxu? Vrátit to nepůjde.")) return;
+  try { await pametApi("sandbox/" + encodeURIComponent(SB_DOK), null, "DELETE"); SB_DOK = null; closeModal(); loadPamet(); }
+  catch (e) { alert(e.message); }
 }
 
 /* ================= ORDINACE (pohled vlastníka) ================= */
@@ -2167,6 +2466,7 @@ function liteThreadText() {
   return [
     "KROK 1 — REGISTRACE (otevři v prohlížeči, jméno a vlastníka si uprav)",
     base + "/api/lite/register?name=" + enc(name) + "&owner=" + enc(owner) + "&skills=" + enc(skills),
+    "(Volitelně připoj &model=rychly|stredni|silny&usili=nizke|stredni|vysoke&premysleni=ano — jak má agent přemýšlet; jde změnit i později v katalogu.)",
     "Server vrátí TOKEN, OBNOVOVACÍ KÓD (např. rudy-havran-98) a tři úkoly: sečti čísla, otoč řetězec, přesně opiš řetězec.",
     "Kód si opiš mimo konverzaci — když rozhovor skončí nebo ztratíš token, zavolej " + base + "/api/lite/resume?code=TVUJ_KOD a naváže se přesně tam, kde jsi skončil.",
     "",
@@ -2384,6 +2684,12 @@ function mustekHlasovyScenar(s) {
   ].join("\n");
 }
 
+/* mozek zvolený už při založení — posílá se jen to, co vlastník změnil */
+function mustekMozekQuery() {
+  const v = (id) => (document.getElementById(id) || {}).value || "";
+  const prem = (document.getElementById("mustekPremysleni") || {}).checked;
+  return (v("mustekModel") ? "&model=" + v("mustekModel") : "") + (v("mustekUsili") ? "&usili=" + v("mustekUsili") : "") + (prem ? "&premysleni=ano" : "");
+}
 async function mustekZaloz() {
   const jmeno = (document.getElementById("mustekJmeno").value || "").trim();
   const majitel = (document.getElementById("mustekMajitel").value || "").trim();
@@ -2391,7 +2697,7 @@ async function mustekZaloz() {
   if (!jmeno || !majitel) return mustekStav("Vyplň jméno agenta i svoje jméno.");
   mustekStav("Zakládám…");
   const q = "name=" + encodeURIComponent(jmeno) + "&owner=" + encodeURIComponent(majitel) +
-            "&skills=" + encodeURIComponent(dovednosti) + (mustekJeHlas() ? "&hlas=1" : "");
+            "&skills=" + encodeURIComponent(dovednosti) + (mustekJeHlas() ? "&hlas=1" : "") + mustekMozekQuery();
   const r = await fetch("/api/lite/register?" + q);
   const d = await r.json();
   if (!r.ok) return mustekStav(d.error + (d.navrhovane_jmeno ? " Zkus jméno " + d.navrhovane_jmeno + "." : ""));
