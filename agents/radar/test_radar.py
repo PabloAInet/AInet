@@ -10,6 +10,8 @@ Hlídá brány, na kterých stojí bezpečnost:
   • denní ztráta → nic
   • limity před každým příkazem (Alpaca.prikaz): velikost pozice, počet pozic
   • živý účet bez RADAR_LIVE=1 → nejde ani založit klienta
+  • stín odrazu: export Earnings Radaru → stínové obchody, dopočet (MOC i stop gap-through) proti SPY,
+    den praxe se hlásí jen se zpracovaným exportem, týdenní souhrn do sandboxu
 
 Spuštění: python3 agents/radar/test_radar.py
 """
@@ -66,8 +68,11 @@ class FakeAInet:
     def stav(self):
         return dict(self._stav)
 
-    def hlaseni(self, etapa, smycka, zprava, ucet=""):
-        self.hlaseni_log.append((etapa, smycka, zprava, ucet)); return {"ok": True, "stop": self._stav.get("stop", False)}
+    def hlaseni(self, etapa, smycka, zprava, ucet="", praxe_den=None):
+        self.hlaseni_log.append((etapa, smycka, zprava, ucet, praxe_den)); return {"ok": True, "stop": self._stav.get("stop", False)}
+
+    def sandbox_uloz(self, nazev, text, stitky=None):
+        self.sandbox_log = getattr(self, "sandbox_log", []); self.sandbox_log.append((nazev, text)); return {"ok": True}
 
     def signal(self, t):
         return self.signaly.get(t) or {"skore": 0.2, "jistota": "nízká", "popis": "klid", "vysledky": {}}
@@ -88,6 +93,8 @@ class FakeAlpaca:
         return self._snap
 
     def svicky(self, s, timeframe="1Day", dni=30):
+        if getattr(self, "bary", None) is not None:
+            return self.bary.get(s, [])
         return [{"v": 1000}] * 21
 
     def pozice(self):
@@ -163,7 +170,7 @@ print("§3 etapa 3 (papír) — brány školy, STOP, veto, výsledky, denní ztr
 R.ETAPA = 3
 ai = FakeAInet({"stop": False, "smi_papir": False, "smi_zivy": False}); al = FakeAlpaca(snap=SNAP)
 r = novy_radar(ai, al, suche=False); r.kandidati(); t = r.vstupy()
-ok("tovaryš" in t and not al.prikazy_log, "bez úrovně tovaryš (analysis < 2) papír nejede")
+ok("osvědčený" in t and not al.prikazy_log, "bez úrovně osvědčený (analysis < 2) papír nejede")
 ai = FakeAInet({"stop": True, "stop_duvod": "zkouška", "smi_papir": True, "smi_zivy": False}); al = FakeAlpaca(snap=SNAP)
 r = novy_radar(ai, al, suche=False); r.kandidati(); t = r.vstupy()
 ok("STOP" in t and not al.prikazy_log, "STOP ze sítě (/api/radar/stop) → vstupy přeskočeny")
@@ -211,14 +218,14 @@ ok(al.prikazy_log and al.prikazy_log[-1].get("zavrit") == "NVDA", "výstup 9:31 
 t = r.vyhodnoceni()
 ok("1 obchodů" in t and r.cti_denik()[-1]["obchody"][0]["pl_pct"] == 4.0, "vyhodnocení 10:05: P/L +4 %")
 
-print("§4 etapa 4 (živě) — jen mistr, jen RADAR_LIVE=1, režim manual nic neposílá")
+print("§4 etapa 4 (živě) — jen s výslovným povolením vlastníka, jen RADAR_LIVE=1, režim manual nic neposílá")
 R.ETAPA = 4; R.ZIVY = True
 ai = FakeAInet({"stop": False, "smi_papir": True, "smi_zivy": False}); al = FakeAlpaca(snap=SNAP)
 r = novy_radar(ai, al, suche=False); r.kandidati(); t = r.vstupy()
-ok("mistra" in t and not al.prikazy_log, "živě bez úrovně mistr → nic")
+ok("povolením vlastníka" in t and not al.prikazy_log, "živě bez povolení vlastníka (smi_zivy) → nic")
 ai = FakeAInet({"stop": False, "smi_papir": True, "smi_zivy": True}); al = FakeAlpaca(snap=SNAP)
 r = novy_radar(ai, al, suche=False); r.kandidati(); t = r.vstupy()
-ok("manual" in t and not al.prikazy_log, "mistr, ale režim manual → příkazy jen připraví, neodešle")
+ok("manual" in t and not al.prikazy_log, "povoleno, ale režim manual → příkazy jen připraví, neodešle")
 R.ETAPA = 1; R.ZIVY = False
 try:
     Alpaca(zivy=True); ok(False, "živý klient bez RADAR_LIVE=1 musí selhat")
@@ -273,7 +280,40 @@ except AlpacaChyba:
 
 print("§6 plánovač — každou smyčku jednou denně, jen v obchodní den")
 ok(R.obchodni_den(datetime(2026, 10, 9, 12, tzinfo=R.NY)) and not R.obchodni_den(datetime(2026, 10, 10, 12, tzinfo=R.NY)), "pátek ano, sobota ne")
-ok([n for _, _, n in R.SMYCKY] == ["rano", "kontrola", "vystup", "vyhodnoceni", "kandidati", "vstupy", "vecer"] and R.TYDENNI[0] == 4, "osm smyček v pořadí dne, týdenní v pátek")
+ok([n for _, _, n in R.SMYCKY] == ["rano", "kontrola", "vystup", "vyhodnoceni", "kandidati", "vstupy", "vecer", "stin"] and R.TYDENNI[0] == 4, "osm smyček dne + stín odrazu v 16:20, týdenní v pátek")
 ok((R.SMYCKY[5][0] * 60 + R.SMYCKY[5][1]) - (R.SMYCKY[4][0] * 60 + R.SMYCKY[4][1]) == 30, "mezi kandidáty a vstupy je 30 minut na veto")
+
+print("§7 stín odrazu — export Earnings Radaru, dopočet proti SPY, praxe")
+R.ETAPA = 1
+exp_dir = Path(tempfile.mkdtemp(prefix="radar-export-")); R.EXPORT_DIR = exp_dir
+R.DENIK = Path(tempfile.mkdtemp(prefix="radar-stin-"))
+ai = FakeAInet(); al = FakeAlpaca(snap=SNAP)
+r = novy_radar(ai, al)
+dnes = r.den()
+t = r.stin()
+ok("export Earnings Radaru chybí" in t and ai.hlaseni_log[-1][1] == "stin" and ai.hlaseni_log[-1][4] is None, "bez exportu: den se do praxe nepočítá (praxe_den nehlášen)")
+d0 = (datetime.fromisoformat(dnes) - timedelta(days=7)).date().isoformat()
+d3 = (datetime.fromisoformat(dnes) - timedelta(days=4)).date().isoformat()
+dx = (datetime.fromisoformat(dnes) - timedelta(days=6)).date().isoformat()
+(R.DENIK / f"{d0}.jsonl").write_text(
+    json.dumps({"t": d0, "smycka": "stin_vstup", "ticker": "AAA", "den": d0, "cena": 10.0, "vystup": d3, "stop": 8.5}) + "\n"
+    + json.dumps({"t": d0, "smycka": "stin_vstup", "ticker": "BBB", "den": d0, "cena": 20.0, "vystup": d3, "stop": 17.0}) + "\n", "utf-8")
+al.bary = {
+    "AAA": [{"t": d0 + "T20:00:00Z", "o": 10, "l": 9.8, "c": 10.0}, {"t": dx + "T20:00:00Z", "o": 10.1, "l": 9.9, "c": 10.4}, {"t": d3 + "T20:00:00Z", "o": 10.5, "l": 10.3, "c": 11.0}],
+    "BBB": [{"t": d0 + "T20:00:00Z", "o": 20, "l": 19.5, "c": 20.0}, {"t": dx + "T20:00:00Z", "o": 16.0, "l": 15.5, "c": 15.8}, {"t": d3 + "T20:00:00Z", "o": 16.5, "l": 16.2, "c": 16.9}],
+    "SPY": [{"t": d0 + "T20:00:00Z", "o": 500, "l": 499, "c": 500.0}, {"t": dx + "T20:00:00Z", "o": 501, "l": 500, "c": 502.0}, {"t": d3 + "T20:00:00Z", "o": 503, "l": 502, "c": 505.0}],
+}
+(exp_dir / f"odraz_{dnes}.json").write_text(json.dumps({"datum": dnes, "spy_cons": 2, "kandidati": [{"ticker": "CCC", "vybran": True}],
+    "vstupy": [{"ticker": "CCC", "cena_plneni": 5.0, "ks": 100, "vystup_planovany": "2099-01-01", "stop": 4.25}]}), "utf-8")
+t = r.stin()
+vys = {x["ticker"]: x for x in r.cti_denik(dnes) if x.get("smycka") == "stin_vysledek"}
+ok("1 nových signálů" in t and any(x.get("smycka") == "stin_vstup" and x["ticker"] == "CCC" for x in r.cti_denik(dnes)), "nový signál z exportu zapsán jako stínový vstup")
+ok(abs(vys["AAA"]["vynos_pct"] - 10.0) < 1e-6 and abs(vys["AAA"]["spy_pct"] - 1.0) < 1e-6 and abs(vys["AAA"]["alfa_pct"] - 9.0) < 1e-6 and vys["AAA"]["jak"] == "MOC", "AAA: close 10 → 11 = +10 %, SPY +1 %, alfa +9 % (výstup MOC)")
+ok(vys["BBB"]["jak"].startswith("stop") and abs(vys["BBB"]["vystup_cena"] - 16.0) < 1e-6, "BBB: gap pod stop 17 → výstup na open 16 (gap-through), ne na stopu")
+ok(ai.hlaseni_log[-1][4] == dnes, "zpracovaný den nahlášen jako den praxe")
+t2 = r.stin()
+ok("dopočteno 0" in t2 and sum(1 for x in r.cti_denik(dnes) if x.get("smycka") == "stin_vysledek") == 2, "druhý běh téhož dne nic nedopočítá znovu")
+t = r.tyden()
+ok("Stín odrazu: 2 dopočtených obchodů" in t and getattr(ai, "sandbox_log", None) and "AAA" in ai.sandbox_log[-1][1], "týdenní zpráva nese stín a souhrn jde do sandboxu (zápisky pro zkoušku Praxe)")
 
 print(f"\nTradeRadar worker: {KROKU} kroků OK (deník testu v {tmp})")

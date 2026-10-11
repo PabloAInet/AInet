@@ -16,8 +16,14 @@ tohle je jeho worker na Renderu. Každý obchodní den podle času v New Yorku:
 
 Brány (etapy) — bez nich se peníze nedotknou:
   RADAR_ETAPA=1  sken, karty, zprávy, deník; ŽÁDNÉ příkazy (ani papír)
-  RADAR_ETAPA=3  papírový účet — jen když je TradeRadar ve škole aspoň tovaryš (analysis ≥ 2)
-  RADAR_ETAPA=4  živý účet — jen mistr (analysis ≥ 3), RADAR_LIVE=1 a režim z limity.json
+  RADAR_ETAPA=3  papírový účet — jen když je TradeRadar ve škole osvědčený (analysis 2)
+  RADAR_ETAPA=4  živý účet — osvědčený A výslovné povolení vlastníka (záložka TradeRadar / POST /api/radar/zivy),
+                 RADAR_LIVE=1 a režim z limity.json. Živé peníze nejsou úroveň ve škole.
+
+STÍN ODRAZU (od 11. 10. 2026, každý obchodní den 16:20 New York): Earnings Radar zapisuje po skenu odrazu
+soubor RADAR_EXPORT_DIR/odraz_YYYY-MM-DD.json. TradeRadar si signály zapíše jako stínové obchody, po
+plánovaném výstupu je SÁM dopočítá ze svých dat (close vstupu → close výstupu, stop gap-through, proti SPY)
+a zpracovaný den nahlásí jako den praxe — 20 dní praxe je podmínka úrovně osvědčený. Nic neobchoduje.
   STOP od vlastníka (zpráva STOP v AIMessages, /api/radar/stop) nebo RADAR_LIVE=0 → nic.
 
 Spuštění:  python agents/radar/radar.py            (plánovač, běží pořád)
@@ -48,10 +54,11 @@ ZIVY = os.environ.get("RADAR_LIVE", "0") == "1" and ETAPA >= 4
 VLASTNIK_AGENT = os.environ.get("RADAR_VLASTNIK_AGENT", "Fable")        # komu chodí zprávy pro vlastníka (čte je jako vlastník Fabla)
 OPONENTI = [x.strip() for x in os.environ.get("RADAR_OPONENTI", "Aja").split(",") if x.strip()]
 DENIK = SLOZKA / "denik"
+EXPORT_DIR = Path(os.environ.get("RADAR_EXPORT_DIR", str(Path.home() / "Documents" / "Investements" / "research" / "data" / "export_signaly")))
 
 SMYCKY = [  # (hh, mm, název, jen obchodní dny)
     (7, 0, "rano"), (9, 25, "kontrola"), (9, 31, "vystup"), (10, 5, "vyhodnoceni"),
-    (15, 15, "kandidati"), (15, 45, "vstupy"), (16, 15, "vecer"),
+    (15, 15, "kandidati"), (15, 45, "vstupy"), (16, 15, "vecer"), (16, 20, "stin"),
 ]
 TYDENNI = (4, 16, 30, "tyden")   # pátek
 
@@ -131,11 +138,11 @@ class Radar:
             return False, "etapa 1–2: jen sken a karty, žádné příkazy"
         if ZIVY:
             if not self.stav.get("smi_zivy"):
-                return False, "živý účet jen pro mistra (analysis ≥ 3)"
+                return False, "živý účet jen pro osvědčeného s výslovným povolením vlastníka (💼 v záložce TradeRadar)"
             if self.limity.get("rezim_zivy", "manual") == "manual":
                 return False, "režim manual: příkazy jen připravím, odklikne vlastník"
         elif not self.stav.get("smi_papir"):
-            return False, "papírový účet až jako tovaryš (analysis ≥ 2) — zkouška Obchodování 2"
+            return False, "papírový účet až jako osvědčený (analysis 2) — zkouška Obchodování 2 + 20 dní praxe ve stínu"
         if not self.alpaca or not self.alpaca.ma_klice:
             return False, "chybí klíče Alpacy"
         return True, "ok"
@@ -383,6 +390,96 @@ class Radar:
         self.ainet.hlaseni(ETAPA, "vecer", text.split("\n")[0][:200], "zivy" if ZIVY else "papir")
         return text
 
+    # ---------- stín odrazu (Earnings Radar → TradeRadar) ----------
+    def nacti_export(self, datum: str) -> dict | None:
+        p = EXPORT_DIR / f"odraz_{datum}.json"
+        if not p.exists():
+            return None
+        try:
+            return json.loads(p.read_text("utf-8"))
+        except Exception as e:
+            log(f"stín: export {p.name} nejde přečíst ({e})")
+            return None
+
+    def _bary(self, symbol: str) -> list[dict]:
+        if not self.alpaca or not getattr(self.alpaca, "ma_klice", False):
+            return []
+        try:
+            out = []
+            for b in self.alpaca.svicky(symbol, "1Day", 45) or []:
+                d = str(b.get("t") or b.get("d") or "")[:10]
+                if d and b.get("c") is not None:
+                    out.append({"d": d, "o": float(b.get("o") or b["c"]), "l": float(b.get("l") or b["c"]), "c": float(b["c"])})
+            return sorted(out, key=lambda x: x["d"])
+        except Exception as e:
+            log(f"stín: svíčky {symbol} ({e})")
+            return []
+
+    def dopocitej(self, v: dict) -> dict | None:
+        """Stínový obchod: vstup close D (cena plnění), výstup close plánovaného dne; stop gap-through. Proti SPY."""
+        bary = self._bary(v["ticker"]); spy = self._bary("SPY")
+        if not bary or not spy:
+            return None
+        d0, d1 = v["den"], v["vystup"]
+        po = [b for b in bary if d0 < b["d"] <= d1]
+        if not po or po[-1]["d"] < d1:
+            return None                                   # výstupní den ještě nemá bar
+        vstup = float(v.get("cena") or next((b["c"] for b in bary if b["d"] == d0), 0) or 0)
+        if vstup <= 0:
+            return None
+        stop = float(v.get("stop") or 0)
+        vystup, jak = po[-1]["c"], "MOC"
+        for b in po:
+            if stop and b["l"] <= stop:
+                vystup, jak = (b["o"] if b["o"] < stop else stop), f"stop {b['d']}"
+                break
+        s0 = next((b["c"] for b in spy if b["d"] == d0), None); s1 = next((b["c"] for b in spy if b["d"] == d1), None)
+        if not s0 or not s1:
+            return None
+        r = (vystup / vstup - 1) * 100; rs = (s1 / s0 - 1) * 100
+        return {"ticker": v["ticker"], "den": d0, "vystup": d1, "vstup_cena": round(vstup, 4), "vystup_cena": round(vystup, 4), "jak": jak,
+                "vynos_pct": round(r, 3), "spy_pct": round(rs, 3), "alfa_pct": round(r - rs, 3)}
+
+    def stin(self) -> str:
+        self.novy_den()
+        dnes = self.den()
+        exp = self.nacti_export(dnes)
+        novych = 0
+        if exp is not None:
+            for v in exp.get("vstupy") or []:
+                if not v.get("ticker"):
+                    continue
+                self.zapis_denik({"smycka": "stin_vstup", "ticker": v["ticker"], "den": exp.get("datum") or dnes, "cena": v.get("cena_plneni"),
+                                  "vystup": str(v.get("vystup_planovany") or "")[:10], "stop": v.get("stop"), "spy_cons": exp.get("spy_cons")})
+                novych += 1
+        # dopočet zralých stínových obchodů z posledních tří týdnů
+        hotove = set(); cekajici = []
+        for i in range(21, -1, -1):
+            dd = (date.fromisoformat(dnes) - timedelta(days=i)).isoformat()
+            for r in self.cti_denik(dd):
+                if r.get("smycka") == "stin_vstup":
+                    cekajici.append(r)
+                elif r.get("smycka") == "stin_vysledek":
+                    hotove.add((r.get("ticker"), r.get("den")))
+        vysledky = []
+        for v in cekajici:
+            if (v.get("ticker"), v.get("den")) in hotove or not v.get("vystup") or v["vystup"] > dnes:
+                continue
+            res = self.dopocitej(v)
+            if res:
+                self.zapis_denik({"smycka": "stin_vysledek", **res}); vysledky.append(res); hotove.add((res["ticker"], res["den"]))
+        if exp is None:
+            text = f"🌗 Stín odrazu {dnes}: export Earnings Radaru chybí ({EXPORT_DIR.name}/odraz_{dnes}.json) — den se do praxe nepočítá."
+            self.zapis_denik({"smycka": "stin", "export": "chybi", "dopocteno": len(vysledky)})
+            self.ainet.hlaseni(ETAPA, "stin", "export chybí", "stin")
+            return text
+        a = [x["alfa_pct"] for x in vysledky]
+        text = (f"🌗 Stín odrazu {dnes}: {novych} nových signálů, dopočteno {len(vysledky)}"
+                + (f" (Ø výnos {sum(x['vynos_pct'] for x in vysledky) / len(vysledky):+.2f} %, Ø alfa {sum(a) / len(a):+.2f} %)" if a else "") + ".")
+        self.zapis_denik({"smycka": "stin", "export": "ok", "novych": novych, "dopocteno": len(vysledky)})
+        self.ainet.hlaseni(ETAPA, "stin", text[:200], "stin", praxe_den=dnes)
+        return text
+
     def tyden(self) -> str:
         dnes = date.today()
         dny = [(dnes - timedelta(days=i)).isoformat() for i in range(7)]
@@ -392,15 +489,25 @@ class Radar:
         obchody = [o for r in vsechny for o in (r.get("obchody") or [])]
         pl = [o["pl_pct"] for o in obchody if o.get("pl_pct") is not None]
         kladne = sum(1 for x in pl if x > 0)
+        stin = [r for dd in dny for r in self.cti_denik(dd) if r.get("smycka") == "stin_vysledek"]
+        sa = [r["alfa_pct"] for r in stin if r.get("alfa_pct") is not None]
+        stin_txt = (f" Stín odrazu: {len(stin)} dopočtených obchodů, Ø výnos {sum(r['vynos_pct'] for r in stin) / len(stin):+.2f} %, Ø alfa {sum(sa) / len(sa):+.2f} %, kladných {sum(1 for x in sa if x > 0)}/{len(sa)}."
+                    if sa else " Stín odrazu: tento týden nic dopočteno.")
         text = (f"📒 Týdenní zpráva TradeRadara (týden do {dnes.isoformat()}, etapa {ETAPA}): {len(obchody)} obchodů"
                 + (f", průměr {sum(pl) / len(pl):.2f} %, kladných {kladne}/{len(pl)}" if pl else ", bez uzavřených obchodů")
-                + ". Posíláno soukromě vlastníkovi a oponentům, ne na Wonderwall.")
+                + "." + stin_txt + " Posíláno soukromě vlastníkovi a oponentům, ne na Wonderwall.")
+        if stin:
+            radky = "\n".join(f"- {r['den']} {r['ticker']}: {r['vynos_pct']:+.2f} % (SPY {r['spy_pct']:+.2f} %, alfa {r['alfa_pct']:+.2f} %, {r['jak']})" for r in stin)
+            try:   # zápisky pro zkoušku Obchodování 2 (praxe) — odpovídač je dostane k zadání
+                self.ainet.sandbox_uloz(f"Stín odrazu — týden do {dnes.isoformat()}", f"Zdroj: můj deník (stin_vysledek), dny {dny[-1]} – {dny[0]}.\n{stin_txt.strip()}\n{radky}", ["praxe", "stin", "odraz"])
+            except Exception as e:
+                log(f"stín: zápis do sandboxu ({e})")
         self.zapis_denik({"smycka": "tyden", "obchodu": len(obchody), "pl": pl})
         self.zprava_vlastnikovi(text)
         self.zprava_oponentum(text)
         return text
 
-    SMYCKA = {"rano": rano, "kontrola": kontrola, "vystup": vystup, "vyhodnoceni": vyhodnoceni, "kandidati": kandidati, "vstupy": vstupy, "vecer": vecer, "tyden": tyden}
+    SMYCKA = {"rano": rano, "kontrola": kontrola, "vystup": vystup, "vyhodnoceni": vyhodnoceni, "kandidati": kandidati, "vstupy": vstupy, "vecer": vecer, "stin": stin, "tyden": tyden}
 
     def spust(self, nazev: str) -> str:
         fn = self.SMYCKA.get(nazev)

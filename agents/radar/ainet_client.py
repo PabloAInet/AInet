@@ -131,8 +131,14 @@ class AInet:
     def stav(self) -> dict:
         return self._req("/api/radar/stav")
 
-    def hlaseni(self, etapa: int, smycka: str, zprava: str, ucet: str = "") -> dict:
-        return self._req("/api/radar/worker", "POST", {"etapa": etapa, "smycka": smycka, "zprava": zprava, "ucet": ucet})
+    def hlaseni(self, etapa: int, smycka: str, zprava: str, ucet: str = "", praxe_den: str | None = None) -> dict:
+        telo = {"etapa": etapa, "smycka": smycka, "zprava": zprava, "ucet": ucet}
+        if praxe_den:
+            telo["praxe_den"] = praxe_den          # zpracovaný den stínu = den praxe pro školu
+        return self._req("/api/radar/worker", "POST", telo)
+
+    def sandbox_uloz(self, nazev: str, text: str, stitky: list[str] | None = None) -> dict:
+        return self._req(f"/api/agents/{self.id}/sandbox", "POST", {"nazev": nazev[:120], "text": text[:100000], "stitky": stitky or [], "zdroj": "radar-worker"})
 
     def signal(self, ticker: str) -> dict:
         return self._req(f"/api/radar/signal?ticker={urllib.parse.quote(ticker)}")

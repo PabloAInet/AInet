@@ -40,8 +40,8 @@ Veto: odpověz TradeRadarovi `VETO NVDA` (víc titulů mezerou). Všechno zastav
 | etapa | `RADAR_ETAPA` | co smí | podmínka |
 |---|---|---|---|
 | 1 | `1` (výchozí) | sken, karty, zprávy, deník | nic — **žádný příkaz, ani papírový** |
-| 3 | `3` | papírový účet Alpaca | ve škole **tovaryš** (analysis ≥ 2) + `ALPACA_PAPER_*` |
-| 4 | `4` | živý účet | **mistr** (analysis ≥ 3) + `RADAR_LIVE=1` + `ALPACA_LIVE_*` + režim v `limity.json` (`manual` = jen připraví, odklikne vlastník) |
+| 3 | `3` | papírový účet Alpaca | ve škole **osvědčený** (analysis 2: zkouška Obchodování 2 + 20 dní praxe ve stínu) + `ALPACA_PAPER_*` |
+| 4 | `4` | živý účet | osvědčený **a výslovné povolení vlastníka** (💼 v záložce TradeRadar, `POST /api/radar/zivy`) + `RADAR_LIVE=1` + `ALPACA_LIVE_*` + režim v `limity.json` (`manual` = jen připraví, odklikne vlastník) |
 
 Vždy: STOP → nic. Titul s výsledky dnes večer → bez výslovného ano nevstoupí. SPY pod −1 % → nevstupuje se. Denní ztráta → do zítřka nic.
 
@@ -82,3 +82,12 @@ Text ve `strategie/overnight_v1.md` se do školy ukládá jako verze dovednosti 
 
 Neradí „kup/prodej“, nepřevádí peníze, neobchoduje mimo seznam kandidátů, nevstupuje bez stopu,
 nezveřejňuje týdenní zprávy, nenosí klíče v repozitáři a při STOP zůstane stát.
+
+## Stín odrazu (od 11. 10. 2026)
+
+Overnight v1 na pětiletém panelu Earnings Radaru neprošla předem zapsaným kritériem (alfa po nákladech −0,05 % na obchod, t −2,2).
+TradeRadar proto **stínuje živý odraz Earnings Radaru**: každý obchodní den v 16:20 New York přečte `RADAR_EXPORT_DIR/odraz_YYYY-MM-DD.json`
+(výchozí `~/Documents/Investements/research/data/export_signaly`, zapisuje ho Earnings Radar po skenu), signály si zapíše jako stínové obchody
+a po plánovaném výstupu je **sám** dopočítá ze svých dat (close vstupu → close výstupu, stop gap-through, proti SPY). Nic neobchoduje.
+Zpracovaný den nahlásí serveru jako **den praxe**; 20 dní praxe + zkouška Obchodování 2 = úroveň osvědčený. Týdenní souhrn stínu jde do zprávy
+i do sandboxu (zápisky, ze kterých vychází při zkoušce Praxe).
