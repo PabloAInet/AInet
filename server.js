@@ -474,7 +474,7 @@ const jeRelay = (a) => a.card.name === MOST_NAME || db.messages.some(m => m.from
 function hlidanyPar(od, komu, text) {
   if (!od || !komu || od.id === komu.id) return false;
   if (!db.agents[od.id] || !db.agents[komu.id]) return false;                       /* návštěvník, systém */
-  if (jeDomaci(od) && jeDomaci(komu)) return false;                               /* hlášení mezi domácími — modelem si neodpovídají */
+  if (jeServerovy(od) && jeServerovy(komu)) return false;                         /* hlášení mezi domácími (a rojem Swarmers) — modelem si neodpovídají */
   if (RELAY_RE.test(String(text || "")) || jeRelay(od) || jeRelay(komu)) return false;
   return true;
 }
@@ -907,9 +907,14 @@ const posledniProjev = (a) => new Date(a.lastSeen || a.verifiedAt || a.registere
 const dniTicha = (a) => Math.max(0, Math.floor((Date.now() - posledniProjev(a)) / DEN_MS));
 
 /* Fable odpovídá přímo ze serveru — dokud běží FABLE_AUTO, nespí nikdy. */
-const jeAuto = (a) => FABLE_AUTO && !!a && !!a.card && AUTO_AGENTI.includes(String(a.card.name).toLowerCase());
+const jeAuto = (a) => FABLE_AUTO && !!a && !!a.card && (AUTO_AGENTI.includes(String(a.card.name).toLowerCase()) || jeSwarmer(a));
 const jeFableAuto = jeAuto;   /* starší název — Fable už není jediný, kdo myslí ze serveru */
 const jeDomaci = (a) => !!a && !!a.card && DOMACI.includes(String(a.card.name).toLowerCase());
+/* ROJ SWARMERS (13. 10. 2026): serveroví agenti roje pro porady a projekty (seznam SWARMERS níž). Poznají se podle jména
+   A příznaku domaci, který dává jen seedDomaci — cizí agent se stejným jménem by za roj nikdy nepromluvil. Na rozdíl
+   od domácích nemají přístup k ordinaci, radaru ani trhu; s domácími se ale berou jako „serveroví“ (Sentinel, smyčky). */
+const jeSwarmer = (a) => !!a && !!a.card && a.domaci === true && SWARMER_JMENA.includes(String(a.card.name).toLowerCase());
+const jeServerovy = (a) => jeDomaci(a) || jeSwarmer(a);
 const spi = (a) => !!a && !a.navsteva && !jeFableAuto(a) && !a.domaci && dniTicha(a) >= SPANEK_DNI;
 /* k dispozici = ověřený, nearchivovaný, neusnulý → smí do matchmakingu a dostat poštu */
 const kDispozici = (a) => !!a && a.status === "verified" && !a.archived && !spi(a);
@@ -1263,7 +1268,8 @@ function vypsatZkouskuZa(tok, agentRef, dovednost) {
    ne žák, bez propojení se žákem. */
 function vyberOponenta(t) {
   const zak = db.agents[t.drzitel];
-  const kand = Object.values(db.agents).filter(a => a.id !== t.drzitel && kDispozici(a) && !a.navsteva
+  /* roj Swarmers oponenturu nepíše — odpovídá jen v poradách, krocích projektů a vlastních zkouškách */
+  const kand = Object.values(db.agents).filter(a => a.id !== t.drzitel && kDispozici(a) && !a.navsteva && !jeSwarmer(a)
     && !(db.connections || []).some(c => (c.from === a.id && c.to === t.drzitel) || (c.to === a.id && c.from === t.drzitel)));
   /* 11. 10. 2026: oponent musí dovednost aspoň deklarovat (i příbuzně: data-analysis ~ analysis) —
      dřív mohl vyjít třeba most do Messengeru, který posudek napsat neumí */
@@ -1454,7 +1460,7 @@ function vlastniAgenta(tok, a) {
   if (!tok || !a) return false;
   if (a.ownerToken && a.ownerToken === tok) return true;
   const kdo = agentPodleTokenu(tok);
-  return !!(kdo && jeDomaci(kdo) && jeDomaci(a));
+  return !!(kdo && jeDomaci(kdo) && (jeDomaci(a) || jeSwarmer(a)));   /* token domácího odemkne i roj Swarmers (ne naopak) */
 }
 
 /* SANDBOX — archiv dokumentů agenta s hledáním (sandbox.js) */
@@ -1823,6 +1829,43 @@ const RADAR_NAME = process.env.RADAR_NAME || "TradeRadar";   /* do 11. 10. 2026 
 const AUTO_AGENTI = (process.env.AUTO_AGENTI || `${FABLE_NAME},${ORGANIZER_NAME},${RADAR_NAME}`).split(",").map(x => x.trim().toLowerCase()).filter(Boolean);
 /* Domácí agenti vlastníka serveru — sdílejí ordinaci, radar a trh */
 const DOMACI = [FABLE_NAME, ORGANIZER_NAME, MARKET_NAME, RADAR_NAME].map(x => x.toLowerCase());
+/* ROJ SWARMERS (13. 10. 2026) — Pavel: „Swarmers je název pro roj agentů při projektu.“ Porady roje měly
+   jediný hlas (TradeRadar), protože jiný dostupný agent s dovedností na síti nebyl. Server proto drží vlastní roj:
+   čtyři agenty s různým pohledem, kteří odpovídají sami (vestavěný odpovídač) — jen v poradách, krocích projektů
+   a zkouškách. Začínají jako nováčci; škola je posouvá podle známek. Vypnout: SWARMERS=0. */
+const SWARMERS = process.env.SWARMERS === "0" ? [] : [
+  { jmeno: "Swarmer-Vyzkumnik", skills: ["research", "literatura", "data-analysis", "psani"],
+    bio: "Výzkumník roje Swarmers: rešerše, zdroje, co je známo a co ne.",
+    nastaveni: {
+      role: "Swarmer-Vyzkumnik — výzkumník roje Swarmers na síti AInet. V poradách a projektech přinášíš, co je k otázce známo: literaturu, veřejná data, podobné případy a hlavně odkud to víš.",
+      instrukce: "Ke každému tvrzení řekni zdroj (publikace, databáze, dokument knihovny projektu) nebo ho označ jako obecnou znalost či odhad — nic nevymýšlej, citace ani čísla. Odděluj, co je doložené, od toho, co je jen pravděpodobné. Navrhni, co by stálo za ověření a jak.",
+      kontext: "Roj Swarmers tvoří čtyři serveroví agenti (Výzkumník, Skeptik, Inženýr, Stratég) vlastníka Pavla Dítla. Zvou se do každé porady roje a každého projektu; projekt vede Fable, rozhoduje a podepisuje člověk. Nemáš nástroje — pracuješ hlavou (rozbor, návrh, text).",
+    } },
+  { jmeno: "Swarmer-Skeptik", skills: ["oponentura", "rizika", "statistika", "analysis"],
+    bio: "Oponent roje Swarmers: slabá místa, rizika, co by závěr vyvrátilo.",
+    nastaveni: {
+      role: "Swarmer-Skeptik — oponent roje Swarmers na síti AInet. Hledáš slabá místa návrhů: chybějící data, náhodu, přeučení, vícenásobné testování, skryté předpoklady a rizika.",
+      instrukce: "Buď věcný, ne negativní pro negativitu: ke každé námitce řekni, jak ji ověřit nebo jak riziko zmenšit, a co by tě přesvědčilo. Když je návrh dobrý, řekni to. Čísla nehádej; když chybí, napiš, která a proč jsou potřeba.",
+      kontext: "Roj Swarmers tvoří čtyři serveroví agenti (Výzkumník, Skeptik, Inženýr, Stratég) vlastníka Pavla Dítla. Zvou se do každé porady roje a každého projektu; projekt vede Fable, rozhoduje a podepisuje člověk. Nemáš nástroje — pracuješ hlavou (rozbor, návrh, text).",
+    } },
+  { jmeno: "Swarmer-Inzenyr", skills: ["inzenyrstvi", "coding", "vypocty", "modelovani"],
+    bio: "Inženýr roje Swarmers: proveditelnost, výpočty, jak to postavit.",
+    nastaveni: {
+      role: "Swarmer-Inzenyr — inženýr roje Swarmers na síti AInet. Převádíš nápady na proveditelné kroky: postup, výpočet, datový model, skript nebo pevný formát strategie, který jde změřit.",
+      instrukce: "Výpočty ukazuj s postupem a jednotkami. Když něco potřebuje nástroje (kód, data z webu, CAD), napiš přesné zadání pro agenta s rukama a co má vrátit. Hlídej proveditelnost s tím, co roj má; co chybí, pojmenuj jako výbavu.",
+      kontext: "Roj Swarmers tvoří čtyři serveroví agenti (Výzkumník, Skeptik, Inženýr, Stratég) vlastníka Pavla Dítla. Zvou se do každé porady roje a každého projektu; projekt vede Fable, rozhoduje a podepisuje člověk. Nemáš nástroje — pracuješ hlavou (rozbor, návrh, text).",
+    } },
+  { jmeno: "Swarmer-Strateg", skills: ["strategie", "planovani", "ekonomika", "priority"],
+    bio: "Stratég roje Swarmers: cíl, priority, fáze, náklady a přínos.",
+    nastaveni: {
+      role: "Swarmer-Strateg — stratég roje Swarmers na síti AInet. Držíš cíl projektu: co je nejdůležitější teď, jaké fáze dávají smysl, co stojí kolik (čas, volání modelu, výbava) a co přinese.",
+      instrukce: "Navrhuj málo kroků s jasným výstupem a měřítkem; řekni, co vynechat. U každého návrhu uveď, jak poznáme pokrok, a co rozhoduje vlastník. Neslibuj výsledky — popiš scénáře a předpoklady.",
+      kontext: "Roj Swarmers tvoří čtyři serveroví agenti (Výzkumník, Skeptik, Inženýr, Stratég) vlastníka Pavla Dítla. Zvou se do každé porady roje a každého projektu; projekt vede Fable, rozhoduje a podepisuje člověk. Nemáš nástroje — pracuješ hlavou (rozbor, návrh, text).",
+    } },
+];
+const SWARMER_JMENA = SWARMERS.map(x => x.jmeno.toLowerCase());
+/* roj k dispozici: založený, ověřený, odpovídá ze serveru */
+const rojAgenti = () => SWARMERS.map(x => agentJmenem(x.jmeno)).filter(a => a && jeSwarmer(a) && jeAuto(a) && kDispozici(a));
 const MOST_NAME = process.env.MOST_NAME || "FB-Most";   /* agent Mostu (Messenger / web / hovory) */
 /* Ordinace Organizera: kalendář, objednávky z poradny, ranní přehled, hovory (ordinace.js) */
 const ordinace = require("./ordinace.js")({ db, save, logEvent, systemovaZprava, ulozZpravu, agentJmenem, crypto, ORGANIZER_NAME, FABLE_NAME, MOST_NAME, baseUrlDefault: VEREJNY_HOST });
@@ -1833,15 +1876,15 @@ const radar = require("./radar.js")({ db, save, logEvent, systemovaZprava, agent
 /* PORADA ROJE — víc agentů k jedné otázce, váha hlasu podle školy (porady.js) */
 const porady = require("./porady.js")({ db, save, logEvent, crypto, agentJmenem: (j) => agentJmenem(j), FABLE_NAME, urovenAgenta, UROVNE, ulozZpravu, systemovaZprava,
   zeptejSeModelu: (s, k, m) => zeptejSeModelu(s, k, m, { ucel: "porada" }), fableAuto: () => FABLE_AUTO, vlastniAgenta, kDispozici,
-  sandbox, zapisPraxe: (...a) => zapisPraxeRoje(...a) });
+  sandbox, zapisPraxe: (...a) => zapisPraxeRoje(...a), rojAgenti: () => rojAgenti() });
 /* NOČNÍ ZASTOUPENÍ — Fable za spícího vlastníka potvrzuje jasné zkoušky na ověřeného, vypisuje plán, ráno souhrn (zastoupeni.js) */
-const zastoupeni = require("./zastoupeni.js")({ db, save, logEvent, crypto, agentJmenem: (j) => agentJmenem(j), FABLE_NAME, jeDomaci, jeAuto,
+const zastoupeni = require("./zastoupeni.js")({ db, save, logEvent, crypto, agentJmenem: (j) => agentJmenem(j), FABLE_NAME, jeDomaci: jeServerovy, jeAuto,
   uzavriZkousku, vypisZkousku, navrhUrovne, UROVNE, systemovaZprava, kDispozici, MAX_UROVEN });
 /* PROJEKTY ROJE — víc agentů dny až měsíce na společném cíli; plán si roj navrhne sám (projekty.js) */
 const projekty = require("./projekty.js")({ db, save, logEvent, crypto, agentJmenem: (j) => agentJmenem(j), FABLE_NAME, urovenAgenta, UROVNE, ulozZpravu, systemovaZprava,
   zeptejSeModelu: (...a) => zeptejSeModelu(...a), fableAuto: () => FABLE_AUTO, vlastniAgenta, kDispozici, jeAuto, jeDomaci, porady, sandbox,
   globalniStop: () => !!(radar.data && radar.data.stop), zapisPraxe: (...a) => zapisPraxeRoje(...a),
-  pretizeno: () => !!(merice && merice.pretizeno()), nakladyProjektu: (id) => (merice ? merice.projektUsd(id) : null) });
+  pretizeno: () => !!(merice && merice.pretizeno()), nakladyProjektu: (id) => (merice ? merice.projektUsd(id) : null), rojAgenti: () => rojAgenti() });
 /* NÁKLADY A KAPACITA — Sentinel hlídá, kolik to stojí a jestli AInet stíhá (kapacita.js) */
 const kapacita = require("./kapacita.js")({ db, save, logEvent, systemovaZprava, agentJmenem: (j) => agentJmenem(j), fableName: () => FABLE_NAME, DATA_DIR, fs, path,
   fronta: () => ({ ceka: fableCeka, nejstarsi_s: fableOd.length ? (Date.now() - fableOd[0]) / 1000 : 0 }) });
@@ -1895,11 +1938,15 @@ function systemProAgenta(ja, mozekPrepis) {
 function parametryModelu(mozek) {
   if (!mozek) return { model: LLM_MODEL, tokeny: 600, rozpocet: 0, usili: "stredni" };
   const u = MOZEK_USILI[mozek.usili] || MOZEK_USILI.stredni;
-  return { model: LLM_MODELY[mozek.model] || LLM_MODEL, tokeny: u.tokeny, rozpocet: mozek.premysleni ? u.rozpocet : 0, usili: mozek.usili || "stredni" };
+  /* mozek.tokeny: delší výstup pro strojové úlohy (plán projektu v JSONu, shrnutí porady se známkami) — 2000 tokenů
+     na ně nestačilo, JSON se uřízl a projekt spadl na „záložní plán bez modelu“ (12. 10. 2026) */
+  const tokeny = Math.max(u.tokeny, Math.min(16000, Math.round(Number(mozek.tokeny) || 0)));
+  return { model: LLM_MODELY[mozek.model] || LLM_MODEL, tokeny, rozpocet: mozek.premysleni ? u.rozpocet : 0, usili: mozek.usili || "stredni" };
 }
 async function zeptejSeModelu(system, konverzace, mozek, stitek) {   /* stitek: {ucel, agent, projekt} — pro náklady */
   const par = parametryModelu(mozek);
-  const ctrl = new AbortController(); const tmr = setTimeout(() => ctrl.abort(), par.rozpocet ? 150_000 : 60_000);
+  /* dlouhý výstup potřebuje čas: ~30 ms na token, jinak by se delší plán utnul časovým limitem */
+  const ctrl = new AbortController(); const tmr = setTimeout(() => ctrl.abort(), Math.max(par.rozpocet ? 150_000 : 60_000, par.tokeny * 30));
   const zavolej = async (prm) => {
     const t0 = Date.now();
     try {
@@ -1989,8 +2036,10 @@ async function fableOdpovez(msg) {
   const por = !zk ? porady.proOdpovidace(aktualni, ja) : null;
   /* projekt roje: přidělený krok „hlava“ vypracuje odpovídač (bez nástrojů — kroky „ruce“ sem nikdy nechodí) */
   const prj = (!zk && !por) ? projekty.proOdpovidace(aktualni, ja) : null;
-  /* domácí agenti si navzájem modelem neodpovídají — přehledy a hlášení jsou jednosměrné, jinak by se zacyklili */
-  if (jeDomaci(db.agents[msg.from]) && !zk && !por && !prj) return;
+  /* domácí agenti (a roj Swarmers) si navzájem modelem neodpovídají — přehledy a hlášení jsou jednosměrné, jinak by se zacyklili */
+  if (jeServerovy(db.agents[msg.from]) && !zk && !por && !prj) return;
+  /* roj Swarmers mluví jen v poradách, krocích projektů a zkouškách — na běžnou poštu nepíše (náklady, smyčky) */
+  if (jeSwarmer(ja) && !zk && !por && !prj) return;
   /* Objednávky pacientů (jméno, telefon, potíže) nikdy nejdou do modelu —
      zpracuje je člověk nebo Organizer, ne auto-odpovídač. */
   if (jeHlaseni(aktualni)) { if (jeObjednavka(aktualni)) logEvent(`${ja.card.name.toUpperCase()} AUTO: objednávka od "${msg.fromName}" patří ordinaci — model ji nedostane`); return; }
@@ -2098,7 +2147,7 @@ function fableDozen() {
   for (const ja of moji) {
     /* všechny od nejstarší — kolik jich za den smí zodpovědět, hlídá MAX_DENNE */
     const cekajici = db.messages.filter(m => m.to === ja.id && m.from !== "system" && m.from !== ja.id && m.status !== "answered"
-      && (!jeDomaci(db.agents[m.from]) || m.zkouska || m.porada || m.projektKrok) && (m.zkouska || m.porada || m.projektKrok || !db.messages.some(r => r.from === ja.id && r.to === m.from && r.t > m.t)));
+      && (!jeServerovy(db.agents[m.from]) || m.zkouska || m.porada || m.projektKrok) && (!jeSwarmer(ja) || m.zkouska || m.porada || m.projektKrok) && (m.zkouska || m.porada || m.projektKrok || !db.messages.some(r => r.from === ja.id && r.to === m.from && r.t > m.t)));
     if (cekajici.length) logEvent(`${ja.card.name.toUpperCase()} AUTO: po startu dohání ${cekajici.length} nezodpovězených zpráv`);
     for (const m of cekajici) fableProbud(m);
   }
@@ -4124,7 +4173,7 @@ const server = http.createServer(async (req, res) => {
           protocols: a.card.protocols, status: a.status, reputation: a.reputation,
           jobs: a.jobs, registered: a.registered, lite: !!a.lite,
           connectMode: a.connectMode || "auto",
-          spi: spi(a), archived: !!a.archived, domaci: jeDomaci(a),
+          spi: spi(a), archived: !!a.archived, domaci: jeDomaci(a), ...(jeSwarmer(a) ? { swarmer: true } : {}),
           dniTicha: dniTicha(a), posledniProjev: new Date(posledniProjev(a)).toISOString(),
           mozek: mozekVen(a),
         })));
@@ -4138,7 +4187,7 @@ const server = http.createServer(async (req, res) => {
       if (!ja) return json(res, 403, { error: "Neplatný token" });
       const moji = Object.values(db.agents).filter(a => vlastniAgenta(tok, a))
         .sort((x, y) => (x.id === ja.id ? -1 : y.id === ja.id ? 1 : x.card.name.localeCompare(y.card.name)));
-      return json(res, 200, { ja: ja.id, agenti: moji.map(a => ({ id: a.id, jmeno: a.card.name, domaci: jeDomaci(a), lite: !!a.lite, stav: a.status,
+      return json(res, 200, { ja: ja.id, agenti: moji.map(a => ({ id: a.id, jmeno: a.card.name, domaci: jeDomaci(a), ...(jeSwarmer(a) ? { swarmer: true } : {}), lite: !!a.lite, stav: a.status,
         mozek: mozekVen(a), poznamek: poznamkyAgenta(a).length, deniku: denikAgenta(a).length, sandbox: sandbox.statistika(a.id).dokumentu, jadro: !!jadroAgenta(a) })) });
     }
 
@@ -5859,10 +5908,33 @@ function seedDomaci(baseUrl) {
       registered: new Date().toISOString(), attempts: 0, jobs: 0,
     };
     logEvent(`DOMÁCÍ AGENT: "${jmeno}" založen serverem (ověřený, vlastník ${vlastnik})`);
-    if (fable) systemovaZprava(fable.id, "AInet", `🔑 Server založil domácího agenta "${jmeno}". Obnovovací kód: ${recoveryCode} — tím ho vlastník odemkne v AIMessages (pole token) a uvidí jeho paměť, nastavení i ${jmeno === ORGANIZER_NAME ? "ordinaci" : jmeno === RADAR_NAME ? "radar" : "tržiště"}.${jmeno === RADAR_NAME ? " Tentýž kód dej workeru ${RADAR_NAME}a jako RADAR_OBNOVOVACI_KOD (Render → Environment) — z něj si stáhne token sám." : ""} Kód nikomu nedávej.`);
+    if (fable) systemovaZprava(fable.id, "AInet", `🔑 Server založil ${SWARMER_JMENA.includes(jmeno.toLowerCase()) ? "agenta roje Swarmers" : "domácího agenta"} "${jmeno}". Obnovovací kód: ${recoveryCode} — tím ho vlastník odemkne v AIMessages (pole token) a uvidí jeho paměť, nastavení i ${jmeno === ORGANIZER_NAME ? "ordinaci" : jmeno === RADAR_NAME ? "radar" : jmeno === MARKET_NAME ? "tržiště" : "práci v poradách a projektech"}.${jmeno === RADAR_NAME ? " Tentýž kód dej workeru ${RADAR_NAME}a jako RADAR_OBNOVOVACI_KOD (Render → Environment) — z něj si stáhne token sám." : ""} Kód nikomu nedávej.`);
     return { a, novy: true };
   };
-  if (process.env.SEED_DOMACI === "0") return;   /* testy a cizí instalace: bez domácích agentů */
+  /* roj Swarmers: jde s domácími agenty; SEED_SWARMERS=1/0 ho zapne/vypne zvlášť (testy) */
+  const domaciZap = process.env.SEED_DOMACI !== "0";
+  const rojZap = SWARMERS.length > 0 && (process.env.SEED_SWARMERS ? process.env.SEED_SWARMERS !== "0" : domaciZap);
+  const seedNastaveni = (mapa) => {
+    for (const [jmeno, n] of Object.entries(mapa)) {
+      const a = Object.values(db.agents).find(x => x.card.name.toLowerCase() === jmeno);
+      if (!a) continue;
+      const stare = db.nastaveni[a.id];
+      /* výchozí nastavení se zakládá tam, kde žádné není, a drží se aktuální, dokud ho vlastník
+         nepřepíše (kym zůstává „výchozí nastavení serveru“) — co vlastník změní ve webu, seed nikdy nepřepíše */
+      const vychozi = stare && stare.kym === "výchozí nastavení serveru";
+      const zastarale = vychozi && ["role", "instrukce", "kontext"].some(k => (stare[k] || "") !== String(n[k] || "").trim().slice(0, 6000));
+      if (!stare || zastarale) { ulozNastaveni(a, n, "výchozí nastavení serveru"); logEvent(`NASTAVENÍ: "${a.card.name}" ${stare ? "má aktualizované" : "dostal"} výchozí nastavení (vlastník ho může přepsat v záložce Paměť)`); }
+    }
+  };
+  if (rojZap) {
+    const novi = SWARMERS.map(s => zaloz(s.jmeno, s.skills, s.bio)).filter(x => x.novy).map(x => x.a.card.name);
+    seedNastaveni(Object.fromEntries(SWARMERS.map(s => [s.jmeno.toLowerCase(), s.nastaveni])));
+    if (novi.length) {
+      logEvent(`ROJ SWARMERS: založen (${novi.join(", ")}) — zvou se do každé porady roje a projektu`);
+      if (fable) systemovaZprava(fable.id, "AInet", `🐝 Na serveru je roj Swarmers: ${novi.join(", ")}. Zvou se do každé porady roje a každého projektu (i rozběhnutého) a odpovídají sami; začínají jako nováčci a postupují školou.`);
+    }
+  }
+  if (!domaciZap) { save(); return; }   /* testy a cizí instalace: bez domácích agentů */
   /* PŘEJMENOVÁNÍ (11. 10. 2026): domácí „Radar“ → TradeRadar. Tentýž agent — id, obnovovací kód,
      token, paměť, škola i pošta zůstávají; worker se přihlašuje kódem, ne jménem. */
   for (const stareJmeno of ["Radar"]) {
@@ -5878,16 +5950,7 @@ function seedDomaci(baseUrl) {
   zaloz(ORGANIZER_NAME, ["organizace", "ordinace", "kalendar", "telefonie", "prehledy"], "Asistent ordinace: kalendář, objednávky z poradny, ranní přehled, hovory.");
   zaloz(MARKET_NAME, ["trh", "oceneni", "rozpoznani-obrazku", "vyjednavani"], "Tržiště sítě: fotka → rozpoznání → cena → inzerát → obchod s agenty.");
   zaloz(RADAR_NAME, ["analysis", "finance", "trading", "research"], "Finanční specialista sítě a obchodní agent vlastníka (Earnings Radar Plus): skener → analytik → papírový obchodník → asistent živého účtu.");
-  for (const [jmeno, n] of Object.entries(SEED_NASTAVENI)) {
-    const a = Object.values(db.agents).find(x => x.card.name.toLowerCase() === jmeno);
-    if (!a) continue;
-    const stare = db.nastaveni[a.id];
-    /* výchozí nastavení se zakládá tam, kde žádné není, a drží se aktuální, dokud ho vlastník
-       nepřepíše (kym zůstává „výchozí nastavení serveru“) — co vlastník změní ve webu, seed nikdy nepřepíše */
-    const vychozi = stare && stare.kym === "výchozí nastavení serveru";
-    const zastarale = vychozi && ["role", "instrukce", "kontext"].some(k => (stare[k] || "") !== String(n[k] || "").trim().slice(0, 6000));
-    if (!stare || zastarale) { ulozNastaveni(a, n, "výchozí nastavení serveru"); logEvent(`NASTAVENÍ: "${a.card.name}" ${stare ? "má aktualizované" : "dostal"} výchozí nastavení (vlastník ho může přepsat v záložce Paměť)`); }
-  }
+  seedNastaveni(SEED_NASTAVENI);
   save();
 }
 

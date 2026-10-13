@@ -37,7 +37,7 @@ const atrapa = http.createServer((rq, rs) => {
 });
 async function startServer(soubor) {
   const port = await volnyPort(); BASE = `http://127.0.0.1:${port}`;
-  const env = { ...process.env, PORT: String(port), DATA_DIR: DIR, PUBLIC_URL: BASE, INDEXNOW: "0", KEEPALIVE_URL: "0", SEED_DOMACI: "1", PREHLED: "0", RADAR: "0",
+  const env = { ...process.env, PORT: String(port), DATA_DIR: DIR, PUBLIC_URL: BASE, INDEXNOW: "0", KEEPALIVE_URL: "0", SEED_DOMACI: "1", SEED_SWARMERS: "0", PREHLED: "0", RADAR: "0",
     ANTHROPIC_API_KEY: "test", LLM_PROVIDER: "anthropic", LLM_API_URL: `http://127.0.0.1:${atrapa.address().port}/v1/messages` };
   delete env.OPENAI_API_KEY; delete env.LLM_MODEL; delete env.RADAR_NAME;
   server = spawn(process.execPath, [soubor || path.join(__dirname, "server.js")], { env, stdio: ["ignore", "pipe", "pipe"] });

@@ -649,6 +649,7 @@
       <span id="poStav" class="token-status"></span>
     </div>
     <textarea id="poOtazka" placeholder="otázka pro roj — co přesně chceš vědět (nepovinné, jinak se použije téma)" style="width:100%;min-height:60px;margin-top:8px;box-sizing:border-box"></textarea>
+    <div id="poradyRoj" style="margin-top:12px"></div>
     <div id="poradyList" style="margin-top:14px"></div>
   </section>
 
@@ -2187,6 +2188,11 @@ async function loadPorady() {
   const el = document.getElementById("poradyList"); if (!el) return;
   const token = localStorage.getItem("ainet_token");
   let d; try { d = await (await fetch("/api/porady")).json(); } catch { el.innerHTML = '<div class="msg" style="color:var(--muted)">server nedostupný</div>'; return; }
+  const rojEl = document.getElementById("poradyRoj");
+  if (rojEl) rojEl.innerHTML = (d.swarmers || []).length
+    ? `<div class="msg"><b>🐝 Swarmers — roj serverových agentů</b> <span style="color:var(--muted);font-size:12.5px">zvou se do každé porady i projektu; začínají jako nováčci (komentář), známky z porad a kroků je posouvají ve škole</span>
+      ${d.swarmers.map(s => `<div style="font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--border)"><b>${esc(s.jmeno)}</b> <span style="color:var(--muted)">(${esc(s.dovednosti.join(", "))})</span> — ${esc(s.bio)}</div>`).join("")}</div>`
+    : "";
   if (!d.porady || !d.porady.length) { el.innerHTML = '<div class="msg" style="color:var(--muted)">Zatím žádná porada.</div>'; return; }
   const detaily = await Promise.all(d.porady.map(async p => {
     if (!token) return null;
