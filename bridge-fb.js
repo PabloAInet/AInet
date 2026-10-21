@@ -26,6 +26,9 @@
  *   HOVOR_ZDARMA       – kolik otázek má hovor na webu zdarma (výchozí stejně jako ZDARMA_SMYCEK)
  *   LIMIT_ZDARMA       – "0" vypne limit bezplatných odpovědí, když ještě není PLATBA_URL
  *   TEST_ZAPLACENO     – id brané jako zaplacené (test placené verze bez platby), oddělené čárkou
+ *   PLACENA_ZDARMA     – zkušební provoz: po bezplatných otázkách placená konzultace zdarma („později bude placená“).
+ *                        Výchozí zapnuto, dokud PLATBA_URL chybí nebo je testovací (buy.stripe.com/test_…);
+ *                        "1" vynutí, "0" vypne. ZKUSEBNI_IP_DEN – kolikrát denně z jedné adresy (web hovor, výchozí 3)
  *   ANTHROPIC_API_KEY  – (volitelné) režim PORADNA: most odpovídá pacientům sám podle fb-instrukce.js
  *                        (rychlejší, s pamětí konverzace); objednávky posílá Fablovi na AInet.
  *                        Bez klíče běží původní režim: vše přeposílá Fablovi.
@@ -74,8 +77,13 @@ const ZDARMA = Number(process.env.ZDARMA_SMYCEK || 5);
 const HOVOR_ZDARMA = Number(process.env.HOVOR_ZDARMA || ZDARMA);
 const PLATBA_PLATNOST_H = Number(process.env.PLATBA_PLATNOST_H || 24);
 const { STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET } = process.env;
-const PAYWALL = !!PLATBA_URL;                                   // dá se zaplatit
-const LIMIT = PAYWALL || process.env.LIMIT_ZDARMA !== "0";      // hlídá se počet bezplatných odpovědí
+const LIMIT = !!PLATBA_URL || process.env.LIMIT_ZDARMA !== "0"; // hlídá se počet bezplatných odpovědí
+/* ZKUŠEBNÍ PROVOZ placené konzultace: dokud není ostrá platba (žádný PLATBA_URL nebo testovací Stripe odkaz
+   buy.stripe.com/test_…), pacient po bezplatných otázkách přejde do placené konzultace ZDARMA a dozví se,
+   že později bude placená. S ostrým odkazem se paywall zapne sám. PLACENA_ZDARMA="1" vynutí, "0" vypne
+   (např. pro zkoušku plateb testovací kartou). */
+const ZKUSEBNI = LIMIT && (process.env.PLACENA_ZDARMA === "1" || (process.env.PLACENA_ZDARMA !== "0" && (!PLATBA_URL || /\/test_/.test(PLATBA_URL))));
+const PAYWALL = !!PLATBA_URL && !ZKUSEBNI;                      // dá se (a musí se) zaplatit
 const HLAS_PLACENY_AGENT = process.env.HLAS_PLACENY_AGENT || "agent_6201m46ewnpnfb29655y23rkfss3"; // „Doctor – placená konzultace (PubMed)“
 let INSTRUKCE = "";
 if (PORADNA) { try { INSTRUKCE = require("./fb-instrukce.js"); } catch (e) { console.warn("[most] fb-instrukce.js chybí, režim poradna vypnut"); } }
@@ -185,12 +193,14 @@ async function askModel(psid, text) {
   const hint = c.n < KOLA ? `[kolo ${c.n}/${KOLA}]` : c.n === KOLA ? `[kolo ${KOLA}/${KOLA} – uzavři: závěr + objednání nebo rada]` : `[po uzávěru – odpověz stručně, nabídni objednání nebo nové téma]`;
   const posledniZdarma = LIMIT && !jeZaplaceno(psid) && !c.objednavani && c.q === ZDARMA;
   const nabidkaPlacene = PAYWALL ? `; pak jednou větou řekni, že pokračovat lze v placené konzultaci (${PLACENA_POPIS}) – odkaz na platbu pošle systém hned po této odpovědi` : `; pak jednou větou řekni, že připravujeme placenou konzultaci (${PLACENA_POPIS})`;
-  c.turns.push({ role: "user", content: `${text}\n\n${posledniZdarma ? `[poslední bezplatná odpověď – shrň, co zatím víš, řekni předběžný závěr a nabídni objednání${nabidkaPlacene}; neptej se dál]` : hint}` });
+  /* zkušební provoz: o přechodu do placené konzultace informuje systém hned po této odpovědi, model ji jen uzavře */
+  const posledniHint = ZKUSEBNI ? "[poslední bezplatná odpověď – odpověz, shrň předběžný závěr a nabídni objednání; o pokračování v placené konzultaci pacientovi napíše systém hned po této odpovědi, sám to nezmiňuj]" : `[poslední bezplatná odpověď – shrň, co zatím víš, řekni předběžný závěr a nabídni objednání${nabidkaPlacene}; neptej se dál]`;
+  c.turns.push({ role: "user", content: `${text}\n\n${posledniZdarma ? posledniHint : hint}` });
   if (c.turns.length > CHAT_MAX) c.turns = c.turns.slice(-CHAT_MAX);
   const placena = jeZaplaceno(psid);
   const { text: full } = await lit.askWithTools({
     apiKey: ANTHROPIC_API_KEY, model: MODEL, maxTokens: placena ? 1400 : 700, maxKol: placena ? 2 : 1, log, messages: c.turns,
-    system: INSTRUKCE + (LIT_PORADNA || placena ? lit.PORADNA_DODATEK : "") + (placena ? PLACENA_DODATEK : `\n\nKdyž se pacient zeptá na placenou konzultaci: ${PLACENA_POPIS}; ${PAYWALL ? "odkaz na platbu dostane po bezplatných odpovědích" : "zatím ji připravujeme"}. Cenu sám neuváděj.`) + opravy.textProPrompt(),
+    system: INSTRUKCE + (LIT_PORADNA || placena ? lit.PORADNA_DODATEK : "") + (placena ? PLACENA_DODATEK + (ZKUSEBNI ? PLACENA_ZKUSEBNI_DODATEK : "") : `\n\nKdyž se pacient zeptá na placenou konzultaci: ${PLACENA_POPIS}; ${PAYWALL ? "odkaz na platbu dostane po bezplatných odpovědích" : ZKUSEBNI ? "po bezplatných odpovědích do ní přejde sám; teď je ve zkušebním provozu zdarma, později bude placená" : "zatím ji připravujeme"}. Cenu sám neuváděj.`) + opravy.textProPrompt(),
     tools: LIT_PORADNA || placena ? lit.NASTROJE.filter(t => t.name === "hledej_literaturu") : [],
   });
   c.turns.push({ role: "assistant", content: full });
@@ -221,6 +231,24 @@ PLACENÁ KONZULTACE (tato pravidla mají přednost před pravidly výše)
 - Když literatura nic nenajde, řekni to a odpověz z obecných znalostí.
 - Piš prostý text bez formátování – žádné hvězdičky, nadpisy ani tučné písmo (Messenger ani web je nezobrazí).
 - Červené praporky a pravidla o diagnóze, lécích a objednání platí beze změny; konzultace pořád nenahrazuje vyšetření.`;
+const PLACENA_ZKUSEBNI_DODATEK = `
+- ZKUŠEBNÍ PROVOZ: pacient nic neplatil – placenou konzultaci má teď ve zkušebním provozu zdarma, později bude placená. Za platbu neděkuj a o placení nemluv, dokud se nezeptá; když se zeptá, řekni právě tohle.`;
+/* text pro pacienta při přechodu do placené konzultace ve zkušebním provozu (Messenger i chat na webu) */
+const zkusebniText = () => `Tím končí bezplatná část poradny. Pokud máte další otázky, pokračujete v placené konzultaci: ${PLACENA_POPIS}. Teď ve zkušebním provozu ji máte zdarma na ${PLATNOST_TEXT}, později bude placená${CENA ? ` (${CENA})` : ""}. Objednání do ordinace je vždy zdarma – stačí napsat „objednat“. Při akutních potížích volejte 155.`;
+/* právě padla poslední bezplatná odpověď a běží zkušební provoz → odemknout placenou konzultaci a říct to pacientovi */
+function hnedZkusebni(id) {
+  const c = chats.get(id);
+  return ZKUSEBNI && !jeZaplaceno(id) && c && !c.objednavani && c.q === ZDARMA;
+}
+/* web hovor: odemknutí zkušební placené konzultace (bez platby), nejvýš ZKUSEBNI_IP_DEN× za den z jedné adresy */
+const ZKUSEBNI_IP_DEN = Number(process.env.ZKUSEBNI_IP_DEN || 3);
+const zkusebniIp = new Map(); // ip → { n, t }
+function zkusebniPovolit(ip) {
+  const now = Date.now(), w = zkusebniIp.get(ip);
+  if (!w || now - w.t > 24 * 3600e3) { zkusebniIp.set(ip, { n: 1, t: now }); return true; }
+  if (w.n >= ZKUSEBNI_IP_DEN) return false;
+  w.n++; return true;
+}
 const zdarmaVeta = () => ({ 1: "První odpověď poradny je zdarma", 2: "Dvě odpovědi poradny jsou zdarma", 3: "Tři odpovědi poradny jsou zdarma", 4: "Čtyři odpovědi poradny jsou zdarma" })[ZDARMA] || `Prvních ${ZDARMA} odpovědí poradny je zdarma`;
 function paywallText(psid) {
   if (!PAYWALL) return `${zdarmaVeta()} a ta bezplatná část teď skončila. Připravujeme placenou konzultaci: ${PLACENA_POPIS}.\n` +
@@ -259,6 +287,8 @@ async function paywallKontrola(psid, text) {
   const c = chats.get(psid);
   const q = c && Date.now() - c.t < CHAT_TTL ? (c.q || 0) : 0;
   if (q < ZDARMA || OBJEDNAT.test(text) || (c && c.objednavani)) return false;
+  /* zkušební provoz (např. po vypršení odemknutí): odemknout znovu, oznámit a odpovědět */
+  if (ZKUSEBNI) { odemknout(psid); await fbSend(psid, zkusebniText()); log(`zkušební placená → FB ${psid}`); return false; }
   await fbSend(psid, paywallText(psid)); log(`paywall → FB ${psid}`);
   return true;
 }
@@ -280,6 +310,7 @@ async function poradna(psid, text) {
   log(`poradna → FB ${psid}: ${reply.slice(0, 60)}`);
   await sendVoiceIfShort(psid, reply);
   if (!hit && hnedPlatba(psid)) { try { await fbSend(psid, paywallText(psid)); log(`platební odkaz po poslední bezplatné → FB ${psid}`); } catch (e) { log(`platební odkaz: ${e.message}`); } }
+  if (!hit && hnedZkusebni(psid)) { odemknout(psid); try { await fbSend(psid, zkusebniText()); log(`zkušební placená po poslední bezplatné → FB ${psid}`); } catch (e) { log(`zkušební placená: ${e.message}`); } }
   if (hit) {
     const souhrn = `OBJEDNÁNÍ z Messengeru (psid ${psid}, ${new Date().toISOString().slice(0, 16)})\n${hit[1].trim()}`;
     log(`objednávka: ${hit[1].trim().split("\n").slice(0, 2).join(" | ")}`);
@@ -302,10 +333,15 @@ async function poradnaWeb(id, text) {
   const c0 = chats.get(key);
   if (c0 && (c0.n || 0) >= (jeZaplaceno(key) ? HARD_CAP * 3 : HARD_CAP) && Date.now() - c0.t < CHAT_TTL)
     return { odpoved: "Tady bych to pro dnešek uzavřel – víc už zvládne jen vyšetření. Napište „objednat“ a domluvíme termín, nebo se ozvěte zítra s novým dotazem. Při akutních potížích volejte 155." };
+  let uvod = "";
   if (LIMIT && !jeZaplaceno(key)) {
     if (CERVENE.test(text)) return { odpoved: "To zní vážně – volejte prosím hned 155 nebo jeďte na pohotovost. Na odpověď z chatu nečekejte." };
     const q = c0 && Date.now() - c0.t < CHAT_TTL ? (c0.q || 0) : 0;
-    if (q >= ZDARMA && !OBJEDNAT.test(text) && !(c0 && c0.objednavani)) return { odpoved: paywallText(key), platba: PAYWALL ? platebniOdkaz(key) : null };
+    if (q >= ZDARMA && !OBJEDNAT.test(text) && !(c0 && c0.objednavani)) {
+      /* zkušební provoz (např. po vypršení odemknutí): odemknout znovu, oznámit a odpovědět */
+      if (ZKUSEBNI) { odemknout(key); uvod = zkusebniText() + "\n\n"; }
+      else return { odpoved: paywallText(key), platba: PAYWALL ? platebniOdkaz(key) : null };
+    }
   }
   const full = await askModel(key, text);
   const hit = OBJ.exec(full);
@@ -316,7 +352,8 @@ async function poradnaWeb(id, text) {
     try { await ainetSend(`[OBJEDNANI] ${souhrn}`, OBJEDNAVKY_AGENT); } catch (e) { log(`objednávka z webu → AInet: ${e.message}`); }
   }
   if (!hit && hnedPlatba(key)) return { odpoved: odpoved + "\n\n" + paywallText(key), platba: platebniOdkaz(key) };
-  return { odpoved };
+  if (!hit && hnedZkusebni(key)) { odemknout(key); log(`zkušební placená → web ${key}`); return { odpoved: uvod + odpoved + "\n\n" + zkusebniText(), zkusebni: true }; }
+  return { odpoved: uvod + odpoved };
 }
 
 /* ---------- Poslední „Studie týdne“ z FB stránky (zrcadlení na web) ---------- */
@@ -499,7 +536,7 @@ http.createServer(async (req, res) => {
       if (url.searchParams.get("key") !== VERIFY_TOKEN) { res.writeHead(403); return res.end("forbidden"); }
       const el = await elevenStav().catch(e => ({ error: e.message }));
       res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-      return res.end(JSON.stringify({ rezim: PORADNA && INSTRUKCE ? "poradna" : "fable", hlasovky: VOICE_ON, model: MODEL, konverzaci_v_pameti: chats.size, paywall: PAYWALL, limit_zdarma: LIMIT, hovor_zdarma: HOVOR_ZDARMA, placeny_hlas: !!HLAS_PLACENY_AGENT, literatura_poradna: LIT_PORADNA, zdarma_smycek: ZDARMA, zaplacenych: [...zaplaceno.values()].filter(t => t > Date.now()).length, elevenlabs: el }));
+      return res.end(JSON.stringify({ rezim: PORADNA && INSTRUKCE ? "poradna" : "fable", hlasovky: VOICE_ON, model: MODEL, konverzaci_v_pameti: chats.size, paywall: PAYWALL, zkusebni: ZKUSEBNI, limit_zdarma: LIMIT, hovor_zdarma: HOVOR_ZDARMA, placeny_hlas: !!HLAS_PLACENY_AGENT, literatura_poradna: LIT_PORADNA, zdarma_smycek: ZDARMA, zaplacenych: [...zaplaceno.values()].filter(t => t > Date.now()).length, elevenlabs: el }));
     }
     if (url.pathname === "/setup-messenger" && req.method === "GET") {
       if (url.searchParams.get("key") !== VERIFY_TOKEN) { res.writeHead(403); return res.end("forbidden"); }
@@ -618,7 +655,24 @@ http.createServer(async (req, res) => {
       const h = { "Access-Control-Allow-Origin": WEB_ORIGINS.includes(origin) ? origin : WEB_ORIGINS[0], "Vary": "Origin", "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
       if (req.method === "OPTIONS") { res.writeHead(204, h); return res.end(); }
       res.writeHead(200, h);
-      return res.end(JSON.stringify({ zdarma: ZDARMA, hovor_zdarma: HOVOR_ZDARMA, limit: LIMIT, platba: PAYWALL, cena: CENA || null, platba_url: PAYWALL ? PLATBA_URL : null, placeny_hlas: !!(HLAS_PLACENY_AGENT && ELEVENLABS_API_KEY) }));
+      return res.end(JSON.stringify({ zdarma: ZDARMA, hovor_zdarma: HOVOR_ZDARMA, limit: LIMIT, platba: PAYWALL, zkusebni: ZKUSEBNI, platnost: PLATNOST_TEXT, cena: CENA || null, platba_url: PAYWALL ? PLATBA_URL : null, placeny_hlas: !!(HLAS_PLACENY_AGENT && ELEVENLABS_API_KEY) }));
+    }
+
+    /* zkušební provoz: POST /web/zkusebni { id } → odemkne placenou konzultaci (chat i hovor) pro web_<id> bez platby */
+    if (url.pathname === "/web/zkusebni" && (req.method === "POST" || req.method === "OPTIONS")) {
+      const origin = req.headers.origin || "";
+      const h = { "Access-Control-Allow-Origin": WEB_ORIGINS.includes(origin) ? origin : WEB_ORIGINS[0], "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type", "Vary": "Origin", "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
+      if (req.method === "OPTIONS") { res.writeHead(204, h); return res.end(); }
+      const json = (st, o) => { res.writeHead(st, h); res.end(JSON.stringify(o)); };
+      if (!ZKUSEBNI) return json(409, { ok: false, chyba: "zkušební provoz není zapnutý" });
+      let b; try { b = await readBody(req); } catch { return json(400, { ok: false, chyba: "špatný JSON" }); }
+      const id = String((b && b.id) || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40);
+      if (id.length < 8) return json(400, { ok: false, chyba: "chybí id" });
+      const key = "web_" + id;
+      if (jeZaplaceno(key)) return json(200, { ok: true, platnost: PLATNOST_TEXT });
+      if (!zkusebniPovolit(klientIp(req))) return json(429, { ok: false, chyba: "Zkušební konzultaci už jste dnes z tohoto připojení využili. Zkuste to zítra, nebo se objednejte do ordinace." });
+      odemknout(key); log(`zkušební placená → web hovor ${key}`);
+      return json(200, { ok: true, platnost: PLATNOST_TEXT });
     }
 
     /* placený hovor: GET /hlas/token?id=web_… → { token } pro placeného agenta, jen když je id zaplacené */
