@@ -342,6 +342,17 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
       .then(function (r) { return r.json(); }).then(function (j) { clearTimeout(t); return j && j.token ? j.token : null; })
       .catch(function () { clearTimeout(t); return null; });
   }
+  /* bezplatný hovor: token ze serveru – server počítá otázky i podle adresy, takže limit nejde obejít smazáním dat prohlížeče */
+  var tokenZ = null;
+  function tokenZdarma() {
+    var ctl = window.AbortController ? new AbortController() : null; var t = setTimeout(function () { if (ctl) ctl.abort(); }, 5000);
+    return fetch(MOST + "/hlas/token-zdarma", ctl ? { signal: ctl.signal } : {})
+      .then(function (r) { return r.json(); }).then(function (j) { clearTimeout(t); return j || {}; })
+      .catch(function () { clearTimeout(t); return {}; });
+  }
+  function hlasOtazka() {
+    try { if (!(navigator.sendBeacon && navigator.sendBeacon(MOST + "/hlas/otazka"))) fetch(MOST + "/hlas/otazka", { method: "POST", keepalive: true }).catch(function () {}); } catch (e) {}
+  }
 
   function posledni(c) {
     posledniPoslano = true;
@@ -352,8 +363,20 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { nastav("Tento prohlížeč nepodporuje hovor. Zkuste Chrome nebo Safari, nebo napište do chatu."); return; }
     go.disabled = true; platba.hidden = true; nastav("Připojuji… (povolte prosím mikrofon)");
     var placeny = false, limit = 0, uzaver = false, mluvil = false, pojistka = null, objednava = false; posledniPoslano = false;
-    var token = null;
+    var token = null; tokenZ = null;
     tokenPlaceny()
+      .then(function (t) {
+        if (t || zbyva() <= 0) return t;
+        /* bezplatný hovor: server řekne, kolik otázek zbývá z tohoto připojení (když neodpoví, hlídá jen prohlížeč) */
+        return tokenZdarma().then(function (z) {
+          if (z.limit) ulozPocet(nast.hovor_zdarma);
+          else {
+            if (z.token) tokenZ = z.token;
+            if (typeof z.zbyva === "number" && z.zbyva < zbyva()) ulozPocet(nast.hovor_zdarma - z.zbyva);
+          }
+          return null;
+        });
+      })
       .then(function (t) {
         /* zkušební provoz: po vyčerpání otázek zdarma odemknout placenou konzultaci bez platby a vzít token znovu */
         if (t || zbyva() > 0 || !nast.zkusebni) return t;
@@ -380,7 +403,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
               if (x.source === "ai" || x.role === "agent") { if (uzaver) mluvil = true; return; }
               if (x.source !== "user" && x.role !== "user") return;
               if (/objedn|termín|ordinac/i.test(x.message || "") && !objednava) { objednava = true; limit += 6; }
-              var n = pocet() + 1; ulozPocet(n);
+              var n = pocet() + 1; ulozPocet(n); hlasOtazka();
               if (n === limit - 1) posledni(hovor);
               if (n >= limit) { uzaver = true; mluvil = false; clearTimeout(pojistka); pojistka = setTimeout(function () { if (hovor) hovor.endSession().catch(function () {}); }, 45000); }
               if (n > limit && hovor) hovor.endSession().catch(function () {});
@@ -391,7 +414,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
               if (uzaver && mode === "speaking") mluvil = true;
               if (uzaver && mluvil && mode === "listening" && hovor) setTimeout(function () { if (hovor) hovor.endSession().catch(function () {}); }, 1200);
             } };
-          if (placeny) o.conversationToken = token; else o.agentId = AGENT;
+          if (placeny) o.conversationToken = token; else if (tokenZ) o.conversationToken = tokenZ; else o.agentId = AGENT;
           return m.Conversation.startSession(o);
         });
       })
