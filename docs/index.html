@@ -18,6 +18,7 @@
 <style>
 :root{--navy:#0d2742;--navy2:#18385e;--teal:#5ec8b2;--white:#f5f8fa;--grey:#b0c4d6;--warn:#aa5032}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html{scroll-behavior:smooth}
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--navy);color:var(--white);line-height:1.5}
 a{color:var(--teal)}
@@ -58,15 +59,18 @@ section{padding:40px 0;border-top:1px solid rgba(255,255,255,.08)}
 .price{display:flex;justify-content:space-between;padding:12px 0;border-top:1px solid rgba(255,255,255,.08)}
 .price:first-child{border-top:0}
 .price span:last-child{color:var(--teal);font-weight:700;white-space:nowrap}
-.social a{display:inline-flex;align-items:center;gap:8px;margin-right:18px;text-decoration:none;font-weight:700}
-.social svg{width:22px;height:22px;fill:var(--teal)}
+.fbcard{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.fbico{width:48px;height:48px;fill:var(--teal);flex:none}
+.fbtxt{flex:1;min-width:180px}
+.fbtxt b{display:block;font-size:19px}
+.fbtxt span{color:var(--grey);font-size:14px}
+.fbbtns{display:flex;gap:10px;flex-wrap:wrap}
+.fbbtns .btn.sec{margin:0}
 footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid rgba(255,255,255,.08)}
 .alert{background:rgba(170,80,50,.18);border:1px solid var(--warn);border-radius:12px;padding:12px 16px;margin-top:18px;font-size:15px}
 @media (max-width:760px){.hero{grid-template-columns:1fr;padding-top:26px}.banner{min-height:360px;background-position:70% center}.banner h1{font-size:30px}.banner .in{padding-top:40px}.tiles{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}nav{display:none}.btn.sec{margin:10px 0 0}}
-.fbwrap{display:flex;justify-content:center}
-.fbwrap iframe{border:none;overflow:hidden;max-width:100%;border-radius:14px;background:#fff}
 .chatbtn{position:fixed;right:18px;bottom:18px;z-index:50;background:var(--teal);color:var(--navy);border:0;border-radius:28px;padding:14px 20px;font-weight:800;font-size:16px;box-shadow:0 6px 20px rgba(0,0,0,.35);cursor:pointer}
-.chat{position:fixed;right:18px;bottom:84px;z-index:50;width:min(380px,calc(100vw - 24px));height:min(560px,calc(100vh - 110px));background:var(--navy2);border-radius:18px;box-shadow:0 10px 40px rgba(0,0,0,.5);display:flex;flex-direction:column;overflow:hidden}
+.chat{position:fixed;right:18px;bottom:140px;z-index:50;width:min(380px,calc(100vw - 24px));height:min(560px,calc(100vh - 166px));background:var(--navy2);border-radius:18px;box-shadow:0 10px 40px rgba(0,0,0,.5);display:flex;flex-direction:column;overflow:hidden}
 .chat[hidden]{display:none}
 .chat-h{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--navy);border-bottom:2px solid var(--teal)}
 .chat-h button{background:none;border:0;color:var(--grey);font-size:26px;cursor:pointer;line-height:1}
@@ -82,7 +86,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
 .chat-f input{flex:1;min-width:0;background:var(--navy);color:var(--white);border:1px solid #2c4f78;border-radius:10px;padding:10px;font:inherit;font-size:16px}
 .chat-f button{background:var(--teal);color:var(--navy);border:0;border-radius:10px;padding:0 14px;font-weight:800;cursor:pointer}
 .chat-note{font-size:11px;color:var(--grey);padding:0 12px 10px}
-@media (max-width:760px){.chat{right:12px;left:12px;width:auto;bottom:80px}}
+@media (max-width:760px){.chat{right:12px;left:12px;width:auto;bottom:136px}}
 .studie img{width:100%;max-height:420px;object-fit:cover;border-radius:12px;margin-bottom:12px;display:block}
 .studie .txt{white-space:pre-line}
 .muted{color:var(--grey);font-size:13px}
@@ -191,17 +195,16 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
 </section>
 
 <section id="facebook">
-  <h2>Z Facebooku</h2>
-  <p class="lead">Nejnovější příspěvky ze stránky Pavel Ditl MD.</p>
-  <div class="fbwrap"><iframe src="https://www.facebook.com/plugins/page.php?href=https%3A%2F%2Fwww.facebook.com%2Fprofile.php%3Fid%3D61594350389956&tabs=timeline&width=500&height=650&small_header=true&adapt_container_width=true&hide_cover=false&show_facepile=false&locale=cs_CZ" width="500" height="650" scrolling="no" frameborder="0" allowfullscreen="true" allow="encrypted-media" loading="lazy" title="Příspěvky ze stránky Pavel Ditl MD na Facebooku"></iframe></div>
-</section>
-
-<section>
-  <h2>Sledujte mě</h2>
-  <p class="social">
-    <a href="https://www.facebook.com/profile.php?id=61594350389956"><svg viewBox="0 0 24 24"><path d="M13.5 22v-8h2.7l.4-3.2h-3.1V8.8c0-.9.3-1.6 1.6-1.6h1.7V4.4c-.3 0-1.3-.1-2.5-.1-2.5 0-4.1 1.5-4.1 4.2v2.3H7.4V14h2.8v8h3.3z"/></svg>Facebook – Pavel Ditl MD.</a>
-    <a href="https://m.me/1329907923537973"><svg viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6.1 2 11.3c0 2.9 1.4 5.5 3.7 7.2V22l3.4-1.9c.9.3 1.9.4 2.9.4 5.5 0 10-4.1 10-9.3S17.5 2 12 2zm1 12.5l-2.6-2.7-5 2.7 5.5-5.8 2.6 2.7 4.9-2.7-5.4 5.8z"/></svg>Messenger</a>
-  </p>
+  <h2>Sledujte mě na Facebooku</h2>
+  <p class="lead">Na stránce Pavel Ditl MD vychází každé pondělí Studie týdne a novinky z ordinace.</p>
+  <div class="card fbcard">
+    <svg class="fbico" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 22v-8h2.7l.4-3.2h-3.1V8.8c0-.9.3-1.6 1.6-1.6h1.7V4.4c-.3 0-1.3-.1-2.5-.1-2.5 0-4.1 1.5-4.1 4.2v2.3H7.4V14h2.8v8h3.3z"/></svg>
+    <div class="fbtxt"><b>Pavel Ditl MD</b><span>Facebooková stránka MUDr. Pavla Ditla</span></div>
+    <div class="fbbtns">
+      <a class="btn" href="https://www.facebook.com/profile.php?id=61594350389956" target="_blank" rel="noopener">Sledovat na Facebooku</a>
+      <a class="btn sec" href="https://m.me/1329907923537973" target="_blank" rel="noopener">Messenger</a>
+    </div>
+  </div>
 </section>
 
 <footer>
@@ -230,6 +233,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
   function nabidka() { quick.innerHTML = ""; TEMATA.forEach(function (r) { var b = document.createElement("button"); b.type = "button"; b.textContent = r[0]; b.onclick = function () { posli(r[1]); }; quick.appendChild(b); }); }
   function otevri(t) {
     box.hidden = false;
+    var hov = document.getElementById("call"); if (hov) hov.hidden = true;
     if (!opened) { opened = true; add("ai", "Dobrý den, jsem AI asistent, kterého trénoval MUDr. Pavel Ditl. Napište, co vás trápí, nebo vyberte téma. Při akutních potížích volejte 155."); nabidka(); }
     if (t) posli(t); else inp.focus();
   }
