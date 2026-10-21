@@ -29,6 +29,9 @@
  *   PLACENA_ZDARMA     – zkušební provoz: po bezplatných otázkách placená konzultace zdarma („později bude placená“).
  *                        Výchozí zapnuto, dokud PLATBA_URL chybí nebo je testovací (buy.stripe.com/test_…);
  *                        "1" vynutí, "0" vypne. ZKUSEBNI_IP_DEN – kolikrát denně z jedné adresy (web hovor, výchozí 3)
+ *   HOVOR_ZDARMA_IP_DEN – kolik bezplatných otázek hovoru na webu za den z jedné adresy (výchozí 3× HOVOR_ZDARMA,
+ *                        víc kvůli sdíleným adresám mobilních sítí); "0" serverové hlídání vypne
+ *   HLAS_AGENT_ZDARMA  – ID bezplatného hlasového agenta ElevenLabs (token pro něj vydává /hlas/token-zdarma)
  *   ANTHROPIC_API_KEY  – (volitelné) režim PORADNA: most odpovídá pacientům sám podle fb-instrukce.js
  *                        (rychlejší, s pamětí konverzace); objednávky posílá Fablovi na AInet.
  *                        Bez klíče běží původní režim: vše přeposílá Fablovi.
@@ -248,6 +251,18 @@ function zkusebniPovolit(ip) {
   if (!w || now - w.t > 24 * 3600e3) { zkusebniIp.set(ip, { n: 1, t: now }); return true; }
   if (w.n >= ZKUSEBNI_IP_DEN) return false;
   w.n++; return true;
+}
+/* web hovor zdarma: otázky se počítají i na serveru podle adresy – smazáním dat prohlížeče nebo anonymním oknem se limit neobejde */
+const HLAS_AGENT_ZDARMA = process.env.HLAS_AGENT_ZDARMA || "agent_2501m42za8c0f1m83g0r92ajwavv"; // „Doctor – AI poradna MUDr. Ditla“
+const HOVOR_ZDARMA_IP_DEN = Number(process.env.HOVOR_ZDARMA_IP_DEN || 3 * HOVOR_ZDARMA);
+const hovorIp = new Map(); // ip → { d: "YYYY-MM-DD", n }
+const dnesUtc = () => new Date().toISOString().slice(0, 10);
+const hovorPocet = (ip) => { const w = hovorIp.get(ip); return w && w.d === dnesUtc() ? w.n : 0; };
+const hovorZbyva = (ip) => HOVOR_ZDARMA_IP_DEN > 0 ? Math.max(0, HOVOR_ZDARMA_IP_DEN - hovorPocet(ip)) : null;
+function hovorPricti(ip) {
+  const d = dnesUtc(), w = hovorIp.get(ip);
+  if (!w || w.d !== d) hovorIp.set(ip, { d, n: 1 }); else w.n++;
+  if (hovorIp.size > 5000) for (const [k, v] of hovorIp) if (v.d !== d) hovorIp.delete(k);
 }
 const zdarmaVeta = () => ({ 1: "První odpověď poradny je zdarma", 2: "Dvě odpovědi poradny jsou zdarma", 3: "Tři odpovědi poradny jsou zdarma", 4: "Čtyři odpovědi poradny jsou zdarma" })[ZDARMA] || `Prvních ${ZDARMA} odpovědí poradny je zdarma`;
 function paywallText(psid) {
@@ -673,6 +688,34 @@ http.createServer(async (req, res) => {
       if (!zkusebniPovolit(klientIp(req))) return json(429, { ok: false, chyba: "Zkušební konzultaci už jste dnes z tohoto připojení využili. Zkuste to zítra, nebo se objednejte do ordinace." });
       odemknout(key); log(`zkušební placená → web hovor ${key}`);
       return json(200, { ok: true, platnost: PLATNOST_TEXT });
+    }
+
+    /* bezplatný hovor: GET /hlas/token-zdarma → { token, zbyva } pro bezplatného agenta; 429 { limit } po HOVOR_ZDARMA_IP_DEN otázkách za den z jedné adresy */
+    if (url.pathname === "/hlas/token-zdarma" && (req.method === "GET" || req.method === "OPTIONS")) {
+      const origin = req.headers.origin || "";
+      const h = { "Access-Control-Allow-Origin": WEB_ORIGINS.includes(origin) ? origin : WEB_ORIGINS[0], "Vary": "Origin", "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
+      if (req.method === "OPTIONS") { res.writeHead(204, h); return res.end(); }
+      const json = (st, o) => { res.writeHead(st, h); res.end(JSON.stringify(o)); };
+      const ip = klientIp(req), zbyva = hovorZbyva(ip);
+      if (zbyva === 0) { log("hovor zdarma: denní limit adresy"); return json(429, { limit: true, zbyva: 0 }); }
+      if (webPrilisRychle("hovor_" + ip)) return json(429, { chyba: "příliš mnoho požadavků", zbyva });
+      if (!ELEVENLABS_API_KEY || !HLAS_AGENT_ZDARMA) return json(503, { zbyva });
+      try {
+        const r = await fetch(`https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${encodeURIComponent(HLAS_AGENT_ZDARMA)}`, { headers: { "xi-api-key": ELEVENLABS_API_KEY } });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.token) throw new Error(`ElevenLabs ${r.status}`);
+        return json(200, { token: j.token, zbyva });
+      } catch (e) { log(`hlas/token-zdarma: ${e.message}`); return json(502, { zbyva }); } // web pak spojí hovor přímo přes agentId
+    }
+
+    /* bezplatný hovor: POST /hlas/otazka → započítá otázku volajícího k jeho adrese (posílá web při každé otázce) */
+    if (url.pathname === "/hlas/otazka" && (req.method === "POST" || req.method === "OPTIONS")) {
+      const origin = req.headers.origin || "";
+      const h = { "Access-Control-Allow-Origin": WEB_ORIGINS.includes(origin) ? origin : WEB_ORIGINS[0], "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type", "Vary": "Origin", "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
+      if (req.method === "OPTIONS") { res.writeHead(204, h); return res.end(); }
+      const ip = klientIp(req);
+      hovorPricti(ip);
+      res.writeHead(200, h); return res.end(JSON.stringify({ ok: true, zbyva: hovorZbyva(ip) }));
     }
 
     /* placený hovor: GET /hlas/token?id=web_… → { token } pro placeného agenta, jen když je id zaplacené */
