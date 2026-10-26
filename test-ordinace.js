@@ -6,6 +6,8 @@
  *   1. Server založí Organizera; objednávka [OBJEDNANI] od Mostu (i když přijde
  *      Fablovi) se rozebere na pole, dostane navržený termín v preferovaný den
  *      a pacient dostane potvrzení přijetí přes Most ([FB:psid]) — bez termínu.
+ *   1c. Objednávka ve tvaru tří cest (Požadavek, Potvrzeno lékařem, Dotazník) se
+ *      rozebere na pole; bez triáže a s „nejbližší volný“ dostane nejbližší den.
  *   2. Triage „do 2 dnů“ bere nejbližší ordinační den bez ohledu na preferenci;
  *      triage 155 pošle varování.
  *   3. Vlastník (token Fabla i Organizera) vidí kalendář, volné sloty, objednávky;
@@ -96,6 +98,17 @@ const dalsiDen = (den) => { const d = new Date(); do { d.setUTCDate(d.getUTCDate
   const tl = await post("/mcp", { jsonrpc: "2.0", id: 2, method: "tools/list" });
   ok(tl.data.result && tl.data.result.tools.some(t => t.name === "ordinace_prehled"), "tools/list obsahuje ordinace_prehled");
 
+  console.log("\n1c) Objednávka ve tvaru tří cest (Potvrzeno lékařem, Dotazník, bez triáže)");
+  await get(`/api/lite/send?token=${most.tok}&to=Organizer&text=${encodeURIComponent(objednavka("Messenger (psid 777888, 2026-10-26T09:00)", { "Požadavek": "operace", "Jméno": "Karel Nový", "Telefon": "602333444", "Věk": "46", "Oblast": "tříslo", "Potvrzeno lékařem": "bez potvrzené diagnózy", "Hlavní potíž": "boule v třísle", "Trvání": "3 měsíce", "Dotazník": "1) praktik říkal kýla, zprávu nemá; 2) omezuje při zvedání; 3) v břiše neoperován", "Varovné příznaky": "žádné", "Už proběhlo": "nic", "Preferovaný den": "nejbližší volný", "Poznámka": "-" }))}`);
+  await new Promise(r => setTimeout(r, 300));
+  const kalC = (await get("/api/ordinace", { "X-Owner-Token": org.ownerToken })).data;
+  const karel = (kalC.objednavky || []).find(x => x.jmeno === "Karel Nový");
+  ok(karel && karel.pozadavek === "operace" && karel.diagnoza === "bez potvrzené diagnózy" && karel.oblast === "tříslo" && /zvedání/.test(karel.dotaznik || ""), "požadavek, oblast, potvrzeno lékařem a dotazník se rozeberou na pole", karel);
+  const prvniDen = [dalsiDen(1), dalsiDen(4)].sort()[0];
+  ok(karel && karel.navrzeny && !karel.urgentni && !karel.triage && new Date(karel.navrzeny.kdy).toISOString().slice(0, 10) <= prvniDen, `bez triáže a s „nejbližší volný“ dostane nejbližší ordinační den, neoznačeno jako urgentní`, karel && { navrzeny: karel.navrzeny, urgentni: karel.urgentni });
+  const oInboxC = (await get(`/api/messages?agent=${org.id}`, { "X-Owner-Token": org.ownerToken })).data;
+  ok(oInboxC.some(m => m.fromName === "Ordinace" && /Karel Nový/.test(m.text) && /operace/.test(m.text) && /bez potvrzené diagnózy/.test(m.text)), "hlášení Organizerovi nese požadavek i „bez potvrzené diagnózy“", oInboxC.filter(m => m.fromName === "Ordinace").map(m => m.text).slice(-1));
+
   console.log("\n2) Triage");
   const ct = dalsiDen(4);
   await get(`/api/lite/send?token=${most.tok}&to=Organizer&text=${encodeURIComponent(objednavka("webu (web_abc, 2026-10-08T11:00)", { "Jméno": "Eva Malá", "Telefon": "608111222", "Triage": "do 2 dnů", "Hlavní potíž": "zarudlá zatvrdlá žíla", "Preferovaný den": "čtvrtek" }))}`);
@@ -142,7 +155,8 @@ const dalsiDen = (den) => { const d = new Date(); do { d.setUTCDate(d.getUTCDate
   console.log("\n4) Nastavení ordinace");
   const nast = await post("/api/ordinace/nastaveni", { delka: 30, dny: { "1": { misto: "Bulovka", od: "09:00", do: "12:00" }, "4": { misto: "Neratovice", od: "08:00", do: "15:00" } }, blokace: [{ od: ct, do: ct, duvod: "kongres" }] }, { "X-Owner-Token": fable.tok });
   ok(nast.status === 200 && nast.data.nastaveni.delka === 30, "nastavení uloženo", nast.data);
-  const kal5 = (await get(`/api/ordinace?od=${po}&dni=7`, { "X-Owner-Token": fable.tok })).data;
+  /* od dřívějšího z obou dnů: v pondělí až středu je nejbližší čtvrtek dřív než nejbližší pondělí */
+  const kal5 = (await get(`/api/ordinace?od=${[po, ct].sort()[0]}&dni=8`, { "X-Owner-Token": fable.tok })).data;
   const dPo = kal5.dny.find(d => d.datum === po), dCt = kal5.dny.find(d => d.datum === ct);
   ok(dPo && dPo.volno.every(s => s.cas >= "09:00" && s.cas < "12:00") && dPo.volno.length <= 6, "pondělí má sloty jen 9–12 po 30 minutách", dPo && dPo.volno.map(s => s.cas));
   ok(dCt && dCt.blokace && dCt.volno.length === 0, "blokovaný čtvrtek nemá volné sloty", dCt && dCt.blokace);

@@ -145,7 +145,7 @@ async function askWithTools({ apiKey, model, system, messages, tools = NASTROJE,
 const PORADNA_DODATEK = `
 
 OVĚŘOVÁNÍ V LITERATUŘE
-- Máš nástroj hledej_literaturu (PubMed). Použij ho jen tehdy, když si u konkrétního faktu nejsi jistý (úspěšnost a recidivy metod, doba hojení, rizika), ne u běžných dotazů a nikdy u červených praporků.
+- Máš nástroj hledej_literaturu (PubMed). Použij ho jen tehdy, když si u konkrétního faktu nejsi jistý (úspěšnost a recidivy metod, doba hojení, rizika), ne u běžných dotazů a nikdy u varovných příznaků.
 - Pacientovi studie necituj, neuváděj PMID ani názvy časopisů. Odpověď zůstává krátká (do 50 slov), lidská a česky.`;
 
 module.exports = { hledejClanky, hledejStudie, textClanky, textStudie, NASTROJE, spustNastroj, askWithTools, PORADNA_DODATEK };

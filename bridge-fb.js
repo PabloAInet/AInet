@@ -195,11 +195,11 @@ async function askModel(psid, text) {
   c.n = (c.n || 0) + 1;                       // kolo rozhovoru (odpovědi AI od začátku tématu)
   c.q = (c.q || 0) + 1; if (OBJEDNAT.test(text)) c.objednavani = true; // otázky pacienta (pro placení)
   const KOLA = Number(process.env.MAX_KOLA || ZDARMA) * (jeZaplaceno(psid) ? 2 : 1);
-  const hint = c.n < KOLA ? `[kolo ${c.n}/${KOLA}]` : c.n === KOLA ? `[kolo ${KOLA}/${KOLA} – uzavři: závěr + objednání nebo rada]` : `[po uzávěru – odpověz stručně, nabídni objednání nebo nové téma]`;
+  const hint = c.n < KOLA ? `[kolo ${c.n}/${KOLA}]` : c.n === KOLA ? `[kolo ${KOLA}/${KOLA} – poslední kolo: nabídni další cestu (objednání, když zvažuje operaci nebo jde na kontrolu po ní), zdravotní stav nehodnoť]` : `[po uzávěru – odpověz stručně, nabídni objednání nebo nové téma]`;
   const posledniZdarma = LIMIT && !jeZaplaceno(psid) && !c.objednavani && c.q === ZDARMA;
   const nabidkaPlacene = PAYWALL ? `; pak jednou větou řekni, že pokračovat lze v placené konzultaci (${PLACENA_POPIS}) – odkaz na platbu pošle systém hned po této odpovědi` : `; pak jednou větou řekni, že připravujeme placenou konzultaci (${PLACENA_POPIS})`;
   /* zkušební provoz: o přechodu do placené konzultace informuje systém hned po této odpovědi, model ji jen uzavře */
-  const posledniHint = ZKUSEBNI ? "[poslední bezplatná odpověď – odpověz, shrň předběžný závěr a nabídni objednání; o pokračování v placené konzultaci pacientovi napíše systém hned po této odpovědi, sám to nezmiňuj]" : `[poslední bezplatná odpověď – shrň, co zatím víš, řekni předběžný závěr a nabídni objednání${nabidkaPlacene}; neptej se dál]`;
+  const posledniHint = ZKUSEBNI ? "[poslední bezplatná odpověď – odpověz, stručně shrň obecně, o čem byla řeč, a nabídni další cestu (objednání, když zvažuje operaci nebo jde na kontrolu po ní); zdravotní stav nehodnoť; o pokračování v placené konzultaci pacientovi napíše systém hned po této odpovědi, sám to nezmiňuj]" : `[poslední bezplatná odpověď – stručně shrň obecně, o čem byla řeč, a nabídni další cestu (objednání, když zvažuje operaci nebo jde na kontrolu po ní)${nabidkaPlacene}; zdravotní stav nehodnoť a neptej se dál]`;
   c.turns.push({ role: "user", content: `${text}\n\n${posledniZdarma ? posledniHint : hint}` });
   if (c.turns.length > CHAT_MAX) c.turns = c.turns.slice(-CHAT_MAX);
   const placena = jeZaplaceno(psid);
@@ -229,13 +229,13 @@ const PLATNOST_TEXT = PLATBA_PLATNOST_H % 24 === 0 ? (PLATBA_PLATNOST_H === 24 ?
 /* doplněk systémového promptu pro zaplacenou konzultaci (má přednost před limitem délky a zákazem citací) */
 const PLACENA_DODATEK = `
 
-PLACENÁ KONZULTACE (tato pravidla mají přednost před pravidly výše)
-- Pacient si zaplatil podrobnější konzultaci. Odpovídej podrobněji a odborněji: klidně 80–180 slov, vysvětli důvody, možnosti léčby, jejich výhody a rizika a co se dá čekat. Pořád srozumitelně, česky, latinu hned vysvětli.
+PLACENÁ KONZULTACE (tato pravidla mají přednost před délkou odpovědi a zákazem citací výše; ostatní pravidla platí)
+- Pacient si zaplatil podrobnější konzultaci. Odpovídej podrobněji a odborněji: klidně 80–180 slov, vysvětli obecně, jak se daná potíž léčí, jaké jsou možnosti, jejich výhody a rizika a co se obvykle dá čekat. Pořád srozumitelně, česky, latinu hned vysvětli.
 - U konkrétních údajů (úspěšnost a návrat potíží u metod, doba hojení, bolest, komplikace, srovnání metod) nejdřív použij nástroj hledej_literaturu a odpověď opři o nalezené studie. Zdroj uveď stručně na konci (např. „Zdroj: Barone et al., Colorectal Disease 2026“), PMID neuváděj.
 - Hledej přednostně nejnovější přehledy a metaanalýzy (typ "prehledy", od_roku zhruba posledních 5 let); starší práce jen doplňkově. Když se studie rozcházejí, řekni to a uveď, co ukazuje ta nejnovější.
 - Když literatura nic nenajde, řekni to a odpověz z obecných znalostí.
 - Piš prostý text bez formátování – žádné hvězdičky, nadpisy ani tučné písmo (Messenger ani web je nezobrazí).
-- Červené praporky a pravidla o diagnóze, lécích a objednání platí beze změny; konzultace pořád nenahrazuje vyšetření.`;
+- Varovné příznaky, část CO NEŘÍKÁŠ a pravidla o lécích a objednání platí beze změny: i tady podáváš obecné informace, stav konkrétního člověka posoudí lékař při vyšetření.`;
 const PLACENA_ZKUSEBNI_DODATEK = `
 - ZKUŠEBNÍ PROVOZ: pacient nic neplatil – placenou konzultaci má teď ve zkušebním provozu zdarma, později bude placená. Za platbu neděkuj a o placení nemluv, dokud se nezeptá; když se zeptá, řekni právě tohle.`;
 /* text pro pacienta při přechodu do placené konzultace ve zkušebním provozu (Messenger i chat na webu) */
@@ -389,12 +389,12 @@ async function posledniPrispevek() {
 
 /* ---------- Okna (témata): ice breakers + menu v Messengeru + m.me?ref= ---------- */
 const TEMATA = {
-  poradna:  { title: "🩺 Poradna – mám zdravotní dotaz", opener: "Dobrý den, jsem AI asistent, kterého trénoval MUDr. Pavel Ditl. Napište mi, co vás trápí – zeptám se na pár věcí a poradím, co dál. Při akutních potížích volejte 155." },
-  ordinace: { title: "📅 Ordinace – chci se objednat", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Objednám vás na křečové žíly, hemoroidy, pilonidální sinus nebo laparoskopickou operaci. S čím přicházíte?" },
-  operace:  { title: "🔪 Operace – co mě čeká", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Rád vysvětlím, jak operace probíhá, jak se připravit a jak dlouho trvá návrat do práce – včetně laserové metody. Které operace se to týká?" },
-  faq:      { title: "❓ Časté dotazy", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Nejčastěji se lidé ptají: Kdy k lékaři s hemoroidy? Bolí sono žil? Jak dlouho se hojí laser? Co si vzít do ordinace? Napište svou otázku, nebo některou z těchto." },
-  metlicky: { title: "✨ Metličky – laser / sklerotizace", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Metličkové žilky ošetřujeme laserem zvenku nebo pěnovou sklerotizací, bez řezu. Kde je máte a jak dlouho – a vadí jen vzhled, nebo i pálí?" },
-  medikace: { title: "💊 Medikace (připravujeme)", opener: "🚧 Medikaci připravujeme. Zatím není k dispozici – ozveme se na této stránce, až ji spustíme. S ostatním vám rád pomůžu: napište, co vás trápí." },
+  poradna:  { title: "🩺 Poradna – mám zdravotní dotaz", opener: "Dobrý den, jsem AI asistent ordinace MUDr. Ditla, ne lékař. Poradím obecně – co u žil, hemoroidů nebo kýly obvykle pomáhá a kdy k lékaři. Na co se chcete zeptat? Při akutních potížích volejte 155." },
+  ordinace: { title: "📅 Ordinace – chci se objednat", opener: "Dobrý den, jsem AI asistent ordinace MUDr. Ditla, ne lékař. Jdete kvůli operaci, na kontrolu po operaci, nebo se chcete poradit?" },
+  operace:  { title: "🔪 Operace – co mě čeká", opener: "Dobrý den, jsem AI asistent ordinace MUDr. Ditla, ne lékař. Rád vysvětlím, jak operace probíhá – laser i klasická metoda, příprava a návrat do práce. Které operace se to týká?" },
+  faq:      { title: "❓ Časté dotazy", opener: "Dobrý den, jsem AI asistent ordinace MUDr. Ditla, ne lékař. Lidé se nejčastěji ptají: Bolí sono žil? Jak dlouho se hojí po laseru? Co si vzít do ordinace? Kdy s hemoroidy k lékaři? Napište svou otázku, nebo některou z těchto." },
+  metlicky: { title: "✨ Metličky – laser / sklerotizace", opener: "Dobrý den, jsem AI asistent ordinace MUDr. Ditla, ne lékař. Metličkové žilky ošetřujeme laserem zvenku nebo pěnovou sklerotizací, bez řezu; jde o kosmetický zákrok, který pojišťovna nehradí. Kde je máte a jak dlouho?" },
+  medikace: { title: "💊 Medikace (připravujeme)", opener: "🚧 Recepty na dálku připravujeme, vystavovat je bude lékař. Zatím se prosím obraťte na svého praktického lékaře. S ostatním rád pomůžu – napište, na co se chcete zeptat." },
 };
 const TOPIC_RE = /^TOPIC_([A-Z]+)$/;
 
@@ -428,7 +428,7 @@ async function sendTopicMenu(psid) {
 async function setupMessengerProfile() {
   const parts = {
     get_started: { get_started: { payload: "TOPIC_MENU" } },
-    greeting: { greeting: [{ locale: "default", text: "Dobrý den! Jsem AI asistent, kterého trénoval MUDr. Pavel Ditl. Vyberte, s čím přicházíte, nebo rovnou napište." }] },
+    greeting: { greeting: [{ locale: "default", text: "Dobrý den! Jsem AI asistent ordinace MUDr. Pavla Ditla, ne lékař. Vyberte, s čím přicházíte, nebo rovnou napište." }] },
     ice_breakers: { ice_breakers: [{ locale: "default", call_to_actions: [
       { question: TEMATA.poradna.title,  payload: "TOPIC_PORADNA" },
       { question: TEMATA.ordinace.title, payload: "TOPIC_ORDINACE" },
@@ -521,16 +521,16 @@ const ROZCESTNIK_HTML = `<!doctype html><html lang="cs"><head><meta charset="utf
 <style>body{margin:0;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:#0e2a47;color:#f5f7fa}main{max-width:720px;margin:0 auto;padding:32px 20px}h1{font-size:26px;margin:0 0 6px}p.l{color:#aabed2;margin:0 0 24px}
 .g{display:grid;grid-template-columns:1fr 1fr;gap:14px}a.t{display:block;background:#163a60;border-left:8px solid #58c4b4;border-radius:14px;padding:18px;color:#f5f7fa;text-decoration:none}a.t b{display:block;font-size:20px;margin-bottom:6px}a.t span{color:#aabed2;font-size:14px}a.t.uc{opacity:.6;border-left-color:#aabed2}
 small{display:block;color:#aabed2;margin-top:24px}@media(max-width:520px){.g{grid-template-columns:1fr}}</style></head><body><main>
-<h1>Pavel Ditl MD · AI poradna</h1><p class="l">Vyberte, s čím přicházíte. Otevře se Messenger a odpoví AI, kterou trénoval MUDr. Ditl.</p>
+<h1>Pavel Ditl MD · AI poradna</h1><p class="l">Vyberte, s čím přicházíte. Otevře se Messenger a odpoví AI asistent ordinace MUDr. Ditla.</p>
 <div class="g">
-<a class="t" href="${MME}?ref=poradna"><b>🩺 Poradna</b><span>Mám zdravotní dotaz – žíly, hemoroidy, kýla, hojení…</span></a>
-<a class="t" href="${MME}?ref=ordinace"><b>📅 Ordinace</b><span>Chci se objednat: pondělí Bulovka, čtvrtek Neratovice</span></a>
+<a class="t" href="${MME}?ref=poradna"><b>🩺 Poradna</b><span>Obecné rady – co u žil, hemoroidů a kýly pomáhá a kdy k lékaři</span></a>
+<a class="t" href="${MME}?ref=ordinace"><b>📅 Ordinace</b><span>Zvažuji operaci nebo jdu na kontrolu po ní: pondělí Bulovka, čtvrtek Neratovice</span></a>
 <a class="t" href="${MME}?ref=operace"><b>🔪 Operace</b><span>Co mě čeká, příprava, laser, návrat do práce</span></a>
 <a class="t" href="${MME}?ref=metlicky"><b>✨ Metličky</b><span>Metličkové žilky – laser zvenku nebo pěnová sklerotizace</span></a>
 <a class="t" href="${MME}?ref=faq"><b>❓ Časté dotazy</b><span>Kdy k lékaři, bolí sono, co si vzít s sebou</span></a>
 <a class="t uc" href="${MME}?ref=medikace"><b>💊 Medikace</b><span>🚧 Připravujeme</span></a>
 </div>
-<small>Jsem AI – odpovědi jsou informační a nenahrazují vyšetření. Při akutních potížích volejte 155. · <a href="/soukromi" style="color:#58c4b4">Ochrana soukromí</a></small>
+<small>Jsem AI asistent, ne lékař – odpovědi jsou obecné informace a nenahrazují vyšetření. Při akutních potížích volejte 155. · <a href="/soukromi" style="color:#58c4b4">Ochrana soukromí</a></small>
 </main></body></html>`;
 
 function readRaw(req) {

@@ -124,10 +124,10 @@ module.exports = function (ctx) {
     const zdroj = /messenger/i.test(hlava) ? "messenger" : /hlasov/i.test(hlava) ? "hovor" : /web/i.test(hlava) ? "web" : "jine";
     return {
       zdroj, psid, hlava,
-      jmeno: vem("jméno", "jmeno"), telefon: vem("telefon"), vek: vem("věk", "vek"), diagnoza: vem("diagnóza", "diagnoza"),
+      jmeno: vem("jméno", "jmeno"), telefon: vem("telefon"), vek: vem("věk", "vek"), diagnoza: vem("potvrzeno lékařem", "potvrzeno lekarem", "diagnóza", "diagnoza"),
       doporuceni: vem("doporučení ai", "doporuceni ai"), triage: vem("triage"), potiz: vem("hlavní potíž", "hlavni potiz", "potíž"), trvani: vem("trvání", "trvani"),
       varovne: vem("varovné příznaky", "varovne priznaky"), probehlo: vem("už proběhlo", "uz probehlo"), den: vem("preferovaný den", "preferovany den"), poznamka: vem("poznámka", "poznamka"),
-      pozadavek: vem("požadavek", "pozadavek"),
+      pozadavek: vem("požadavek", "pozadavek"), oblast: vem("oblast"), dotaznik: vem("dotazník", "dotaznik"),
     };
   }
   /* vstup z ulozZpravu: zpráva [OBJEDNANI] pro Organizera → objednávka + navržený termín + potvrzení přijetí */
@@ -157,7 +157,7 @@ module.exports = function (ctx) {
     }
     /* hlášení jen Organizerovi — Fable je finance, ordinaci nevede */
     const kam = [organizer].filter(Boolean);
-    for (const a of kam) systemovaZprava(a.id, "Ordinace", `📋 Nová objednávka (${p.zdroj}): ${p.jmeno || "?"}${p.vek ? `, ${p.vek}` : ""} — ${p.potiz || p.diagnoza || "?"}${p.triage ? ` · triage ${p.triage}` : ""}. ${navrh.length ? `Navržen ${hezky(navrh[0].kdy)} (${navrh[0].misto}).` : "Žádný volný termín — vyber ručně."} Potvrď v záložce 🩺 Ordinace.`);
+    for (const a of kam) systemovaZprava(a.id, "Ordinace", `📋 Nová objednávka (${p.zdroj}): ${p.jmeno || "?"}${p.vek ? `, ${p.vek}` : ""} — ${[p.pozadavek, p.potiz, p.diagnoza].filter(Boolean).join(" · ") || "?"}${p.triage ? ` · triage ${p.triage}` : ""}. ${navrh.length ? `Navržen ${hezky(navrh[0].kdy)} (${navrh[0].misto}).` : "Žádný volný termín — vyber ručně."} Potvrď v záložce 🩺 Ordinace.`);
     return obj;
   }
   function zpracujHovor(msg) {
@@ -244,7 +244,7 @@ module.exports = function (ctx) {
     if (dnes.length) { r.push(`\nDnes ${dnes.length} termínů:`); for (const t of dnes) r.push(`  ${praha(new Date(t.kdy)).cas} ${t.pacient.jmeno || "?"}${t.pacient.telefon ? " (" + t.pacient.telefon + ")" : ""} — ${t.duvod || "?"} [${t.stav}]`); }
     else r.push(`\nDnes žádný termín.`);
     if (zitra.length) r.push(`Zítra ${zitra.length} termínů (${zitra.map(t => praha(new Date(t.kdy)).cas).join(", ")}).`);
-    if (ceka.length) { r.push(`\n⏳ Čeká na tvoje potvrzení (${ceka.length}):`); for (const x of ceka.slice(0, 10)) { const t = x.terminId ? o.terminy.find(y => y.id === x.terminId) : null; r.push(`  ${x.jmeno || "?"} (${x.zdroj}${x.triage ? ", " + x.triage : ""}) — ${x.potiz || x.diagnoza || "?"} → ${t ? "navržen " + hezky(t.kdy) : "bez termínu"}`); } }
+    if (ceka.length) { r.push(`\n⏳ Čeká na tvoje potvrzení (${ceka.length}):`); for (const x of ceka.slice(0, 10)) { const t = x.terminId ? o.terminy.find(y => y.id === x.terminId) : null; r.push(`  ${x.jmeno || "?"} (${x.zdroj}${x.triage ? ", " + x.triage : ""}) — ${[x.potiz, x.diagnoza].filter(Boolean).join(" · ") || "?"} → ${t ? "navržen " + hezky(t.kdy) : "bez termínu"}`); } }
     if (hovory.length) { r.push(`\n📞 Hovory z poradny za 24 h: ${hovory.length}`); for (const h of hovory.slice(-5)) r.push(`  ${praha(new Date(h.kdy)).cas} ${h.text.slice(0, 160)}`); }
     const bo = bezOdpovedi.filter(x => x.n); if (bo.length) r.push(`\n✉ Bez odpovědi: ${bo.map(x => `${x.a.card.name} ${x.n}`).join(", ")}`);
     if (extra) r.push(`\n${extra}`);
