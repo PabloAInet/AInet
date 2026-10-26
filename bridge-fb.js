@@ -188,19 +188,20 @@ async function fbTyping(psid) {
   } catch {}
 }
 
-async function askModel(psid, text) {
+async function askModel(psid, text, varovani = false) {
   const now = Date.now();
   let c = chats.get(psid);
   if (!c || now - c.t > CHAT_TTL) c = { turns: [], t: now };
   c.n = (c.n || 0) + 1;                       // kolo rozhovoru (odpovědi AI od začátku tématu)
   c.q = (c.q || 0) + 1; if (OBJEDNAT.test(text)) c.objednavani = true; // otázky pacienta (pro placení)
   const KOLA = Number(process.env.MAX_KOLA || ZDARMA) * (jeZaplaceno(psid) ? 2 : 1);
-  const hint = c.n < KOLA ? `[kolo ${c.n}/${KOLA}]` : c.n === KOLA ? `[kolo ${KOLA}/${KOLA} – uzavři: závěr + objednání nebo rada]` : `[po uzávěru – odpověz stručně, nabídni objednání nebo nové téma]`;
+  const hint = c.n < KOLA ? `[kolo ${c.n}/${KOLA}]` : c.n === KOLA ? `[kolo ${KOLA}/${KOLA} – poslední kolo: nabídni další cestu (objednání, když zvažuje operaci nebo jde na kontrolu po ní), zdravotní stav nehodnoť]` : `[po uzávěru – odpověz stručně, nabídni objednání nebo nové téma]`;
   const posledniZdarma = LIMIT && !jeZaplaceno(psid) && !c.objednavani && c.q === ZDARMA;
   const nabidkaPlacene = PAYWALL ? `; pak jednou větou řekni, že pokračovat lze v placené konzultaci (${PLACENA_POPIS}) – odkaz na platbu pošle systém hned po této odpovědi` : `; pak jednou větou řekni, že připravujeme placenou konzultaci (${PLACENA_POPIS})`;
   /* zkušební provoz: o přechodu do placené konzultace informuje systém hned po této odpovědi, model ji jen uzavře */
-  const posledniHint = ZKUSEBNI ? "[poslední bezplatná odpověď – odpověz, shrň předběžný závěr a nabídni objednání; o pokračování v placené konzultaci pacientovi napíše systém hned po této odpovědi, sám to nezmiňuj]" : `[poslední bezplatná odpověď – shrň, co zatím víš, řekni předběžný závěr a nabídni objednání${nabidkaPlacene}; neptej se dál]`;
-  c.turns.push({ role: "user", content: `${text}\n\n${posledniZdarma ? posledniHint : hint}` });
+  const posledniHint = ZKUSEBNI ? "[poslední bezplatná odpověď – odpověz, stručně shrň obecně, o čem byla řeč, a nabídni další cestu (objednání, když zvažuje operaci nebo jde na kontrolu po ní); zdravotní stav nehodnoť; o pokračování v placené konzultaci pacientovi napíše systém hned po této odpovědi, sám to nezmiňuj]" : `[poslední bezplatná odpověď – stručně shrň obecně, o čem byla řeč, a nabídni další cestu (objednání, když zvažuje operaci nebo jde na kontrolu po ní)${nabidkaPlacene}; zdravotní stav nehodnoť a neptej se dál]`;
+  /* varovani: most už pacientovi poslal pevnou větu o 155 (VETA_155) – model ji nemá opakovat */
+  c.turns.push({ role: "user", content: `${text}\n\n${posledniZdarma ? posledniHint : hint}${varovani ? "\n[systém pacientovi právě poslal pevnou větu o 155 – neopakuj ji a jeho stav dál nehodnoť]" : ""}` });
   if (c.turns.length > CHAT_MAX) c.turns = c.turns.slice(-CHAT_MAX);
   const placena = jeZaplaceno(psid);
   const { text: full } = await lit.askWithTools({
@@ -221,7 +222,10 @@ const TEST_ZAPLACENO = new Set((process.env.TEST_ZAPLACENO || "").split(",").map
 const jeZaplaceno = (id) => TEST_ZAPLACENO.has(String(id)) || (zaplaceno.get(String(id)) || 0) > Date.now();
 function odemknout(id, hodin = PLATBA_PLATNOST_H) { zaplaceno.set(String(id), Date.now() + hodin * 3600e3); log(`platba ✓ ${id} na ${Math.round(hodin)} h`); }
 const platebniOdkaz = (id) => PLATBA_URL + (PLATBA_URL.includes("?") ? "&" : "?") + "client_reference_id=" + encodeURIComponent(id);
-const CERVENE = /(dušn|nemůžu dýchat|nemohu dýchat|bolest na hrudi|tlak na hrudi|černá stolice|černou stolici|silné krvácení|silně krvácí|hodně krve|bezvědom|omdlel|zmaten|náhle otekl|zmodral|horečk)/i;
+const CERVENE = /(dušn|nemůžu dýchat|nemohu dýchat|bolest na hrudi|tlak na hrudi|černá stolice|černou stolici|silné krvácení|silně krvácí|hodně krve|bezvědom|omdlel|zmaten|náhl\S*(?:\s+\S+){0,2}\s+ot[eo]k|ot[eo]k\S*(?:\s+\S+){0,2}\s+náhl|zmodral|horečk)/i;
+/* pevná věta u varovných příznaků – stejné znění jako v fb-instrukce.js (VAROVNÉ PŘÍZNAKY).
+   Posílá se hned a u všech konverzací; rozhovor pak pokračuje, takže planý poplach („horečku nemám“) odpověď nezablokuje. */
+const VETA_155 = "Tohle může být akutní stav. Volejte prosím hned 155 nebo jeďte na pohotovost. Na odpověď z chatu nečekejte.";
 const OBJEDNAT = /objedn|termín|ordinac/i;
 /* jak placenou verzi popisujeme pacientům – všude stejně (Messenger, chat na webu, hovor) */
 const PLACENA_POPIS = "podrobnější a odbornější odpovědi, fakta ověřená v lékařských databázích (PubMed)";
@@ -229,13 +233,13 @@ const PLATNOST_TEXT = PLATBA_PLATNOST_H % 24 === 0 ? (PLATBA_PLATNOST_H === 24 ?
 /* doplněk systémového promptu pro zaplacenou konzultaci (má přednost před limitem délky a zákazem citací) */
 const PLACENA_DODATEK = `
 
-PLACENÁ KONZULTACE (tato pravidla mají přednost před pravidly výše)
-- Pacient si zaplatil podrobnější konzultaci. Odpovídej podrobněji a odborněji: klidně 80–180 slov, vysvětli důvody, možnosti léčby, jejich výhody a rizika a co se dá čekat. Pořád srozumitelně, česky, latinu hned vysvětli.
+PLACENÁ KONZULTACE (tato pravidla mají přednost před délkou odpovědi a zákazem citací výše; ostatní pravidla platí)
+- Pacient si zaplatil podrobnější konzultaci. Odpovídej podrobněji a odborněji: klidně 80–180 slov, vysvětli obecně, jak se daná potíž léčí, jaké jsou možnosti, jejich výhody a rizika a co se obvykle dá čekat. Pořád srozumitelně, česky, latinu hned vysvětli.
 - U konkrétních údajů (úspěšnost a návrat potíží u metod, doba hojení, bolest, komplikace, srovnání metod) nejdřív použij nástroj hledej_literaturu a odpověď opři o nalezené studie. Zdroj uveď stručně na konci (např. „Zdroj: Barone et al., Colorectal Disease 2026“), PMID neuváděj.
 - Hledej přednostně nejnovější přehledy a metaanalýzy (typ "prehledy", od_roku zhruba posledních 5 let); starší práce jen doplňkově. Když se studie rozcházejí, řekni to a uveď, co ukazuje ta nejnovější.
 - Když literatura nic nenajde, řekni to a odpověz z obecných znalostí.
 - Piš prostý text bez formátování – žádné hvězdičky, nadpisy ani tučné písmo (Messenger ani web je nezobrazí).
-- Červené praporky a pravidla o diagnóze, lécích a objednání platí beze změny; konzultace pořád nenahrazuje vyšetření.`;
+- Varovné příznaky, část CO NEŘÍKÁŠ a pravidla o lécích a objednání platí beze změny: i tady podáváš obecné informace, stav konkrétního člověka posoudí lékař při vyšetření.`;
 const PLACENA_ZKUSEBNI_DODATEK = `
 - ZKUŠEBNÍ PROVOZ: pacient nic neplatil – placenou konzultaci má teď ve zkušebním provozu zdarma, později bude placená. Za platbu neděkuj a o placení nemluv, dokud se nezeptá; když se zeptá, řekni právě tohle.`;
 /* text pro pacienta při přechodu do placené konzultace ve zkušebním provozu (Messenger i chat na webu) */
@@ -297,37 +301,41 @@ function hnedPlatba(id) {
   const c = chats.get(id);
   return PAYWALL && LIMIT && !jeZaplaceno(id) && c && !c.objednavani && c.q === ZDARMA;
 }
-/* vrací true, když zprávu vyřídil paywall (model se nevolá) */
-async function paywallKontrola(psid, text) {
+/* vrací true, když zprávu vyřídil paywall (model se nevolá).
+   tichy = pacient právě dostal větu o 155 – nabídky placení a zkušebního provozu se mu teď neposílají */
+async function paywallKontrola(psid, text, tichy = false) {
   if (!LIMIT || jeZaplaceno(psid)) return false;
-  if (CERVENE.test(text)) { await fbSend(psid, "To zní vážně – volejte prosím hned 155 nebo jeďte na pohotovost. Na odpověď z chatu nečekejte."); log(`červený praporek → FB ${psid}`); return true; }
   const c = chats.get(psid);
   const q = c && Date.now() - c.t < CHAT_TTL ? (c.q || 0) : 0;
   if (q < ZDARMA || OBJEDNAT.test(text) || (c && c.objednavani)) return false;
   /* zkušební provoz (např. po vypršení odemknutí): odemknout znovu, oznámit a odpovědět */
-  if (ZKUSEBNI) { odemknout(psid); await fbSend(psid, zkusebniText()); log(`zkušební placená → FB ${psid}`); return false; }
-  await fbSend(psid, paywallText(psid)); log(`paywall → FB ${psid}`);
+  if (ZKUSEBNI) { odemknout(psid); if (!tichy) await fbSend(psid, zkusebniText()); log(`zkušební placená → FB ${psid}`); return false; }
+  if (!tichy) { await fbSend(psid, paywallText(psid)); log(`paywall → FB ${psid}`); }
   return true;
 }
 
 /* Odpověď pacientovi + objednávka Pavlovi (přes Fabla na AInetu) */
 const HARD_CAP = Number(process.env.MAX_ZPRAV || 10);
 async function poradna(psid, text) {
+  /* varovný příznak: pevná věta jako první, u všech konverzací (i zaplacených, zkušebních a po limitu zpráv) */
+  const varovani = CERVENE.test(text);
+  if (varovani) { await fbSend(psid, VETA_155); log(`varovný příznak → FB ${psid}`); }
   const c0 = chats.get(psid);
   if (c0 && (c0.n || 0) >= (jeZaplaceno(psid) ? HARD_CAP * 3 : HARD_CAP) && Date.now() - c0.t < CHAT_TTL) {
+    if (varovani) return;
     const msg = "Tady bych to pro dnešek uzavřel – víc už zvládne jen vyšetření. Napište „objednat“ a domluvíme termín, nebo se ozvěte zítra s novým dotazem. Při akutních potížích volejte 155.";
     await fbSend(psid, msg); log(`limit zpráv → FB ${psid}`); return;
   }
-  if (await paywallKontrola(psid, text)) return;
+  if (await paywallKontrola(psid, text, varovani)) return;
   await fbTyping(psid);
-  const full = await askModel(psid, text);
+  const full = await askModel(psid, text, varovani);
   const hit = OBJ.exec(full);
   const reply = full.replace(OBJ, "").trim() || "Rozumím. Můžete mi to prosím napsat ještě jednou?";
   await fbSend(psid, reply);
   log(`poradna → FB ${psid}: ${reply.slice(0, 60)}`);
   await sendVoiceIfShort(psid, reply);
-  if (!hit && hnedPlatba(psid)) { try { await fbSend(psid, paywallText(psid)); log(`platební odkaz po poslední bezplatné → FB ${psid}`); } catch (e) { log(`platební odkaz: ${e.message}`); } }
-  if (!hit && hnedZkusebni(psid)) { odemknout(psid); try { await fbSend(psid, zkusebniText()); log(`zkušební placená po poslední bezplatné → FB ${psid}`); } catch (e) { log(`zkušební placená: ${e.message}`); } }
+  if (!hit && !varovani && hnedPlatba(psid)) { try { await fbSend(psid, paywallText(psid)); log(`platební odkaz po poslední bezplatné → FB ${psid}`); } catch (e) { log(`platební odkaz: ${e.message}`); } }
+  if (!hit && !varovani && hnedZkusebni(psid)) { odemknout(psid); try { await fbSend(psid, zkusebniText()); log(`zkušební placená po poslední bezplatné → FB ${psid}`); } catch (e) { log(`zkušební placená: ${e.message}`); } }
   if (hit) {
     const souhrn = `OBJEDNÁNÍ z Messengeru (psid ${psid}, ${new Date().toISOString().slice(0, 16)})\n${hit[1].trim()}`;
     log(`objednávka: ${hit[1].trim().split("\n").slice(0, 2).join(" | ")}`);
@@ -347,20 +355,25 @@ function webPrilisRychle(ip) {
 async function poradnaWeb(id, text) {
   const key = "web_" + id;
   if (/^\s*smazat\s*$/i.test(text)) { chats.delete(key); return { odpoved: "Vaše konverzace byla z paměti poradny smazána." }; }
+  /* varovný příznak: pevná věta jako první, u všech konverzací (i zaplacených, zkušebních a po limitu zpráv) */
+  const varovani = CERVENE.test(text);
+  const pred = varovani ? VETA_155 + "\n\n" : "";
   const c0 = chats.get(key);
   if (c0 && (c0.n || 0) >= (jeZaplaceno(key) ? HARD_CAP * 3 : HARD_CAP) && Date.now() - c0.t < CHAT_TTL)
-    return { odpoved: "Tady bych to pro dnešek uzavřel – víc už zvládne jen vyšetření. Napište „objednat“ a domluvíme termín, nebo se ozvěte zítra s novým dotazem. Při akutních potížích volejte 155." };
+    return { odpoved: varovani ? VETA_155 : "Tady bych to pro dnešek uzavřel – víc už zvládne jen vyšetření. Napište „objednat“ a domluvíme termín, nebo se ozvěte zítra s novým dotazem. Při akutních potížích volejte 155." };
   let uvod = "";
   if (LIMIT && !jeZaplaceno(key)) {
-    if (CERVENE.test(text)) return { odpoved: "To zní vážně – volejte prosím hned 155 nebo jeďte na pohotovost. Na odpověď z chatu nečekejte." };
     const q = c0 && Date.now() - c0.t < CHAT_TTL ? (c0.q || 0) : 0;
     if (q >= ZDARMA && !OBJEDNAT.test(text) && !(c0 && c0.objednavani)) {
       /* zkušební provoz (např. po vypršení odemknutí): odemknout znovu, oznámit a odpovědět */
-      if (ZKUSEBNI) { odemknout(key); uvod = zkusebniText() + "\n\n"; }
+      if (ZKUSEBNI) { odemknout(key); if (!varovani) uvod = zkusebniText() + "\n\n"; }
+      else if (varovani) return { odpoved: VETA_155 };
       else return { odpoved: paywallText(key), platba: PAYWALL ? platebniOdkaz(key) : null };
     }
   }
-  const full = await askModel(key, text);
+  let full;
+  try { full = await askModel(key, text, varovani); }
+  catch (e) { if (!varovani) throw e; log(`web ${key}: ${e.message} – poslána aspoň věta o 155`); return { odpoved: VETA_155 }; }
   const hit = OBJ.exec(full);
   const odpoved = full.replace(OBJ, "").trim() || "Rozumím. Můžete mi to prosím napsat ještě jednou?";
   log(`web ${key} ← ${text.slice(0, 40)} → ${odpoved.slice(0, 50)}`);
@@ -368,9 +381,9 @@ async function poradnaWeb(id, text) {
     const souhrn = `OBJEDNÁNÍ z webu (${key}, ${new Date().toISOString().slice(0, 16)})\n${hit[1].trim()}`;
     try { await ainetSend(`[OBJEDNANI] ${souhrn}`, OBJEDNAVKY_AGENT); } catch (e) { log(`objednávka z webu → AInet: ${e.message}`); }
   }
-  if (!hit && hnedPlatba(key)) return { odpoved: odpoved + "\n\n" + paywallText(key), platba: platebniOdkaz(key) };
-  if (!hit && hnedZkusebni(key)) { odemknout(key); log(`zkušební placená → web ${key}`); return { odpoved: uvod + odpoved + "\n\n" + zkusebniText(), zkusebni: true }; }
-  return { odpoved: uvod + odpoved };
+  if (!hit && !varovani && hnedPlatba(key)) return { odpoved: odpoved + "\n\n" + paywallText(key), platba: platebniOdkaz(key) };
+  if (!hit && !varovani && hnedZkusebni(key)) { odemknout(key); log(`zkušební placená → web ${key}`); return { odpoved: uvod + odpoved + "\n\n" + zkusebniText(), zkusebni: true }; }
+  return { odpoved: pred + uvod + odpoved };
 }
 
 /* ---------- Poslední „Studie týdne“ z FB stránky (zrcadlení na web) ---------- */
@@ -389,12 +402,12 @@ async function posledniPrispevek() {
 
 /* ---------- Okna (témata): ice breakers + menu v Messengeru + m.me?ref= ---------- */
 const TEMATA = {
-  poradna:  { title: "🩺 Poradna – mám zdravotní dotaz", opener: "Dobrý den, jsem AI asistent, kterého trénoval MUDr. Pavel Ditl. Napište mi, co vás trápí – zeptám se na pár věcí a poradím, co dál. Při akutních potížích volejte 155." },
-  ordinace: { title: "📅 Ordinace – chci se objednat", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Objednám vás na křečové žíly, hemoroidy, pilonidální sinus nebo laparoskopickou operaci. S čím přicházíte?" },
-  operace:  { title: "🔪 Operace – co mě čeká", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Rád vysvětlím, jak operace probíhá, jak se připravit a jak dlouho trvá návrat do práce – včetně laserové metody. Které operace se to týká?" },
-  faq:      { title: "❓ Časté dotazy", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Nejčastěji se lidé ptají: Kdy k lékaři s hemoroidy? Bolí sono žil? Jak dlouho se hojí laser? Co si vzít do ordinace? Napište svou otázku, nebo některou z těchto." },
-  metlicky: { title: "✨ Metličky – laser / sklerotizace", opener: "Dobrý den, jsem AI asistent MUDr. Ditla. Metličkové žilky ošetřujeme laserem zvenku nebo pěnovou sklerotizací, bez řezu. Kde je máte a jak dlouho – a vadí jen vzhled, nebo i pálí?" },
-  medikace: { title: "💊 Medikace (připravujeme)", opener: "🚧 Medikaci připravujeme. Zatím není k dispozici – ozveme se na této stránce, až ji spustíme. S ostatním vám rád pomůžu: napište, co vás trápí." },
+  poradna:  { title: "🩺 Poradna – mám zdravotní dotaz", opener: "Dobrý den, jsem AI asistent ordinace MUDr. Ditla, ne lékař. Poradím obecně – co u žil, hemoroidů nebo kýly obvykle pomáhá a kdy k lékaři. Na co se chcete zeptat? Při akutních potížích volejte 155." },
+  ordinace: { title: "📅 Ordinace – chci se objednat", opener: "Dobrý den, jsem AI asistent ordinace MUDr. Ditla, ne lékař. Jdete kvůli operaci, na kontrolu po operaci, nebo se chcete poradit?" },
+  operace:  { title: "🔪 Operace – co mě čeká", opener: "Dobrý den, jsem AI asistent ordinace MUDr. Ditla, ne lékař. Rád vysvětlím, jak operace probíhá – laser i klasická metoda, příprava a návrat do práce. Které operace se to týká?" },
+  faq:      { title: "❓ Časté dotazy", opener: "Dobrý den, jsem AI asistent ordinace MUDr. Ditla, ne lékař. Lidé se nejčastěji ptají: Bolí sono žil? Jak dlouho se hojí po laseru? Co si vzít do ordinace? Kdy s hemoroidy k lékaři? Napište svou otázku, nebo některou z těchto." },
+  metlicky: { title: "✨ Metličky – laser / sklerotizace", opener: "Dobrý den, jsem AI asistent ordinace MUDr. Ditla, ne lékař. Metličkové žilky ošetřujeme laserem zvenku nebo pěnovou sklerotizací, bez řezu; jde o kosmetický zákrok, který pojišťovna nehradí. Kde je máte a jak dlouho?" },
+  medikace: { title: "💊 Medikace (připravujeme)", opener: "🚧 Recepty na dálku připravujeme, vystavovat je bude lékař. Zatím se prosím obraťte na svého praktického lékaře. S ostatním rád pomůžu – napište, na co se chcete zeptat." },
 };
 const TOPIC_RE = /^TOPIC_([A-Z]+)$/;
 
@@ -428,7 +441,7 @@ async function sendTopicMenu(psid) {
 async function setupMessengerProfile() {
   const parts = {
     get_started: { get_started: { payload: "TOPIC_MENU" } },
-    greeting: { greeting: [{ locale: "default", text: "Dobrý den! Jsem AI asistent, kterého trénoval MUDr. Pavel Ditl. Vyberte, s čím přicházíte, nebo rovnou napište." }] },
+    greeting: { greeting: [{ locale: "default", text: "Dobrý den! Jsem AI asistent ordinace MUDr. Pavla Ditla, ne lékař. Vyberte, s čím přicházíte, nebo rovnou napište." }] },
     ice_breakers: { ice_breakers: [{ locale: "default", call_to_actions: [
       { question: TEMATA.poradna.title,  payload: "TOPIC_PORADNA" },
       { question: TEMATA.ordinace.title, payload: "TOPIC_ORDINACE" },
@@ -521,16 +534,16 @@ const ROZCESTNIK_HTML = `<!doctype html><html lang="cs"><head><meta charset="utf
 <style>body{margin:0;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:#0e2a47;color:#f5f7fa}main{max-width:720px;margin:0 auto;padding:32px 20px}h1{font-size:26px;margin:0 0 6px}p.l{color:#aabed2;margin:0 0 24px}
 .g{display:grid;grid-template-columns:1fr 1fr;gap:14px}a.t{display:block;background:#163a60;border-left:8px solid #58c4b4;border-radius:14px;padding:18px;color:#f5f7fa;text-decoration:none}a.t b{display:block;font-size:20px;margin-bottom:6px}a.t span{color:#aabed2;font-size:14px}a.t.uc{opacity:.6;border-left-color:#aabed2}
 small{display:block;color:#aabed2;margin-top:24px}@media(max-width:520px){.g{grid-template-columns:1fr}}</style></head><body><main>
-<h1>Pavel Ditl MD · AI poradna</h1><p class="l">Vyberte, s čím přicházíte. Otevře se Messenger a odpoví AI, kterou trénoval MUDr. Ditl.</p>
+<h1>Pavel Ditl MD · AI poradna</h1><p class="l">Vyberte, s čím přicházíte. Otevře se Messenger a odpoví AI asistent ordinace MUDr. Ditla.</p>
 <div class="g">
-<a class="t" href="${MME}?ref=poradna"><b>🩺 Poradna</b><span>Mám zdravotní dotaz – žíly, hemoroidy, kýla, hojení…</span></a>
-<a class="t" href="${MME}?ref=ordinace"><b>📅 Ordinace</b><span>Chci se objednat: pondělí Bulovka, čtvrtek Neratovice</span></a>
+<a class="t" href="${MME}?ref=poradna"><b>🩺 Poradna</b><span>Obecné rady – co u žil, hemoroidů a kýly pomáhá a kdy k lékaři</span></a>
+<a class="t" href="${MME}?ref=ordinace"><b>📅 Ordinace</b><span>Zvažuji operaci nebo jdu na kontrolu po ní: pondělí Bulovka, čtvrtek Neratovice</span></a>
 <a class="t" href="${MME}?ref=operace"><b>🔪 Operace</b><span>Co mě čeká, příprava, laser, návrat do práce</span></a>
 <a class="t" href="${MME}?ref=metlicky"><b>✨ Metličky</b><span>Metličkové žilky – laser zvenku nebo pěnová sklerotizace</span></a>
 <a class="t" href="${MME}?ref=faq"><b>❓ Časté dotazy</b><span>Kdy k lékaři, bolí sono, co si vzít s sebou</span></a>
 <a class="t uc" href="${MME}?ref=medikace"><b>💊 Medikace</b><span>🚧 Připravujeme</span></a>
 </div>
-<small>Jsem AI – odpovědi jsou informační a nenahrazují vyšetření. Při akutních potížích volejte 155. · <a href="/soukromi" style="color:#58c4b4">Ochrana soukromí</a></small>
+<small>Jsem AI asistent, ne lékař – odpovědi jsou obecné informace a nenahrazují vyšetření. Při akutních potížích volejte 155. · <a href="/soukromi" style="color:#58c4b4">Ochrana soukromí</a></small>
 </main></body></html>`;
 
 function readRaw(req) {

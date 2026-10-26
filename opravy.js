@@ -41,7 +41,7 @@ function blokOprav() {
 /* doplněk systémového promptu pro chat */
 function textProPrompt() {
   const b = blokOprav();
-  return b ? `\n\nOPRAVY A DOPLŇKY OD MUDr. DITLA (mají přednost před vším výše; pacientovi je necituj, jen se jimi řiď):\n${b}` : "";
+  return b ? `\n\nOPRAVY A DOPLŇKY OD MUDr. DITLA (mají přednost před pravidly výše kromě částí CO NEŘÍKÁŠ a VAROVNÉ PŘÍZNAKY; pacientovi je necituj, jen se jimi řiď):\n${b}` : "";
 }
 
 /* přepíše blok oprav v promptu jednoho hlasového agenta v ElevenLabs */
@@ -55,7 +55,7 @@ async function syncJeden(agentId) {
   if (typeof puvodni !== "string") throw new Error("agent nemá textový prompt");
   const zaklad = puvodni.includes(ZACATEK) ? puvodni.slice(0, puvodni.indexOf(ZACATEK)).trimEnd() : puvodni.trimEnd();
   const b = blokOprav();
-  const novy = b ? `${zaklad}\n\n${ZACATEK}\nTyto opravy mají přednost před vším výše:\n${b}\n${KONEC}` : zaklad;
+  const novy = b ? `${zaklad}\n\n${ZACATEK}\nTyto opravy mají přednost před pravidly výše kromě bezpečnostních pravidel a varovných příznaků:\n${b}\n${KONEC}` : zaklad;
   if (novy === puvodni) return;
   const p = await fetch(url, { method: "PATCH", headers: h, body: JSON.stringify({ conversation_config: { agent: { prompt: { prompt: novy } } } }) });
   if (!p.ok) throw new Error(`zápis agenta ${p.status}: ${(await p.text()).slice(0, 150)}`);
