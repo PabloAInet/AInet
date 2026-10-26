@@ -99,7 +99,7 @@ const dalsiDen = (den) => { const d = new Date(); do { d.setUTCDate(d.getUTCDate
   ok(tl.data.result && tl.data.result.tools.some(t => t.name === "ordinace_prehled"), "tools/list obsahuje ordinace_prehled");
 
   console.log("\n1c) Objednávka ve tvaru tří cest (Potvrzeno lékařem, Dotazník, bez triáže)");
-  await get(`/api/lite/send?token=${most.tok}&to=Organizer&text=${encodeURIComponent(objednavka("Messenger (psid 777888, 2026-10-26T09:00)", { "Požadavek": "operace", "Jméno": "Karel Nový", "Telefon": "602333444", "Věk": "46", "Oblast": "tříslo", "Potvrzeno lékařem": "bez potvrzené diagnózy", "Hlavní potíž": "boule v třísle", "Trvání": "3 měsíce", "Dotazník": "1) praktik říkal kýla, zprávu nemá; 2) omezuje při zvedání; 3) v břiše neoperován", "Varovné příznaky": "žádné", "Už proběhlo": "nic", "Preferovaný den": "nejbližší volný", "Poznámka": "-" }))}`);
+  await get(`/api/lite/send?token=${most.tok}&to=Organizer&text=${encodeURIComponent(objednavka("Messenger (psid 777888, 2026-10-26T09:00)", { "Požadavek": "operace", "Jméno": "Karel Nový", "Telefon": "602333444", "Věk": "46", "Oblast": "tříslo", "Potvrzeno lékařem": "bez potvrzené diagnózy", "Hlavní potíž": "boule v třísle", "Trvání": "3 měsíce", "Dotazník": "1) praktik říkal kýla, zprávu nemá; 2) omezuje při zvedání; 3) v břiše neoperován", "Varovné příznaky": "ne", "Už proběhlo": "nic", "Preferovaný den": "nejbližší volný", "Poznámka": "-" }))}`);
   await new Promise(r => setTimeout(r, 300));
   const kalC = (await get("/api/ordinace", { "X-Owner-Token": org.ownerToken })).data;
   const karel = (kalC.objednavky || []).find(x => x.jmeno === "Karel Nový");

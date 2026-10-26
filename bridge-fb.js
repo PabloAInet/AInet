@@ -188,7 +188,7 @@ async function fbTyping(psid) {
   } catch {}
 }
 
-async function askModel(psid, text) {
+async function askModel(psid, text, varovani = false) {
   const now = Date.now();
   let c = chats.get(psid);
   if (!c || now - c.t > CHAT_TTL) c = { turns: [], t: now };
@@ -200,7 +200,8 @@ async function askModel(psid, text) {
   const nabidkaPlacene = PAYWALL ? `; pak jednou větou řekni, že pokračovat lze v placené konzultaci (${PLACENA_POPIS}) – odkaz na platbu pošle systém hned po této odpovědi` : `; pak jednou větou řekni, že připravujeme placenou konzultaci (${PLACENA_POPIS})`;
   /* zkušební provoz: o přechodu do placené konzultace informuje systém hned po této odpovědi, model ji jen uzavře */
   const posledniHint = ZKUSEBNI ? "[poslední bezplatná odpověď – odpověz, stručně shrň obecně, o čem byla řeč, a nabídni další cestu (objednání, když zvažuje operaci nebo jde na kontrolu po ní); zdravotní stav nehodnoť; o pokračování v placené konzultaci pacientovi napíše systém hned po této odpovědi, sám to nezmiňuj]" : `[poslední bezplatná odpověď – stručně shrň obecně, o čem byla řeč, a nabídni další cestu (objednání, když zvažuje operaci nebo jde na kontrolu po ní)${nabidkaPlacene}; zdravotní stav nehodnoť a neptej se dál]`;
-  c.turns.push({ role: "user", content: `${text}\n\n${posledniZdarma ? posledniHint : hint}` });
+  /* varovani: most už pacientovi poslal pevnou větu o 155 (VETA_155) – model ji nemá opakovat */
+  c.turns.push({ role: "user", content: `${text}\n\n${posledniZdarma ? posledniHint : hint}${varovani ? "\n[systém pacientovi právě poslal pevnou větu o 155 – neopakuj ji a jeho stav dál nehodnoť]" : ""}` });
   if (c.turns.length > CHAT_MAX) c.turns = c.turns.slice(-CHAT_MAX);
   const placena = jeZaplaceno(psid);
   const { text: full } = await lit.askWithTools({
@@ -221,7 +222,10 @@ const TEST_ZAPLACENO = new Set((process.env.TEST_ZAPLACENO || "").split(",").map
 const jeZaplaceno = (id) => TEST_ZAPLACENO.has(String(id)) || (zaplaceno.get(String(id)) || 0) > Date.now();
 function odemknout(id, hodin = PLATBA_PLATNOST_H) { zaplaceno.set(String(id), Date.now() + hodin * 3600e3); log(`platba ✓ ${id} na ${Math.round(hodin)} h`); }
 const platebniOdkaz = (id) => PLATBA_URL + (PLATBA_URL.includes("?") ? "&" : "?") + "client_reference_id=" + encodeURIComponent(id);
-const CERVENE = /(dušn|nemůžu dýchat|nemohu dýchat|bolest na hrudi|tlak na hrudi|černá stolice|černou stolici|silné krvácení|silně krvácí|hodně krve|bezvědom|omdlel|zmaten|náhle otekl|zmodral|horečk)/i;
+const CERVENE = /(dušn|nemůžu dýchat|nemohu dýchat|bolest na hrudi|tlak na hrudi|černá stolice|černou stolici|silné krvácení|silně krvácí|hodně krve|bezvědom|omdlel|zmaten|náhl\S*(?:\s+\S+){0,2}\s+ot[eo]k|ot[eo]k\S*(?:\s+\S+){0,2}\s+náhl|zmodral|horečk)/i;
+/* pevná věta u varovných příznaků – stejné znění jako v fb-instrukce.js (VAROVNÉ PŘÍZNAKY).
+   Posílá se hned a u všech konverzací; rozhovor pak pokračuje, takže planý poplach („horečku nemám“) odpověď nezablokuje. */
+const VETA_155 = "Tohle může být akutní stav. Volejte prosím hned 155 nebo jeďte na pohotovost. Na odpověď z chatu nečekejte.";
 const OBJEDNAT = /objedn|termín|ordinac/i;
 /* jak placenou verzi popisujeme pacientům – všude stejně (Messenger, chat na webu, hovor) */
 const PLACENA_POPIS = "podrobnější a odbornější odpovědi, fakta ověřená v lékařských databázích (PubMed)";
@@ -297,37 +301,41 @@ function hnedPlatba(id) {
   const c = chats.get(id);
   return PAYWALL && LIMIT && !jeZaplaceno(id) && c && !c.objednavani && c.q === ZDARMA;
 }
-/* vrací true, když zprávu vyřídil paywall (model se nevolá) */
-async function paywallKontrola(psid, text) {
+/* vrací true, když zprávu vyřídil paywall (model se nevolá).
+   tichy = pacient právě dostal větu o 155 – nabídky placení a zkušebního provozu se mu teď neposílají */
+async function paywallKontrola(psid, text, tichy = false) {
   if (!LIMIT || jeZaplaceno(psid)) return false;
-  if (CERVENE.test(text)) { await fbSend(psid, "To zní vážně – volejte prosím hned 155 nebo jeďte na pohotovost. Na odpověď z chatu nečekejte."); log(`červený praporek → FB ${psid}`); return true; }
   const c = chats.get(psid);
   const q = c && Date.now() - c.t < CHAT_TTL ? (c.q || 0) : 0;
   if (q < ZDARMA || OBJEDNAT.test(text) || (c && c.objednavani)) return false;
   /* zkušební provoz (např. po vypršení odemknutí): odemknout znovu, oznámit a odpovědět */
-  if (ZKUSEBNI) { odemknout(psid); await fbSend(psid, zkusebniText()); log(`zkušební placená → FB ${psid}`); return false; }
-  await fbSend(psid, paywallText(psid)); log(`paywall → FB ${psid}`);
+  if (ZKUSEBNI) { odemknout(psid); if (!tichy) await fbSend(psid, zkusebniText()); log(`zkušební placená → FB ${psid}`); return false; }
+  if (!tichy) { await fbSend(psid, paywallText(psid)); log(`paywall → FB ${psid}`); }
   return true;
 }
 
 /* Odpověď pacientovi + objednávka Pavlovi (přes Fabla na AInetu) */
 const HARD_CAP = Number(process.env.MAX_ZPRAV || 10);
 async function poradna(psid, text) {
+  /* varovný příznak: pevná věta jako první, u všech konverzací (i zaplacených, zkušebních a po limitu zpráv) */
+  const varovani = CERVENE.test(text);
+  if (varovani) { await fbSend(psid, VETA_155); log(`varovný příznak → FB ${psid}`); }
   const c0 = chats.get(psid);
   if (c0 && (c0.n || 0) >= (jeZaplaceno(psid) ? HARD_CAP * 3 : HARD_CAP) && Date.now() - c0.t < CHAT_TTL) {
+    if (varovani) return;
     const msg = "Tady bych to pro dnešek uzavřel – víc už zvládne jen vyšetření. Napište „objednat“ a domluvíme termín, nebo se ozvěte zítra s novým dotazem. Při akutních potížích volejte 155.";
     await fbSend(psid, msg); log(`limit zpráv → FB ${psid}`); return;
   }
-  if (await paywallKontrola(psid, text)) return;
+  if (await paywallKontrola(psid, text, varovani)) return;
   await fbTyping(psid);
-  const full = await askModel(psid, text);
+  const full = await askModel(psid, text, varovani);
   const hit = OBJ.exec(full);
   const reply = full.replace(OBJ, "").trim() || "Rozumím. Můžete mi to prosím napsat ještě jednou?";
   await fbSend(psid, reply);
   log(`poradna → FB ${psid}: ${reply.slice(0, 60)}`);
   await sendVoiceIfShort(psid, reply);
-  if (!hit && hnedPlatba(psid)) { try { await fbSend(psid, paywallText(psid)); log(`platební odkaz po poslední bezplatné → FB ${psid}`); } catch (e) { log(`platební odkaz: ${e.message}`); } }
-  if (!hit && hnedZkusebni(psid)) { odemknout(psid); try { await fbSend(psid, zkusebniText()); log(`zkušební placená po poslední bezplatné → FB ${psid}`); } catch (e) { log(`zkušební placená: ${e.message}`); } }
+  if (!hit && !varovani && hnedPlatba(psid)) { try { await fbSend(psid, paywallText(psid)); log(`platební odkaz po poslední bezplatné → FB ${psid}`); } catch (e) { log(`platební odkaz: ${e.message}`); } }
+  if (!hit && !varovani && hnedZkusebni(psid)) { odemknout(psid); try { await fbSend(psid, zkusebniText()); log(`zkušební placená po poslední bezplatné → FB ${psid}`); } catch (e) { log(`zkušební placená: ${e.message}`); } }
   if (hit) {
     const souhrn = `OBJEDNÁNÍ z Messengeru (psid ${psid}, ${new Date().toISOString().slice(0, 16)})\n${hit[1].trim()}`;
     log(`objednávka: ${hit[1].trim().split("\n").slice(0, 2).join(" | ")}`);
@@ -347,20 +355,25 @@ function webPrilisRychle(ip) {
 async function poradnaWeb(id, text) {
   const key = "web_" + id;
   if (/^\s*smazat\s*$/i.test(text)) { chats.delete(key); return { odpoved: "Vaše konverzace byla z paměti poradny smazána." }; }
+  /* varovný příznak: pevná věta jako první, u všech konverzací (i zaplacených, zkušebních a po limitu zpráv) */
+  const varovani = CERVENE.test(text);
+  const pred = varovani ? VETA_155 + "\n\n" : "";
   const c0 = chats.get(key);
   if (c0 && (c0.n || 0) >= (jeZaplaceno(key) ? HARD_CAP * 3 : HARD_CAP) && Date.now() - c0.t < CHAT_TTL)
-    return { odpoved: "Tady bych to pro dnešek uzavřel – víc už zvládne jen vyšetření. Napište „objednat“ a domluvíme termín, nebo se ozvěte zítra s novým dotazem. Při akutních potížích volejte 155." };
+    return { odpoved: varovani ? VETA_155 : "Tady bych to pro dnešek uzavřel – víc už zvládne jen vyšetření. Napište „objednat“ a domluvíme termín, nebo se ozvěte zítra s novým dotazem. Při akutních potížích volejte 155." };
   let uvod = "";
   if (LIMIT && !jeZaplaceno(key)) {
-    if (CERVENE.test(text)) return { odpoved: "To zní vážně – volejte prosím hned 155 nebo jeďte na pohotovost. Na odpověď z chatu nečekejte." };
     const q = c0 && Date.now() - c0.t < CHAT_TTL ? (c0.q || 0) : 0;
     if (q >= ZDARMA && !OBJEDNAT.test(text) && !(c0 && c0.objednavani)) {
       /* zkušební provoz (např. po vypršení odemknutí): odemknout znovu, oznámit a odpovědět */
-      if (ZKUSEBNI) { odemknout(key); uvod = zkusebniText() + "\n\n"; }
+      if (ZKUSEBNI) { odemknout(key); if (!varovani) uvod = zkusebniText() + "\n\n"; }
+      else if (varovani) return { odpoved: VETA_155 };
       else return { odpoved: paywallText(key), platba: PAYWALL ? platebniOdkaz(key) : null };
     }
   }
-  const full = await askModel(key, text);
+  let full;
+  try { full = await askModel(key, text, varovani); }
+  catch (e) { if (!varovani) throw e; log(`web ${key}: ${e.message} – poslána aspoň věta o 155`); return { odpoved: VETA_155 }; }
   const hit = OBJ.exec(full);
   const odpoved = full.replace(OBJ, "").trim() || "Rozumím. Můžete mi to prosím napsat ještě jednou?";
   log(`web ${key} ← ${text.slice(0, 40)} → ${odpoved.slice(0, 50)}`);
@@ -368,9 +381,9 @@ async function poradnaWeb(id, text) {
     const souhrn = `OBJEDNÁNÍ z webu (${key}, ${new Date().toISOString().slice(0, 16)})\n${hit[1].trim()}`;
     try { await ainetSend(`[OBJEDNANI] ${souhrn}`, OBJEDNAVKY_AGENT); } catch (e) { log(`objednávka z webu → AInet: ${e.message}`); }
   }
-  if (!hit && hnedPlatba(key)) return { odpoved: odpoved + "\n\n" + paywallText(key), platba: platebniOdkaz(key) };
-  if (!hit && hnedZkusebni(key)) { odemknout(key); log(`zkušební placená → web ${key}`); return { odpoved: uvod + odpoved + "\n\n" + zkusebniText(), zkusebni: true }; }
-  return { odpoved: uvod + odpoved };
+  if (!hit && !varovani && hnedPlatba(key)) return { odpoved: odpoved + "\n\n" + paywallText(key), platba: platebniOdkaz(key) };
+  if (!hit && !varovani && hnedZkusebni(key)) { odemknout(key); log(`zkušební placená → web ${key}`); return { odpoved: uvod + odpoved + "\n\n" + zkusebniText(), zkusebni: true }; }
+  return { odpoved: pred + uvod + odpoved };
 }
 
 /* ---------- Poslední „Studie týdne“ z FB stránky (zrcadlení na web) ---------- */

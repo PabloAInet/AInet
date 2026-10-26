@@ -151,7 +151,7 @@ module.exports = function (ctx) {
     if (most) {
       const text = obj.urgentni
         ? (p.psid ? `[FB:${p.psid}] ` : "") + "Vaše obtíže mohou být naléhavé — pokud se stav zhoršuje (náhle oteklá bolestivá noha, dušnost, silné krvácení), volejte prosím 155. Objednávku jsme přijali a ordinace se Vám ozve co nejdříve."
-        : (p.psid ? `[FB:${p.psid}] ` : "") + "Děkujeme, objednávku jsme přijali. Ordinace Vám termín potvrdí do 2 pracovních dnů zprávou nebo SMS.";
+        : (p.psid ? `[FB:${p.psid}] ` : "") + "Děkujeme, objednávku jsme přijali. Ordinace Vám termín potvrdí do 2 pracovních dnů zprávou nebo SMS. Kdyby se potíže do termínu zhoršily, obraťte se na pohotovost.";
       const out = { id: crypto.randomUUID(), from: organizer.id, to: most.id, fromName: organizer.card.name, toName: most.card.name, text, visibility: "private", t: new Date().toISOString() };
       ulozZpravu(out, most, msg.id);
     }
