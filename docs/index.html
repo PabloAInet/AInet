@@ -59,6 +59,18 @@ section{padding:40px 0;border-top:1px solid rgba(255,255,255,.08)}
 .price{display:flex;justify-content:space-between;padding:12px 0;border-top:1px solid rgba(255,255,255,.08)}
 .price:first-child{border-top:0}
 .price span:last-child{color:var(--teal);font-weight:700;white-space:nowrap}
+.ops{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.op{background:var(--navy2);border-radius:16px;padding:18px 20px;border-top:4px solid var(--teal);display:flex;flex-direction:column}
+.op h3{margin:0 0 2px;font-size:19px}
+.op .met{color:var(--grey);font-size:14px;margin:0 0 10px}
+.op ul{list-style:none;padding:0;margin:0 0 14px;font-size:14px}
+.op li{padding:6px 0;border-top:1px solid rgba(255,255,255,.07);display:flex;gap:10px}
+.op li b{color:var(--teal);flex:0 0 84px}
+.op .ask{margin-top:auto;align-self:flex-start;border:2px solid var(--teal);color:var(--teal);border-radius:10px;padding:8px 14px;font-weight:800;font-size:14px;text-decoration:none}
+.op .ask:hover{background:var(--teal);color:var(--navy)}
+.op .pay{display:inline-block;background:rgba(170,80,50,.28);color:#f6cdbd;border-radius:10px;padding:1px 9px;font-size:12px;font-weight:700;margin-left:4px;vertical-align:2px}
+.op.prep{border-top-color:var(--warn)}
+@media (max-width:760px){.ops{grid-template-columns:1fr}.op li b{flex-basis:74px}}
 .fbcard{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
 .fbico{width:48px;height:48px;fill:var(--teal);flex:none}
 .fbtxt{flex:1;min-width:180px}
@@ -106,7 +118,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
 <div class="wrap">
 <header>
   <a class="brand" href="#">MUDr. Pavel Ditl <span class="tag">AI PORADNA</span></a>
-  <nav><a href="#poradna">Poradna</a><a href="#ordinace">Ordinace</a><a href="#omne">O mně</a><a href="#cenik">Ceník</a><a href="#facebook">Facebook</a></nav>
+  <nav><a href="#poradna">Poradna</a><a href="#ordinace">Ordinace</a><a href="#operace">Operace</a><a href="#omne">O mně</a><a href="#cenik">Ceník</a><a href="#facebook">Facebook</a></nav>
 </header>
 
 <div class="banner">
@@ -164,6 +176,35 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
     <div class="card"><h3>Metličkové žilky</h3><p class="lead" style="margin:0">Transdermální laser na nejjemnější žilky, pěnová sklerotizace na širší. 1–3 sezení, kosmetický zákrok.</p></div>
     <div class="card"><h3>Kdy nečekat</h3><p class="lead" style="margin:0">Náhle oteklá nebo bolestivá noha, silné krvácení, horečka s otokem – volejte 155 nebo jeďte na pohotovost.</p></div>
   </div>
+</section>
+
+<section id="operace">
+  <h2>Operace v Neratovicích</h2>
+  <p class="lead">Plánované operace dělám na oddělení jednodenní péče Nemocnice Neratovice – většina pacientů jde domů ještě týž den. Vyberte operaci a zeptejte se AI, co vás čeká: příprava, průběh, pobyt, návrat do práce i možné komplikace.</p>
+  <div class="ops">
+    <div class="op"><h3>Tříselná kýla</h3><p class="met">laparoskopicky (TAPP) nebo klasicky řezem v třísle, se síťkou</p>
+      <ul><li><b>Anestezie</b><span>laparoskopie celková; klasicky svodná nebo celková</span></li><li><b>Pobyt</b><span>laparoskopie do druhého dne rána, klasicky domů týž den</span></li><li><b>Potom</b><span>6 týdnů až 3 měsíce nezvedat nad 5 kg</span></li></ul>
+      <a class="ask" href="https://m.me/1329907923537973?ref=operace" data-chat="Čeká mě operace tříselné kýly v Neratovicích. Co mě čeká a jak se připravit?">Zeptat se AI</a></div>
+    <div class="op"><h3>Pupeční kýla a kýla v jizvě</h3><p class="met">pupeční řezem se síťkou (PUMP), kýla v jizvě laparoskopicky</p>
+      <ul><li><b>Anestezie</b><span>celková</span></li><li><b>Pobyt</b><span>pupeční domů týž den, laparoskopie do druhého dne rána</span></li><li><b>Potom</b><span>6 týdnů až 3 měsíce nezvedat nad 5 kg</span></li></ul>
+      <a class="ask" href="https://m.me/1329907923537973?ref=operace" data-chat="Čeká mě operace pupeční kýly nebo kýly v jizvě v Neratovicích. Co mě čeká a jak se připravit?">Zeptat se AI</a></div>
+    <div class="op"><h3>Žlučník</h3><p class="met">laparoskopicky ze 4 malých řezů</p>
+      <ul><li><b>Anestezie</b><span>celková</span></li><li><b>Pobyt</b><span>zpravidla do druhého dne rána</span></li><li><b>Potom</b><span>neschopenka asi 2–4 týdny, dieta 1–2 týdny</span></li></ul>
+      <a class="ask" href="https://m.me/1329907923537973?ref=operace" data-chat="Čeká mě laparoskopická operace žlučníku v Neratovicích. Co mě čeká a jak se připravit?">Zeptat se AI</a></div>
+    <div class="op"><h3>Hemoroidy</h3><p class="met">laserem (LHP) <span class="pay">hradí pacient</span> nebo dle Longa (stapler)</p>
+      <ul><li><b>Anestezie</b><span>svodná nebo celková</span></li><li><b>Pobyt</b><span>domů zpravidla týž den</span></li><li><b>Potom</b><span>návrat k běžnému životu asi za 1–2 týdny</span></li></ul>
+      <a class="ask" href="https://m.me/1329907923537973?ref=operace" data-chat="Čeká mě operace hemoroidů v Neratovicích – jaký je rozdíl mezi laserem (LHP) a operací dle Longa a co mě čeká?">Zeptat se AI</a></div>
+    <div class="op"><h3>Křečové žíly</h3><p class="met">laserem zevnitř žíly (EVLA) <span class="pay">hradí pacient</span> nebo klasicky (stripping), postranní žíly z drobných řezů</p>
+      <ul><li><b>Anestezie</b><span>svodná nebo celková</span></li><li><b>Pobyt</b><span>domů zpravidla týž den</span></li><li><b>Potom</b><span>laser asi 1–2 týdny, klasicky 3–8 týdnů; kompresní punčocha</span></li></ul>
+      <a class="ask" href="https://m.me/1329907923537973?ref=operace" data-chat="Čeká mě operace křečových žil v Neratovicích – jaký je rozdíl mezi laserem (EVLA) a klasickou operací a co mě čeká?">Zeptat se AI</a></div>
+    <div class="op"><h3>Řitní píštěl a slepé střevo</h3><p class="met">píštěl laserem (FiLaC); slepé střevo plánovaně laparoskopicky</p>
+      <ul><li><b>Anestezie</b><span>celková (píštěl i spinální)</span></li><li><b>Pobyt</b><span>píštěl domů týž den, slepé střevo do druhého dne rána</span></li><li><b>Potom</b><span>píštěl asi 2–4 týdny, slepé střevo 4–6 týdnů klidu</span></li></ul>
+      <a class="ask" href="https://m.me/1329907923537973?ref=operace" data-chat="Čeká mě operace řitní píštěle nebo slepého střeva v Neratovicích. Co mě čeká a jak se připravit?">Zeptat se AI</a></div>
+    <div class="op prep" style="grid-column:1/-1"><h3>Jak se připravit</h3><p class="met">oddělení jednodenní péče, Nemocnice Neratovice, Alšova 462 – 2. podlaží, příjem obvykle kolem 8:00</p>
+      <ul><li><b>Předem</b><span>předoperační vyšetření u praktického lékaře (rozsah podle věku); Anopyrin nebo Aspirin vysadit 10 dní před operací – po dohodě s lékařem</span></li><li><b>V den operace</b><span>nalačno – nejíst a nepít 6 hodin před nástupem; s sebou vyšetření, zprávu a seznam léků</span></li><li><b>Domů</b><span>jen s doprovodem, v den operace neřídit; neschopenku vystaví JPL jen v den operace – řekněte si při příjmu</span></li></ul>
+      <a class="ask" href="https://m.me/1329907923537973?ref=operace" data-chat="Jak se mám připravit na operaci v Neratovicích?">Zeptat se AI na přípravu</a></div>
+  </div>
+  <p class="muted" style="margin-top:14px">Údaje jsou orientační – přesný postup, délku pobytu a přípravu vám řekne operatér. Laserové operace (EVLA, LHP) pojišťovna nehradí; cenu sdělí lékař při konzultaci.</p>
 </section>
 
 <section id="omne">

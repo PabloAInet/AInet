@@ -90,6 +90,8 @@ const PAYWALL = !!PLATBA_URL && !ZKUSEBNI;                      // dá se (a mus
 const HLAS_PLACENY_AGENT = process.env.HLAS_PLACENY_AGENT || "agent_6201m46ewnpnfb29655y23rkfss3"; // „Doctor – placená konzultace (PubMed)“
 let INSTRUKCE = "";
 if (PORADNA) { try { INSTRUKCE = require("./fb-instrukce.js"); } catch (e) { console.warn("[most] fb-instrukce.js chybí, režim poradna vypnut"); } }
+/* znalosti o operacích v Neratovicích (sekce Operace) – přidávají se k instrukcím poradny */
+if (INSTRUKCE) { try { INSTRUKCE += "\n\n" + require("./operace-neratovice.js"); } catch (e) { console.warn("[most] operace-neratovice.js chybí: " + e.message); } }
 
 for (const k of ["PAGE_ACCESS_TOKEN", "VERIFY_TOKEN", "AINET_TOKEN"]) {
   if (!process.env[k]) console.warn(`[most] chybí env ${k}`);
