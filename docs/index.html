@@ -162,6 +162,29 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
       <li><b>Každý týden nové studie.</b> MUDr. Ditl sleduje nové práce k tématům, která léčí; ty nejzajímavější najdete v sekci Studie týdne.</li>
     </ul>
   </div>
+  <div class="card studie" id="studieTydne" style="margin-top:18px" hidden>
+    <h3>📚 Studie týdne</h3>
+    <img id="stImg" alt="" style="max-height:none;object-fit:contain" hidden>
+    <b id="stNazev"></b>
+    <div id="stText" class="txt" style="margin-top:6px"></div>
+    <p class="muted">Zdroj: <a id="stZdroj" target="_blank" rel="noopener"></a><span id="stDatum"></span><br>Informační obsah, nenahrazuje vyšetření.</p>
+  </div>
+  <script>
+  (function () {
+    fetch("studie/latest.json", { cache: "no-cache" }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }).then(function (j) {
+      if (!j || !j.nazev) return;
+      var $ = function (id) { return document.getElementById(id); };
+      $("stNazev").textContent = j.nazev;
+      $("stText").textContent = j.text || "";
+      if (j.obrazek) { var im = $("stImg"); im.src = j.obrazek; im.alt = j.alt || j.nazev; im.hidden = false; }
+      var a = $("stZdroj"); a.textContent = j.zdroj || "PubMed";
+      if (/^\d+$/.test(String(j.pmid || ""))) a.href = "https://pubmed.ncbi.nlm.nih.gov/" + j.pmid + "/"; else a.removeAttribute("href");
+      var d = j.datum ? new Date(j.datum + "T12:00:00") : null;
+      if (d && !isNaN(d)) $("stDatum").textContent = " · " + d.toLocaleDateString("cs-CZ", { day: "numeric", month: "long", year: "numeric" });
+      $("studieTydne").hidden = false;
+    }).catch(function () {});
+  })();
+  </script>
   <div class="alert">Odpovědi AI jsou informační a nenahrazují vyšetření. Při akutních potížích volejte <b>155</b>.</div>
 </section>
 
