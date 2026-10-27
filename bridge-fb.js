@@ -545,6 +545,9 @@ function readBody(req) {
   });
 }
 
+/* Studie týdne: obrázky z Drivu v paměti (max 50, nejstarší ven) */
+const studieCache = new Map();
+
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   try {
@@ -838,6 +841,37 @@ http.createServer(async (req, res) => {
       res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: true }));
       await sendVoiceIfShort(psid, text.trim());
       return;
+    }
+
+    /* Studie týdne – veřejný obrázek z Google Drivu pro Metricool
+       GET /studie/<DriveFileId>  (nebo /studie/<id>.png); HEAD kvůli kontrolám (curl -I) */
+    const studie = /^\/studie\/([^/]+)$/.exec(url.pathname);
+    if (studie && (req.method === "GET" || req.method === "HEAD")) {
+      const text = (kod, t) => { res.writeHead(kod, { "Content-Type": "text/plain; charset=utf-8" }); return res.end(t); };
+      const id = studie[1].replace(/\.(png|jpe?g)$/i, "");
+      if (!/^[A-Za-z0-9_-]{20,100}$/.test(id)) return text(400, "Špatné ID");
+      try {
+        let hit = studieCache.get(id);
+        if (!hit) {
+          const r = await fetch(`https://drive.usercontent.google.com/download?id=${id}&export=download`, { redirect: "follow" });
+          const type = r.headers.get("content-type") || "";
+          const disp = r.headers.get("content-disposition") || "";
+          if (!r.ok || !type.startsWith("image/") || !/filename\*?=[^;]*studie-tydne-/i.test(disp)) {
+            return text(404, "Obrázek není veřejný, neexistuje nebo nemá název studie-tydne-…");
+          }
+          const buf = Buffer.from(await r.arrayBuffer());
+          if (buf.length > 8 * 1024 * 1024) { res.writeHead(413); return res.end(); }
+          hit = { type, buf };
+          studieCache.set(id, hit);
+          if (studieCache.size > 50) studieCache.delete(studieCache.keys().next().value);
+        }
+        res.writeHead(200, { "Content-Type": hit.type, "Content-Length": hit.buf.length, "Cache-Control": "public, max-age=86400" });
+        return res.end(req.method === "HEAD" ? undefined : hit.buf);
+      } catch (e) {
+        log(`studie obrázek: ${e.message}`);
+        if (!res.headersSent) return text(502, "Chyba při načtení z Drivu");
+        return res.end();
+      }
     }
 
     res.writeHead(404); res.end("not found");
