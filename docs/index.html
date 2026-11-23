@@ -150,9 +150,9 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
     <a class="tile" href="https://m.me/1329907923537973?ref=poradna" data-chat="Dobrý den, mám zdravotní dotaz."><b>🩺 Poradna</b><span>Mám zdravotní dotaz – žíly, hemoroidy, kýla, hojení ran…</span></a>
     <a class="tile" href="https://m.me/1329907923537973?ref=ordinace" data-chat="Chci se objednat do ordinace."><b>📅 Ordinace</b><span>Chci se objednat: pondělí Bulovka, čtvrtek Neratovice</span></a>
     <a class="tile" href="https://m.me/1329907923537973?ref=operace" data-chat="Co mě čeká u operace a jak se připravit?"><b>🔪 Operace</b><span>Co mě čeká – příprava, laser místo skalpelu, návrat do práce</span></a>
-    <a class="tile" href="https://m.me/1329907923537973?ref=metlicky" data-chat="Mám metličkové žilky, co s nimi?"><b>✨ Metličky</b><span>Metličkové žilky – laser zvenku nebo pěnová sklerotizace</span></a>
+    <a class="tile" href="https://m.me/1329907923537973?ref=metlicky" data-chat="Mám metličkové žilky, co s nimi?"><b>✨ Laserové korekce</b><span>Metličkové žilky – laser zvenku nebo pěnová sklerotizace</span></a>
     <a class="tile" href="https://m.me/1329907923537973?ref=faq" data-chat="Mám pár častých dotazů – kdy jít k lékaři, bolí sono žil a co si vzít s sebou?"><b>❓ Časté dotazy</b><span>Kdy k lékaři, bolí sono, co si vzít s sebou</span></a>
-    <span class="tile soon"><b>💊 Medikace <i>PŘIPRAVUJEME</i></b><span>Dáme vědět, až to spustíme.</span></span>
+    <span class="tile soon"><b>📄 eDoklady <i>PŘIPRAVUJEME</i></b><span>Recepty, neschopenky a potvrzení – připraví AI, schválí lékař.</span></span>
   </div>
   <div class="card" id="uci-se" style="margin-top:18px;border-left:8px solid var(--teal)">
     <h3>🧠 Jak se AI poradna učí</h3>
@@ -196,7 +196,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
     <div class="card"><h3>Křečové žíly (varixy)</h3><p class="lead" style="margin:0">Klasicky i laserem zevnitř žíly – bez řezů v třísle, obvykle ambulantně.</p></div>
     <div class="card"><h3>Hemoroidy</h3><p class="lead" style="margin:0">Od konzervativní léčby přes Longovu metodu (staplerová hemoroidopexe) po laserový zákrok, který méně bolí a rychleji se hojí.</p></div>
     <div class="card"><h3>Pilonidální sinus</h3><p class="lead" style="margin:0">Laserové ošetření místo velké rány – menší jizva, dřív zpět do práce.</p></div>
-    <div class="card"><h3>Metličkové žilky</h3><p class="lead" style="margin:0">Transdermální laser na nejjemnější žilky, pěnová sklerotizace na širší. 1–3 sezení, kosmetický zákrok.</p></div>
+    <div class="card"><h3>Laserové korekce</h3><p class="lead" style="margin:0">Transdermální laser na nejjemnější žilky, pěnová sklerotizace na širší. 1–3 sezení, kosmetický zákrok.</p></div>
     <div class="card"><h3>Kdy nečekat</h3><p class="lead" style="margin:0">Náhle oteklá nebo bolestivá noha, silné krvácení, horečka s otokem – volejte 155 nebo jeďte na pohotovost.</p></div>
   </div>
 </section>
@@ -251,7 +251,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
     <div class="price"><span>Objednání do ordinace</span><span>zdarma</span></div>
     <div class="price"><span>On-line konzultace s lékařem (do 15 min)</span><span>připravujeme</span></div>
     <div class="price"><span>Ošetření metličkových žilek – laser / sklerotizace</span><span>cena při vyšetření</span></div>
-    <div class="price"><span>Medikace na dálku (eRecept)</span><span>připravujeme</span></div>
+    <div class="price"><span>eDoklady na dálku (eRecept, neschopenka, potvrzení)</span><span>připravujeme</span></div>
   </div>
 </section>
 
@@ -296,7 +296,7 @@ footer{padding:30px 0 40px;color:var(--grey);font-size:13px;border-top:1px solid
   function esc(t) { return String(t).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   function linky(t) { return esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>').replace(/\n/g, "<br>"); }
   function add(kdo, t) { var d = document.createElement("div"); d.className = "msg " + kdo; d.innerHTML = linky(t); log.appendChild(d); log.scrollTop = log.scrollHeight; return d; }
-  var TEMATA = [["🩺 Zdravotní dotaz", "Dobrý den, mám zdravotní dotaz."], ["📅 Objednat se", "Chci se objednat do ordinace."], ["🔪 Operace", "Co mě čeká u operace a jak se připravit?"], ["✨ Metličky", "Mám metličkové žilky, co s nimi?"]];
+  var TEMATA = [["🩺 Zdravotní dotaz", "Dobrý den, mám zdravotní dotaz."], ["📅 Objednat se", "Chci se objednat do ordinace."], ["🔪 Operace", "Co mě čeká u operace a jak se připravit?"], ["✨ Laserové korekce", "Mám metličkové žilky, co s nimi?"]];
   function nabidka() { quick.innerHTML = ""; TEMATA.forEach(function (r) { var b = document.createElement("button"); b.type = "button"; b.textContent = r[0]; b.onclick = function () { posli(r[1]); }; quick.appendChild(b); }); }
   function otevri(t) {
     box.hidden = false;
